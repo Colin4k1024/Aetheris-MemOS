@@ -1,5 +1,7 @@
 # 自适应记忆管理系统
 
+**Adaptive Memory Management System for Agent & LLM Workloads**
+
 基于自适应记忆管理算法设计文档，使用 Rust (Salvo) 实现后端 API 服务，使用 React (Ant Design Pro) 实现前端管理界面。
 
 ## 项目结构
@@ -53,6 +55,7 @@ adaptive-memory-system/
 - **日志**: Tracing
 - **认证**: JWT (jsonwebtoken)
 - **配置**: Figment
+- **数据库**: SQLite 为默认适配器（本地与 Demo）；PostgreSQL / MySQL 适配器规划中。
 
 ### 前端
 - **框架**: React 19+
@@ -60,6 +63,7 @@ adaptive-memory-system/
 - **图表库**: @ant-design/charts
 - **构建工具**: Umi 4
 - **状态管理**: Umi Max
+- 前端设计为 rule-based 与（未来）LLM-driven memory agents 的可视化。
 
 ## 核心功能
 
@@ -295,11 +299,7 @@ docker-compose up -d
 
 ## 贡献指南
 
-1. Fork 项目
-2. 创建功能分支
-3. 提交更改
-4. 推送到分支
-5. 创建 Pull Request
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)：构建与测试、提交流程、扩展点（策略与 Agent）。扩展新策略或 Agent 请参考 [EXTENSION_GUIDE.md](docs/EXTENSION_GUIDE.md)。
 
 ## 许可证
 
@@ -307,6 +307,12 @@ MIT License
 
 ## 相关文档
 
+- [架构说明 (ARCHITECTURE)](docs/ARCHITECTURE.md) — Why adaptive / Why agent-like / 决策链路
+- [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划与生态对齐
+- [使用场景 (USE_CASES)](docs/USE_CASES.md) — LLM Agent、多模态、成本敏感推理等
+- [贡献指南 (CONTRIBUTING)](CONTRIBUTING.md) — 构建、测试、PR、扩展点
+- [扩展指南 (EXTENSION_GUIDE)](docs/EXTENSION_GUIDE.md) — 新增 WeightStrategy / MemoryAgent
+- [Salvo vs Axum 选型说明](docs/why-salvo-vs-axum.md)
 - [算法设计文档](docs/adaptive_memory_algorithm_design.md)
 - [API 规范文档](docs/adaptive_memory_api_specification.md)
 - [算法可视化](docs/adaptive_memory_algorithm_visualization.md)

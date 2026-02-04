@@ -59,6 +59,12 @@ export default [
     component: './WeightHistory',
   },
   {
+    path: '/memory-decision-trace',
+    name: 'memory-decision-trace',
+    icon: 'apartment',
+    component: './MemoryDecisionTrace',
+  },
+  {
     path: '/memory-management',
     name: 'memory-management',
     icon: 'database',

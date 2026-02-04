@@ -25,6 +25,21 @@ export async function getMemoryStatus(options?: { [key: string]: any }) {
   });
 }
 
+/** 决策链路追踪（完整 pipeline，不落库）POST /api/v1/memory/adaptive/trace */
+export async function getDecisionTrace(
+  body: API.SelectMemoryRequest,
+  options?: { [key: string]: any },
+) {
+  return request<API.DecisionTrace>('/api/v1/memory/adaptive/trace', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  });
+}
+
 /** 分析任务特征 POST /api/v1/memory/analyzer/task-characteristics */
 export async function analyzeTaskCharacteristics(
   body: API.AnalyzeTaskRequest,

@@ -12,6 +12,45 @@ declare namespace API {
     resource_requirements: ResourceRequirements;
   };
 
+  type DecisionTrace = {
+    task_id: string;
+    analyzer: AnalyzerTraceStep;
+    resource_status: CurrentResourceStatus;
+    initial_memory_config: MemoryConfig;
+    predictor: PredictorTraceStep;
+    cost_benefit_ratio: number;
+    weight_adjustment: WeightAdjustmentTraceStep;
+    final_result: MemorySelectionResult;
+  };
+
+  type AnalyzerTraceStep = {
+    task_characteristics: TaskCharacteristics;
+    memory_strategy: MemoryStrategy;
+    confidence_score: number;
+  };
+
+  type PredictorTraceStep = {
+    performance_prediction: PerformancePrediction;
+    synergy_factor: number;
+    decay_factor: number;
+    performance_breakdown: PerformanceBreakdown;
+  };
+
+  type WeightAdjustmentTraceStep = {
+    adjusted_weights: MemoryWeights;
+    adjustment_reasons: AdjustmentReasons;
+  };
+
+  type MemorySelectionResult = {
+    memory_config: MemoryConfig;
+    performance_prediction: PerformancePrediction;
+    resource_requirements: ResourceRequirements;
+    synergy_factor: number;
+    decay_factor: number;
+    performance_breakdown: PerformanceBreakdown;
+    adjustment_reasons: AdjustmentReasons;
+  };
+
   type MemoryStatusResponse = {
     current_config: MemoryConfig;
     performance_metrics: PerformanceMetrics;

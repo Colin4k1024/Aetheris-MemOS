@@ -49,4 +49,11 @@ export default {
   'menu.editor.flow': 'Flow Editor',
   'menu.editor.mind': 'Mind Editor',
   'menu.editor.koni': 'Koni Editor',
+  'menu.task-analysis': 'Task Analysis',
+  'menu.memory-config': 'Memory Config',
+  'menu.performance': 'Performance',
+  'menu.resource-monitor': 'Resource Monitor',
+  'menu.weight-history': 'Weight History',
+  'menu.memory-management': 'Memory Management',
+  'menu.memory-decision-trace': 'Memory Decision Trace',
 };
