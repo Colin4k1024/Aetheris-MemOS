@@ -341,6 +341,29 @@ Agent ID: {}",
             adjustment_reasons: adjustment_reasons.clone(),
         };
 
+        let memory_contributions = vec![
+            MemoryTypeContribution {
+                memory_type: "stm".to_string(),
+                weight: memory_config.memory_weights.stm,
+                reason: adjustment_reasons.stm.clone(),
+            },
+            MemoryTypeContribution {
+                memory_type: "ltm".to_string(),
+                weight: memory_config.memory_weights.ltm,
+                reason: adjustment_reasons.ltm.clone(),
+            },
+            MemoryTypeContribution {
+                memory_type: "kg".to_string(),
+                weight: memory_config.memory_weights.kg,
+                reason: adjustment_reasons.kg.clone(),
+            },
+            MemoryTypeContribution {
+                memory_type: "mm".to_string(),
+                weight: memory_config.memory_weights.mm,
+                reason: adjustment_reasons.mm.clone(),
+            },
+        ];
+
         Ok(DecisionTrace {
             task_id: task_context.task_id.clone(),
             analyzer: AnalyzerTraceStep {
@@ -361,6 +384,7 @@ Agent ID: {}",
                 adjusted_weights,
                 adjustment_reasons,
             },
+            memory_contributions,
             final_result,
         })
     }
@@ -388,7 +412,7 @@ impl MemoryAgent for AdaptiveMemoryScheduler {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
 pub struct MemorySelectionResult {
     #[serde(rename = "memory_config")]
     pub memory_config: MemoryConfig,
@@ -407,7 +431,7 @@ pub struct MemorySelectionResult {
 }
 
 /// Full decision pipeline trace (no DB persist or LTM store).
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
 pub struct DecisionTrace {
     #[serde(rename = "task_id")]
     pub task_id: String,
@@ -425,9 +449,22 @@ pub struct DecisionTrace {
     pub weight_adjustment: WeightAdjustmentTraceStep,
     #[serde(rename = "final_result")]
     pub final_result: MemorySelectionResult,
+    /// Per-memory-type contribution: why each type was selected and at what weight.
+    #[serde(rename = "memory_contributions")]
+    pub memory_contributions: Vec<MemoryTypeContribution>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
+pub struct MemoryTypeContribution {
+    #[serde(rename = "memory_type")]
+    pub memory_type: String,
+    #[serde(rename = "weight")]
+    pub weight: f64,
+    #[serde(rename = "reason")]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
 pub struct AnalyzerTraceStep {
     #[serde(rename = "task_characteristics")]
     pub task_characteristics: TaskCharacteristics,
@@ -437,7 +474,7 @@ pub struct AnalyzerTraceStep {
     pub confidence_score: f64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
 pub struct PredictorTraceStep {
     #[serde(rename = "performance_prediction")]
     pub performance_prediction: PerformancePrediction,
@@ -449,7 +486,7 @@ pub struct PredictorTraceStep {
     pub performance_breakdown: PerformanceBreakdown,
 }
 
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
 pub struct WeightAdjustmentTraceStep {
     #[serde(rename = "adjusted_weights")]
     pub adjusted_weights: MemoryWeights,

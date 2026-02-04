@@ -50,8 +50,10 @@ impl DynamicWeightAdjuster {
             kg: String::new(),
             mm: String::new(),
         };
+        let mut strategy_names: Vec<&'static str> = Vec::with_capacity(self.strategies.len());
 
         for strategy in &self.strategies {
+            strategy_names.push(strategy.name());
             let metrics = WeightStrategyMetrics {
                 task_profile,
                 cost_benefit_ratio,
@@ -64,12 +66,14 @@ impl DynamicWeightAdjuster {
 
         if let Some(task_id) = task_id {
             let performance_impact = (cost_benefit_ratio - 1.0) * 0.1;
+            let strategy_metadata = serde_json::to_string(&strategy_names).ok();
             let _ = WeightHistoryRepository::create(
                 task_id,
                 &base_weights,
                 &weights,
                 &reasons,
                 performance_impact,
+                strategy_metadata.as_deref(),
             )
             .await;
             info!("Saved weight adjustment history for task: {}", task_id);

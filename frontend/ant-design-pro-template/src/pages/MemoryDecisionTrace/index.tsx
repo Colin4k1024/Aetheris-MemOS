@@ -1,5 +1,5 @@
 import { PageContainer, ProForm, ProFormSelect, ProFormSlider, ProFormText } from '@ant-design/pro-components';
-import { Card, message, Descriptions, Steps, Tag, Spin } from 'antd';
+import { Card, message, Descriptions, Steps, Tag, Spin, Table } from 'antd';
 import { useRequest } from '@umijs/max';
 import { getDecisionTrace } from '@/services/memory';
 import { useState } from 'react';
@@ -138,7 +138,35 @@ export default function MemoryDecisionTracePage() {
       )}
 
       {!loading && trace && (
-        <Card title={`决策链路：${trace.task_id}`}>
+        <>
+          <Card title="决策路径图" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+              {['Analyzer', 'Resource', 'Initial Config', 'Predictor', 'Weight Adjuster', 'Result'].map((label, i) => (
+                <span key={label}>
+                  <Tag color={i === 0 ? 'blue' : i === 5 ? 'green' : 'default'}>{label}</Tag>
+                  {i < 5 && <span style={{ margin: '0 4px', color: 'var(--ant-color-text-tertiary)' }}>→</span>}
+                </span>
+              ))}
+            </div>
+          </Card>
+
+          {trace.memory_contributions && trace.memory_contributions.length > 0 && (
+            <Card title="Task → Memory 选择映射" style={{ marginBottom: 16 }}>
+              <Table
+                size="small"
+                rowKey="memory_type"
+                pagination={false}
+                dataSource={trace.memory_contributions}
+                columns={[
+                  { title: '记忆类型', dataIndex: 'memory_type', key: 'memory_type', render: (t: string) => <Tag>{t.toUpperCase()}</Tag> },
+                  { title: '权重', dataIndex: 'weight', key: 'weight', render: (w: number) => w.toFixed(2) },
+                  { title: '原因', dataIndex: 'reason', key: 'reason', ellipsis: true },
+                ]}
+              />
+            </Card>
+          )}
+
+          <Card title={`决策链路：${trace.task_id}`}>
           <Steps
             direction="vertical"
             current={4}
@@ -227,7 +255,8 @@ export default function MemoryDecisionTracePage() {
               },
             ]}
           />
-        </Card>
+          </Card>
+        </>
       )}
     </PageContainer>
   );

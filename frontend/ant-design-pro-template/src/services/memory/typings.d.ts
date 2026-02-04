@@ -12,6 +12,12 @@ declare namespace API {
     resource_requirements: ResourceRequirements;
   };
 
+  type MemoryTypeContribution = {
+    memory_type: string;
+    weight: number;
+    reason: string;
+  };
+
   type DecisionTrace = {
     task_id: string;
     analyzer: AnalyzerTraceStep;
@@ -20,6 +26,7 @@ declare namespace API {
     predictor: PredictorTraceStep;
     cost_benefit_ratio: number;
     weight_adjustment: WeightAdjustmentTraceStep;
+    memory_contributions?: MemoryTypeContribution[];
     final_result: MemorySelectionResult;
   };
 
@@ -163,6 +170,7 @@ declare namespace API {
     new_weights: MemoryWeights;
     reason: string;
     performance_impact: number;
+    strategy_metadata?: string;
   };
 
   type HistorySummary = {

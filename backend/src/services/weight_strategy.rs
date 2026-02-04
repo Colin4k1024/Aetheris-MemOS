@@ -21,6 +21,8 @@ pub struct WeightDelta {
 /// Strategy that evaluates metrics and returns a weight delta (suggested weights + reasons).
 pub trait WeightStrategy: Send + Sync {
     fn evaluate(&self, metrics: &WeightStrategyMetrics<'_>) -> WeightDelta;
+    /// Identifier for experiment tracking (strategy chain order is preserved in history).
+    fn name(&self) -> &'static str;
 }
 
 /// LTM from complexity, MM from modality count, KG from reasoning depth (marginal benefit).
@@ -28,6 +30,9 @@ pub trait WeightStrategy: Send + Sync {
 pub struct MarginalBenefitStrategy;
 
 impl WeightStrategy for MarginalBenefitStrategy {
+    fn name(&self) -> &'static str {
+        "MarginalBenefit"
+    }
     fn evaluate(&self, metrics: &WeightStrategyMetrics<'_>) -> WeightDelta {
         let mut weights = metrics.base_weights.clone();
         let mut reasons = crate::models::AdjustmentReasons {
@@ -68,6 +73,9 @@ impl WeightStrategy for MarginalBenefitStrategy {
 pub struct LinearDecayStrategy;
 
 impl WeightStrategy for LinearDecayStrategy {
+    fn name(&self) -> &'static str {
+        "LinearDecay"
+    }
     fn evaluate(&self, metrics: &WeightStrategyMetrics<'_>) -> WeightDelta {
         let mut weights = metrics.base_weights.clone();
         let mut reasons = crate::models::AdjustmentReasons {
@@ -95,6 +103,9 @@ impl WeightStrategy for LinearDecayStrategy {
 pub struct SynergyAwareStrategy;
 
 impl WeightStrategy for SynergyAwareStrategy {
+    fn name(&self) -> &'static str {
+        "SynergyAware"
+    }
     fn evaluate(&self, metrics: &WeightStrategyMetrics<'_>) -> WeightDelta {
         let weights = metrics.base_weights.clone();
         let active_secondary = (weights.ltm > 0.0) as i32

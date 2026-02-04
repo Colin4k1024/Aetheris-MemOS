@@ -17,6 +17,7 @@ impl WeightHistoryRepository {
         new_weights: &MemoryWeights,
         adjustment_reasons: &AdjustmentReasons,
         performance_impact: f64,
+        strategy_metadata: Option<&str>,
     ) -> Result<String, AppError> {
         let history_id = Ulid::new().to_string();
         let pool = pool();
@@ -43,8 +44,8 @@ impl WeightHistoryRepository {
             INSERT INTO weight_adjustment_history (
                 history_id, task_id,
                 old_weights_json, new_weights_json,
-                adjustment_reasons_json, performance_impact
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                adjustment_reasons_json, performance_impact, strategy_metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&history_id)
@@ -53,6 +54,7 @@ impl WeightHistoryRepository {
         .bind(&new_weights_json)
         .bind(&reasons_json)
         .bind(performance_impact)
+        .bind(strategy_metadata)
         .execute(pool)
         .await
         .map_err(|e| {
@@ -79,7 +81,8 @@ impl WeightHistoryRepository {
                 SELECT 
                     history_id, task_id, timestamp,
                     old_weights_json, new_weights_json,
-                    adjustment_reasons_json, performance_impact
+                    adjustment_reasons_json, performance_impact,
+                    strategy_metadata
                 FROM weight_adjustment_history
                 WHERE timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp DESC
@@ -97,7 +100,8 @@ impl WeightHistoryRepository {
                 SELECT 
                     history_id, task_id, timestamp,
                     old_weights_json, new_weights_json,
-                    adjustment_reasons_json, performance_impact
+                    adjustment_reasons_json, performance_impact,
+                    strategy_metadata
                 FROM weight_adjustment_history
                 ORDER BY timestamp DESC
                 LIMIT ?
@@ -128,7 +132,8 @@ impl WeightHistoryRepository {
             SELECT 
                 history_id, task_id, timestamp,
                 old_weights_json, new_weights_json,
-                adjustment_reasons_json, performance_impact
+                adjustment_reasons_json, performance_impact,
+                strategy_metadata
             FROM weight_adjustment_history
             WHERE task_id = ?
             ORDER BY timestamp DESC
@@ -228,6 +233,7 @@ impl WeightHistoryRepository {
             new_weights,
             reason,
             performance_impact: row.performance_impact,
+            strategy_metadata: row.strategy_metadata.clone(),
         })
     }
 }
@@ -241,6 +247,7 @@ pub struct WeightHistoryRow {
     pub new_weights_json: String,
     pub adjustment_reasons_json: String,
     pub performance_impact: f64,
+    pub strategy_metadata: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -264,4 +271,7 @@ pub struct HistoryItem {
     pub new_weights: MemoryWeights,
     pub reason: String,
     pub performance_impact: f64,
+    /// JSON array of strategy names used for this adjustment (e.g. ["MarginalBenefit","LinearDecay"]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy_metadata: Option<String>,
 }

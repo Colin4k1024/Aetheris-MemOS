@@ -13,6 +13,7 @@ use crate::config::DbConfig;
 /// Future: move SQLite behind `adapters::sqlite`, add `adapters::postgres` etc.
 pub mod adapters;
 
+pub mod decision_trace;
 pub mod kg;
 pub mod ltm;
 pub mod memory;

@@ -6,7 +6,12 @@ use once_cell::sync::Lazy;
 
 use crate::models::*;
 use crate::services::*;
-use crate::db::{memory::MemoryConfigRepository, performance::PerformanceMetricsRepository, weights::WeightHistoryRepository};
+use crate::db::{
+    decision_trace::DecisionTraceRepository,
+    memory::MemoryConfigRepository,
+    performance::PerformanceMetricsRepository,
+    weights::WeightHistoryRepository,
+};
 use crate::{json_ok, AppResult, JsonResult};
 
 static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> = Lazy::new(|| {
@@ -38,6 +43,18 @@ pub struct SelectMemoryRequest {
     #[serde(rename = "resource_constraints")]
     pub resource_constraints: ResourceConstraints,
     pub preferences: TaskPreferences,
+    /// When true, response includes full decision trace (explainability).
+    #[serde(default)]
+    pub explain: Option<bool>,
+    /// When true, no config/weight history/LTM is persisted; result and optional trace only.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+    /// When true and a trace is returned, persist the trace to DB (ignored if dry_run).
+    #[serde(default)]
+    pub persist_trace: Option<bool>,
+    /// If set, run the same pipeline with these hypothetical constraints; response includes what_if_result.
+    #[serde(rename = "what_if_constraints", default)]
+    pub what_if_constraints: Option<ResourceConstraints>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -48,6 +65,12 @@ pub struct SelectMemoryResponse {
     pub performance_prediction: PerformancePrediction,
     #[serde(rename = "resource_requirements")]
     pub resource_requirements: ResourceRequirements,
+    /// Present when request had explain or dry_run true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<crate::services::scheduler::DecisionTrace>,
+    /// Present when request had what_if_constraints; result under hypothetical constraints.
+    #[serde(rename = "what_if_result", skip_serializing_if = "Option::is_none")]
+    pub what_if_result: Option<crate::services::scheduler::MemorySelectionResult>,
 }
 
 #[endpoint(tags("memory"))]
@@ -55,17 +78,94 @@ pub async fn select_memory_config(
     body: JsonBody<SelectMemoryRequest>,
 ) -> JsonResult<SelectMemoryResponse> {
     let request = body.into_inner();
-    let result = SCHEDULER.adaptive_memory_selection(
-        &request.task_context,
-        &request.resource_constraints,
-        &request.preferences,
-    )
-    .await?;
-    
+    let dry_run = request.dry_run == Some(true);
+    let explain = request.explain == Some(true);
+
+    if dry_run || explain {
+        let trace = SCHEDULER
+            .adaptive_memory_selection_trace(
+                &request.task_context,
+                &request.resource_constraints,
+                &request.preferences,
+            )
+            .await?;
+        let r = &trace.final_result;
+        if !dry_run {
+            let config_id = MemoryConfigRepository::create(
+                &request.task_context.user_id,
+                &request.task_context.agent_id,
+                &format!("Config for task {}", trace.task_id),
+                "optimized",
+                &r.memory_config,
+            )
+            .await?;
+            let _ = WeightHistoryRepository::create(
+                &trace.task_id,
+                &trace.initial_memory_config.memory_weights,
+                &trace.weight_adjustment.adjusted_weights,
+                &trace.weight_adjustment.adjustment_reasons,
+                (trace.cost_benefit_ratio - 1.0) * 0.1,
+                None,
+            )
+            .await;
+            tracing::info!(config_id = %config_id, task_id = %trace.task_id, "Persisted from trace (explain=true)");
+        }
+        if request.persist_trace == Some(true) && !dry_run {
+            let trace_json = serde_json::to_string(&trace).map_err(|e| {
+                crate::AppError::Internal(format!("Failed to serialize trace: {}", e))
+            })?;
+            let _ = DecisionTraceRepository::create(&trace.task_id, &trace_json).await;
+        }
+        let what_if_result = if let Some(ref w) = request.what_if_constraints {
+            SCHEDULER
+                .adaptive_memory_selection_trace(
+                    &request.task_context,
+                    w,
+                    &request.preferences,
+                )
+                .await
+                .ok()
+                .map(|t| t.final_result)
+        } else {
+            None
+        };
+        return json_ok(SelectMemoryResponse {
+            memory_config: r.memory_config.clone(),
+            performance_prediction: r.performance_prediction.clone(),
+            resource_requirements: r.resource_requirements.clone(),
+            trace: Some(trace),
+            what_if_result,
+        });
+    }
+
+    let result = SCHEDULER
+        .adaptive_memory_selection(
+            &request.task_context,
+            &request.resource_constraints,
+            &request.preferences,
+        )
+        .await?;
+
+    let what_if_result = if let Some(ref w) = request.what_if_constraints {
+        SCHEDULER
+            .adaptive_memory_selection_trace(
+                &request.task_context,
+                w,
+                &request.preferences,
+            )
+            .await
+            .ok()
+            .map(|t| t.final_result)
+    } else {
+        None
+    };
+
     json_ok(SelectMemoryResponse {
         memory_config: result.memory_config,
         performance_prediction: result.performance_prediction,
         resource_requirements: result.resource_requirements,
+        trace: None,
+        what_if_result,
     })
 }
 
@@ -81,7 +181,64 @@ pub async fn select_memory_config_trace(
             &request.preferences,
         )
         .await?;
+    if request.persist_trace == Some(true) {
+        let trace_json = serde_json::to_string(&trace).map_err(|e| {
+            crate::AppError::Internal(format!("Failed to serialize trace: {}", e))
+        })?;
+        let _ = DecisionTraceRepository::create(&trace.task_id, &trace_json).await;
+    }
     json_ok(trace)
+}
+
+#[derive(Debug, Deserialize, Extractible, ToSchema)]
+#[salvo(extract(default_source(from = "query")))]
+pub struct ListTracesQuery {
+    pub task_id: Option<String>,
+    pub limit: Option<i32>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct DecisionTraceItem {
+    #[serde(rename = "trace_id")]
+    pub trace_id: String,
+    #[serde(rename = "task_id")]
+    pub task_id: String,
+    #[serde(rename = "created_at")]
+    pub created_at: String,
+    #[serde(rename = "trace")]
+    pub trace: crate::services::scheduler::DecisionTrace,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ListTracesResponse {
+    #[serde(rename = "traces")]
+    pub traces: Vec<DecisionTraceItem>,
+}
+
+#[endpoint(tags("memory"))]
+pub async fn get_decision_traces(
+    query: QueryParam<ListTracesQuery>,
+) -> JsonResult<ListTracesResponse> {
+    let q = query.into_inner();
+    let rows = if let Some(ref task_id) = q.task_id {
+        DecisionTraceRepository::get_by_task_id(task_id, q.limit).await?
+    } else {
+        DecisionTraceRepository::get_recent(q.limit, None, None).await?
+    };
+    let mut traces = Vec::with_capacity(rows.len());
+    for row in rows {
+        let trace: crate::services::scheduler::DecisionTrace =
+            serde_json::from_str(&row.trace_json).map_err(|e| {
+                crate::AppError::Internal(format!("Failed to parse stored trace: {}", e))
+            })?;
+        traces.push(DecisionTraceItem {
+            trace_id: row.trace_id,
+            task_id: row.task_id,
+            created_at: row.created_at,
+            trace,
+        });
+    }
+    json_ok(ListTracesResponse { traces })
 }
 
 #[derive(Serialize, ToSchema)]

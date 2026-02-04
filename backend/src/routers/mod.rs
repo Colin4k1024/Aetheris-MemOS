@@ -59,6 +59,7 @@ pub fn root() -> Router {
                                 .push(Router::with_path("trace").post(memory::select_memory_config_trace))
                                 .get(memory::get_memory_status),
                         )
+                        .push(Router::with_path("traces").get(memory::get_decision_traces))
                         .push(
                             Router::with_path("analyzer")
                                 .push(
