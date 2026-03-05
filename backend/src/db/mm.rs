@@ -317,4 +317,17 @@ impl MMRepository {
         info!("Retrieved {} related multimodal entries: entry_id={}", result.len(), entry_id);
         Ok(result)
     }
+
+    /// 获取多模态记忆条目总数
+    pub async fn count(pool: &sqlx::PgPool) -> Result<i64, AppError> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM multimodal_entries")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count multimodal entries: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        Ok(row.0)
+    }
 }

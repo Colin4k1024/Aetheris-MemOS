@@ -230,5 +230,18 @@ impl LTMRepository {
 
         Ok(entries)
     }
+
+    /// 获取长期记忆条目总数
+    pub async fn count(pool: &sqlx::PgPool) -> Result<i64, AppError> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count knowledge entries: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        Ok(row.0)
+    }
 }
 

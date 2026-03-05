@@ -193,5 +193,40 @@ impl STMRepository {
 
         Ok(sessions)
     }
+
+    /// 获取所有活跃的 user_id 列表
+    pub async fn get_active_user_ids() -> Result<Vec<String>, AppError> {
+        let pool = pool();
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT user_id FROM context_sessions WHERE status = 'active'",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get active user IDs: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// 获取指定用户的活跃 agent_id 列表
+    pub async fn get_active_agent_ids(user_id: &str) -> Result<Vec<String>, AppError> {
+        let pool = pool();
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT agent_id FROM context_sessions WHERE user_id = $1 AND status = 'active'",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get active agent IDs: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
 }
 

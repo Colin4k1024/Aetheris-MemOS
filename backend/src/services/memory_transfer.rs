@@ -122,14 +122,19 @@ impl MemoryTransferService {
     ) -> Result<(), AppError> {
         info!("Checking sessions for transfer to LTM");
 
-        // 获取所有用户和智能体的会话
-        // 注意：这里需要实现获取所有活跃用户和智能体的逻辑
-        // 目前简化实现，使用默认 user_id 和 agent_id
-        let user_ids = vec!["user_1"];
-        let agent_ids = vec!["agent_1"];
+        // 动态获取所有活跃的用户和智能体
+        let user_ids = STMRepository::get_active_user_ids().await?;
+
+        if user_ids.is_empty() {
+            info!("No active sessions found");
+            return Ok(());
+        }
 
         let mut transferred_count = 0;
-        for user_id in user_ids {
+        for user_id in &user_ids {
+            // 动态获取该用户的活跃 agent 列表
+            let agent_ids = STMRepository::get_active_agent_ids(user_id).await?;
+
             for agent_id in &agent_ids {
                 let sessions =
                     STMRepository::get_recent_sessions(user_id, agent_id, Some(100)).await?;
