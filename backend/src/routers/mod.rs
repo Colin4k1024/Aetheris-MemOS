@@ -53,6 +53,8 @@ pub fn root() -> Router {
                 )
                 .push(
                     Router::with_path("v1/memory")
+                        // 限流：每分钟 100 次请求
+                        .hoop(hoops::rate_limit_hoop(100, 60))
                         .push(
                             Router::with_path("adaptive")
                                 .post(memory::select_memory_config)

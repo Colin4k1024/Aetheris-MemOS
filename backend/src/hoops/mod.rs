@@ -4,7 +4,9 @@ use salvo::prelude::*;
 
 pub mod custom_middleware_example;
 pub mod jwt;
+pub mod rate_limit;
 pub use jwt::auth_hoop;
+pub use rate_limit::rate_limit_hoop;
 mod cors;
 pub use cors::cors_hoop;
 

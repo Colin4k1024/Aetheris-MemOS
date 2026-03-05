@@ -41,11 +41,12 @@ pub async fn init(config: &DbConfig) -> Result<(), DbInitError> {
     info!("Connecting to database: {} (redacted)", config.url.split('@').last().unwrap_or(""));
 
     let pool_options = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(10)
-        .min_connections(2)
-        .acquire_timeout(std::time::Duration::from_secs(30))
+        .max_connections(config.pool_size)
+        .min_connections(config.min_idle.unwrap_or(2))
+        .acquire_timeout(std::time::Duration::from_secs(config.connection_timeout))
         .idle_timeout(Some(std::time::Duration::from_secs(600)))
-        .max_lifetime(Some(std::time::Duration::from_secs(1800)));
+        .max_lifetime(Some(std::time::Duration::from_secs(1800)))
+        .statement_timeout(std::time::Duration::from_millis(config.statement_timeout));
 
     let sqlx_pool = pool_options.connect(&config.url).await.map_err(|e| {
         error!("Database connection failed: {}", e);
