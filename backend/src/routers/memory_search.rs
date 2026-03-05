@@ -6,7 +6,7 @@ use validator::Validate;
 
 use crate::services::memory_search::{MemorySearchService, SearchResult};
 use crate::db::SessionMessage;
-use crate::{json_ok, AppResult, JsonResult};
+use crate::{json_ok, JsonResult};
 
 /// 搜索短期记忆请求
 #[derive(Deserialize, ToSchema, Validate)]

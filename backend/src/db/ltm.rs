@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use sqlx::FromRow;
 use tracing::{error, info};
 use ulid::Ulid;

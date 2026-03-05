@@ -5,7 +5,7 @@ use tracing::info;
 use validator::Validate;
 
 use crate::services::memory_storage::MemoryStorageService;
-use crate::{json_ok, AppResult, JsonResult, EmptyResult};
+use crate::{json_ok, JsonResult};
 
 /// 存储短期记忆请求
 #[derive(Deserialize, ToSchema, Validate)]

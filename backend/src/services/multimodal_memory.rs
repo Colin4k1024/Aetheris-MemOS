@@ -1,6 +1,5 @@
 use anyhow::Result;
-use serde_json::json;
-use tracing::{error, info, instrument};
+use tracing::{info, instrument};
 
 use crate::db::mm::MMRepository;
 use crate::services::embedding::get_embedding_service;

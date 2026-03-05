@@ -1,5 +1,5 @@
 use std::sync::OnceLock;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::AppError;
 use crate::config::Neo4jConfig;

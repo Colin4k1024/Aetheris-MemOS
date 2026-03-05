@@ -138,17 +138,17 @@ impl PerformancePredictionModel {
         
         // 如果启用了 LTM，应用 STM 到 LTM 的衰减
         if memory_config.memory_weights.ltm > 0.0 {
-            decay *= (1.0 - self.marginal_decay_factors.stm_to_ltm * 0.5);
+            decay *= 1.0 - self.marginal_decay_factors.stm_to_ltm * 0.5;
         }
         
         // 如果启用了 KG，应用 LTM 到 KG 的衰减
         if memory_config.memory_weights.kg > 0.0 {
-            decay *= (1.0 - self.marginal_decay_factors.ltm_to_kg * 0.5);
+            decay *= 1.0 - self.marginal_decay_factors.ltm_to_kg * 0.5;
         }
         
         // 如果启用了 MM，应用 KG 到 MM 的衰减
         if memory_config.memory_weights.mm > 0.0 {
-            decay *= (1.0 - self.marginal_decay_factors.kg_to_mm * 0.5);
+            decay *= 1.0 - self.marginal_decay_factors.kg_to_mm * 0.5;
         }
         
         decay.max(0.5) // 最小衰减到 50%
@@ -179,6 +179,60 @@ impl PerformancePredictionModel {
             mm_contribution: memory_config.memory_weights.mm
                 * self.performance_baselines.mm.efficiency_gain * 0.016, // 考虑边际递减
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_predictor_creation() {
+        let predictor = PerformancePredictionModel::new();
+        assert_eq!(predictor.performance_baselines.stm.efficiency_gain, 0.2473);
+        assert_eq!(predictor.performance_baselines.ltm.efficiency_gain, 0.3698);
+    }
+
+    #[test]
+    fn test_predict_memory_performance() {
+        let predictor = PerformancePredictionModel::new();
+        let memory_config = MemoryConfig {
+            primary_memory: MemoryType::Stm,
+            secondary_memory: vec![MemoryType::Ltm, MemoryType::Kg],
+            memory_weights: MemoryWeights {
+                stm: 1.0,
+                ltm: 0.8,
+                kg: 0.7,
+                mm: 0.0,
+            },
+            reasoning_depth: "deep".to_string(),
+            enable_multimodal: false,
+        };
+
+        let (prediction, synergy, decay, breakdown) = predictor.predict_memory_performance(&memory_config);
+        assert!(prediction.efficiency_gain > 0.0);
+        assert!(prediction.coherence_gain > 0.0);
+        assert!(synergy >= 1.0);
+    }
+
+    #[test]
+    fn test_calculate_synergy_factor() {
+        let predictor = PerformancePredictionModel::new();
+        let memory_config = MemoryConfig {
+            primary_memory: MemoryType::Stm,
+            secondary_memory: vec![MemoryType::Ltm, MemoryType::Kg],
+            memory_weights: MemoryWeights {
+                stm: 1.0,
+                ltm: 0.8,
+                kg: 0.7,
+                mm: 0.0,
+            },
+            reasoning_depth: "deep".to_string(),
+            enable_multimodal: false,
+        };
+
+        let synergy = predictor.calculate_synergy_factor(&memory_config);
+        assert!(synergy >= 1.0);
     }
 }
 

@@ -34,11 +34,9 @@ pub mod neo4j;
 pub mod performance;
 pub mod stm;
 pub mod weights;
-pub use kg::{Entity, KGRepository, Relation};
-pub use ltm::KnowledgeEntry;
-pub use mm::{MMRepository, ModalityRelation, MultimodalEntry};
-pub use neo4j::{create_session, driver, init as init_neo4j, init_neo4j_indexes};
-pub use stm::{Session, SessionMessage};
+pub use kg::KGRepository;
+pub use neo4j::{init as init_neo4j, init_neo4j_indexes};
+pub use stm::SessionMessage;
 
 pub static SQLX_POOL: OnceLock<SqlitePool> = OnceLock::new();
 

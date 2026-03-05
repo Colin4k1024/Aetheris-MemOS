@@ -1,5 +1,5 @@
 use salvo::http::Method;
-use salvo::cors::{AllowHeaders, AllowMethods, AllowOrigin, Cors, CorsHandler};
+use salvo::cors::{Cors, CorsHandler};
 
 pub fn cors_hoop() -> CorsHandler {
     Cors::new()

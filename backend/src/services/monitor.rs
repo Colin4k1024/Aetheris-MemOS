@@ -231,6 +231,40 @@ pub struct OptimizationResult {
     pub predicted_improvement: PredictedImprovement,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_monitor_creation() {
+        let monitor = ResourceMonitor::new();
+        assert_eq!(monitor.resource_limits.memory_limit_mb, 1024);
+        assert_eq!(monitor.resource_limits.cpu_limit_percent, 80);
+    }
+
+    #[test]
+    fn test_cost_benefit_calculation() {
+        let monitor = ResourceMonitor::new();
+        let performance_prediction = PerformancePrediction {
+            efficiency_gain: 0.8,
+            coherence_gain: 1.5,
+            resource_cost: 0.5,
+            cost_benefit_ratio: Some(1.5),
+            confidence_score: Some(0.9),
+        };
+        let resource_status = ResourceStatus {
+            memory_usage_mb: 512,
+            memory_usage_percent: 50,
+            cpu_usage_percent: 45,
+            response_time_ms: 850,
+            storage_usage_percent: 40,
+        };
+
+        let result = monitor.calculate_cost_benefit_ratio(&performance_prediction, &resource_status);
+        assert!(result > 0.0);
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
 pub struct PredictedImprovement {
     #[serde(rename = "efficiency_gain")]

@@ -12,7 +12,7 @@ use crate::db::{
     performance::PerformanceMetricsRepository,
     weights::WeightHistoryRepository,
 };
-use crate::{json_ok, AppResult, JsonResult};
+use crate::{json_ok, JsonResult};
 
 static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> = Lazy::new(|| {
     Arc::new(AdaptiveMemoryScheduler::new())

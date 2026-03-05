@@ -226,7 +226,7 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
             warn!("JSON text (first 500 chars): {}", json_text.chars().take(500).collect::<String>());
             
             // 尝试清理 JSON：将 null 值替换为默认值
-            let mut cleaned_json = json_text
+            let cleaned_json = json_text
                 .replace("\"summary\": null", "\"summary\": \"\"")
                 .replace("\"summary\":null", "\"summary\":\"\"")
                 .replace("\"entities\": null", "\"entities\": []")

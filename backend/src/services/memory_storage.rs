@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde_json::Value;
 use tracing::{error, info, instrument, warn};
 
 use crate::db::{ltm::LTMRepository, stm::STMRepository};
