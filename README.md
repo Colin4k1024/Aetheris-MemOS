@@ -315,6 +315,8 @@ docker-compose up -d
 
 - [变更记录 (CHANGELOG)](CHANGELOG.md) — 版本更新与改动说明
 - [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告与支持版本
+- [行为准则 (CODE_OF_CONDUCT)](CODE_OF_CONDUCT.md) — 社区参与规范
+- [开源审查清单 (OPEN_SOURCE_CHECKLIST)](docs/OPEN_SOURCE_CHECKLIST.md) — 开源就绪项与发布前待办
 - [架构说明 (ARCHITECTURE)](docs/ARCHITECTURE.md) — Why adaptive / Why agent-like / 决策链路
 - [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划与生态对齐
 - [使用场景 (USE_CASES)](docs/USE_CASES.md) — LLM Agent、多模态、成本敏感推理等

@@ -14,7 +14,7 @@ Security updates are provided for the following versions:
 
 If you believe you have found a security vulnerability in the Adaptive Memory Management System, please report it responsibly:
 
-1. **Contact**: Open a [GitHub Security Advisory](https://github.com/YOUR_ORG/adaptive-memory-system/security/advisories/new) (recommended) or email the maintainers if the repository is under an organization with a disclosed security contact.
+1. **Contact**: Open a [GitHub Security Advisory](https://github.com/Colin4k1024/adaptive-memory-system/security/advisories/new) for this repository, or contact the maintainers via the repository's preferred channel.
 
 2. **Include**:
    - Type of issue (e.g. authentication bypass, injection, information disclosure)
