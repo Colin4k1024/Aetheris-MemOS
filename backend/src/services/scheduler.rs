@@ -189,33 +189,57 @@ Agent ID: {}",
                 task_context.reasoning_depth
             );
 
-            // 异步存储长期记忆（不阻塞主流程）
+            // 异步存储长期记忆（不阻塞主流程），带重试机制
             let task_id = task_context.task_id.clone();
             let user_id = task_context.user_id.clone();
+            let task_content = task_content.clone();
             tokio::spawn(async move {
                 let _ = user_id; // 保留用于未来扩展（如用户隔离的日志）
-                match MemoryStorageService::store_ltm(
-                    &task_id,
-                    "task",
-                    &task_content,
-                    Some(&format!("Task {}", task_id)),
-                )
-                .await
-                {
-                    Ok(entry_id) => {
-                        info!(
-                            task_id = %task_id,
-                            entry_id = %entry_id,
-                            "任务内容已存储为长期记忆"
-                        );
+
+                // 重试机制：最多重试3次
+                let max_retries = 3;
+                let mut last_error = None;
+
+                for attempt in 1..=max_retries {
+                    match MemoryStorageService::store_ltm(
+                        &task_id,
+                        "task",
+                        &task_content,
+                        Some(&format!("Task {}", task_id)),
+                    )
+                    .await
+                    {
+                        Ok(entry_id) => {
+                            info!(
+                                task_id = %task_id,
+                                entry_id = %entry_id,
+                                "任务内容已存储为长期记忆"
+                            );
+                            return; // 成功，直接返回
+                        }
+                        Err(e) => {
+                            last_error = Some(e);
+                            if attempt < max_retries {
+                                warn!(
+                                    task_id = %task_id,
+                                    attempt = %attempt,
+                                    error = %e,
+                                    "存储长期记忆失败，尝试重试..."
+                                );
+                                tokio::time::sleep(tokio::time::Duration::from_secs(2u64.pow(attempt as u32))).await;
+                            }
+                        }
                     }
-                    Err(e) => {
-                        warn!(
-                            task_id = %task_id,
-                            error = %e,
-                            "存储长期记忆失败，但不影响主流程"
-                        );
-                    }
+                }
+
+                // 所有重试都失败
+                if let Some(e) = last_error {
+                    error!(
+                        task_id = %task_id,
+                        error = %e,
+                        "存储长期记忆失败，已达最大重试次数"
+                    );
+                    // TODO: 可以添加错误上报到监控系统
                 }
             });
         }

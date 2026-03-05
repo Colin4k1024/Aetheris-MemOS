@@ -262,11 +262,15 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                         if !json_value.is_object() {
                             return Err(e2);
                         }
-                        let obj = json_value.as_object_mut().unwrap();
+                        let obj = match json_value.as_object_mut() {
+                            Some(o) => o,
+                            None => return Err(e2),
+                        };
                         
                         // 处理 summary
                         if let Some(summary) = obj.get("summary") {
-                            if summary.is_null() || (summary.is_string() && summary.as_str().unwrap().is_empty()) {
+                            let is_empty = summary.is_string() && summary.as_str().map_or(true, |s| s.is_empty());
+                            if summary.is_null() || is_empty {
                                 obj.insert("summary".to_string(), serde_json::Value::String("No summary provided by LLM.".to_string()));
                             }
                         } else {
@@ -274,19 +278,24 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                         }
                         
                         // 处理 entities
-                        if obj.get("entities").is_none() || obj.get("entities").unwrap().is_null() {
+                        let entities = obj.get("entities");
+                        if entities.is_none() || entities.map_or(true, |e| e.is_null()) {
                             obj.insert("entities".to_string(), serde_json::Value::Array(vec![]));
                         }
                         
                         // 处理 key_facts
-                        if obj.get("key_facts").is_none() || obj.get("key_facts").unwrap().is_null() {
+                        let key_facts = obj.get("key_facts");
+                        if key_facts.is_none() || key_facts.map_or(true, |k| k.is_null()) {
                             obj.insert("key_facts".to_string(), serde_json::Value::Array(vec![]));
                         }
                         
                         // 处理 relations：过滤掉包含 null 或空值的 relation
                         if let Some(relations) = obj.get_mut("relations") {
                             if relations.is_array() {
-                                let relations_array = relations.as_array_mut().unwrap();
+                                let relations_array = match relations.as_array_mut() {
+                                    Some(arr) => arr,
+                                    None => continue,
+                                };
                                 relations_array.retain(|r| {
                                     if let Some(rel_obj) = r.as_object() {
                                         let from = rel_obj.get("from").and_then(|v| v.as_str()).unwrap_or("");

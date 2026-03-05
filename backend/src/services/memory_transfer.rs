@@ -64,10 +64,35 @@ impl MemoryTransferService {
             while running_flag_clone.load(Ordering::Relaxed) {
                 sleep(Duration::from_secs(check_interval)).await;
 
-                if let Err(e) =
-                    Self::check_and_transfer(message_count_threshold, session_time_threshold).await
-                {
-                    error!("Error in memory transfer check: {}", e);
+                // 重试机制：最多重试3次
+                let max_retries = 3;
+                let mut last_error = None;
+
+                for attempt in 1..=max_retries {
+                    match Self::check_and_transfer(message_count_threshold, session_time_threshold).await {
+                        Ok(_) => {
+                            break; // 成功，跳出重试循环
+                        }
+                        Err(e) => {
+                            last_error = Some(e);
+                            if attempt < max_retries {
+                                error!(
+                                    attempt = %attempt,
+                                    error = %e,
+                                    "Memory transfer check failed, retrying..."
+                                );
+                                sleep(Duration::from_secs(2u64.pow(attempt as u32))).await;
+                            }
+                        }
+                    }
+                }
+
+                if let Some(e) = last_error {
+                    error!(
+                        error = %e,
+                        "Memory transfer check failed after max retries"
+                    );
+                    // TODO: 可以添加错误上报到监控系统
                 }
             }
             info!("Memory transfer service loop exited");
