@@ -1,145 +1,145 @@
-# 自适应记忆管理系统
+# Adaptive Memory Management System
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Adaptive Memory Management System for Agent & LLM Workloads**
 
-基于自适应记忆管理算法设计文档，使用 Rust (Salvo) 实现后端 API 服务，使用 React (Ant Design Pro) 实现前端管理界面。本项目采用 MIT 许可证对外开源，欢迎参与贡献与二次开发。
+Built on adaptive memory management algorithm design, featuring a Rust (Salvo) backend API service and React (Ant Design Pro) frontend management interface. This project is open-sourced under MIT license. Contributions and forks are welcome.
 
-- **许可证**: [LICENSE](LICENSE)（MIT）
-- **安全**: 漏洞反馈请参见 [SECURITY.md](SECURITY.md)
-- **变更记录**: [CHANGELOG.md](CHANGELOG.md)
+- **License**: [LICENSE](LICENSE) (MIT)
+- **Security**: For vulnerability reporting, see [SECURITY.md](SECURITY.md)
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md)
 
-## 项目结构
+## Project Structure
 
 ```
 adaptive-memory-system/
-├── backend/                    # Rust + Salvo 后端服务
+├── backend/                    # Rust + Salvo backend service
 │   ├── src/
-│   │   ├── db/                # 数据库操作模块
-│   │   │   ├── memory.rs      # 记忆配置仓库
-│   │   │   ├── performance.rs # 性能指标仓库
-│   │   │   └── weights.rs     # 权重历史仓库
-│   │   ├── services/          # 核心服务层
-│   │   │   ├── scheduler.rs   # 自适应记忆调度器
-│   │   │   ├── analyzer.rs    # 任务特征分析器
-│   │   │   ├── predictor.rs   # 性能预测模型
-│   │   │   ├── monitor.rs     # 资源监控器
-│   │   │   └── weight_adjuster.rs # 动态权重调整器
-│   │   ├── routers/           # API 路由处理器
-│   │   │   └── memory.rs      # 记忆管理相关端点
-│   │   ├── models/            # 数据模型
-│   │   └── main.rs            # 应用入口
-│   ├── migrations/            # 数据库迁移文件
-│   └── Cargo.toml             # Rust 依赖配置
-├── frontend/                   # React + Ant Design Pro 前端应用
+│   │   ├── db/                # Database operations module
+│   │   │   ├── memory.rs      # Memory configuration repository
+│   │   │   ├── performance.rs # Performance metrics repository
+│   │   │   └── weights.rs     # Weight history repository
+│   │   ├── services/          # Core service layer
+│   │   │   ├── scheduler.rs   # Adaptive memory scheduler
+│   │   │   ├── analyzer.rs    # Task characteristic analyzer
+│   │   │   ├── predictor.rs   # Performance prediction model
+│   │   │   ├── monitor.rs     # Resource monitor
+│   │   │   └── weight_adjuster.rs # Dynamic weight adjuster
+│   │   ├── routers/           # API route handlers
+│   │   │   └── memory.rs      # Memory management endpoints
+│   │   ├── models/            # Data models
+│   │   └── main.rs            # Application entry point
+│   ├── migrations/            # Database migration files
+│   └── Cargo.toml             # Rust dependencies
+├── frontend/                   # React + Ant Design Pro frontend
 │   └── ant-design-pro-template/
 │       ├── src/
-│       │   ├── pages/         # 页面组件
-│       │   │   ├── Dashboard/ # 仪表盘
-│       │   │   ├── TaskAnalysis/ # 任务分析
-│       │   │   ├── MemoryConfig/ # 记忆配置
-│       │   │   ├── Performance/ # 性能监控
-│       │   │   ├── ResourceMonitor/ # 资源监控
-│       │   │   └── WeightHistory/ # 权重历史
-│       │   └── services/      # API 服务封装
-│       └── package.json       # 前端依赖配置
-└── docs/                       # 设计文档
+│       │   ├── pages/         # Page components
+│       │   │   ├── Dashboard/ # Dashboard
+│       │   │   ├── TaskAnalysis/ # Task analysis
+│       │   │   ├── MemoryConfig/ # Memory configuration
+│       │   │   ├── Performance/ # Performance monitoring
+│       │   │   ├── ResourceMonitor/ # Resource monitoring
+│       │   │   └── WeightHistory/ # Weight history
+│       │   └── services/      # API service wrappers
+│       └── package.json       # Frontend dependencies
+└── docs/                       # Design documents
     ├── adaptive_memory_algorithm_design.md
     ├── adaptive_memory_api_specification.md
     └── adaptive_memory_algorithm_visualization.md
 ```
 
-## 技术栈
+## Tech Stack
 
-### 后端
-- **框架**: Salvo 0.84
-- **语言**: Rust 1.89+
-- **数据库**: SQLite (使用 SQLx)
-- **异步运行时**: Tokio
-- **序列化**: Serde
-- **日志**: Tracing
-- **认证**: JWT (jsonwebtoken)
-- **配置**: Figment
-- **数据库**: SQLite 为默认适配器（本地与 Demo）；PostgreSQL / MySQL 适配器规划中。
+### Backend
+- **Framework**: Salvo 0.84
+- **Language**: Rust 1.89+
+- **Database**: SQLite (using SQLx)
+- **Async Runtime**: Tokio
+- **Serialization**: Serde
+- **Logging**: Tracing
+- **Authentication**: JWT (jsonwebtoken)
+- **Configuration**: Figment
+- **Database**: SQLite as default adapter (local & demo); PostgreSQL/MySQL adapters planned.
 
-### 前端
-- **框架**: React 19+
-- **UI库**: Ant Design Pro 6.0
-- **图表库**: @ant-design/charts
-- **构建工具**: Umi 4
-- **状态管理**: Umi Max
-- 前端设计为 rule-based 与（未来）LLM-driven memory agents 的可视化。
+### Frontend
+- **Framework**: React 19+
+- **UI Library**: Ant Design Pro 6.0
+- **Chart Library**: @ant-design/charts
+- **Build Tool**: Umi 4
+- **State Management**: Umi Max
+- Frontend designed for visualizing rule-based and (future) LLM-driven memory agents.
 
-## 核心功能
+## Core Features
 
-### 1. 自适应记忆调度
-- 根据任务特征和资源约束自动选择最优记忆配置
-- 支持短期记忆(STM)、长期记忆(LTM)、知识图谱(KG)、多模态记忆(MM)
-- 动态权重调整机制
+### 1. Adaptive Memory Scheduling
+- Automatically selects optimal memory configuration based on task characteristics and resource constraints
+- Supports Short-Term Memory (STM), Long-Term Memory (LTM), Knowledge Graph (KG), and Multimodal Memory (MM)
+- Dynamic weight adjustment mechanism
 
-### 2. 任务特征分析
-- 复杂度评估
-- 模态需求检测
-- 推理深度评估
-- 上下文依赖度分析
+### 2. Task Characteristic Analysis
+- Complexity assessment
+- Modality requirement detection
+- Reasoning depth evaluation
+- Context dependency analysis
 
-### 3. 性能预测
-- 基于研究数据的性能基准
-- 边际效益递减补偿
-- 协同效应计算
-- 资源成本估算
+### 3. Performance Prediction
+- Research-based performance benchmarks
+- Diminishing marginal returns compensation
+- Synergy calculation
+- Resource cost estimation
 
-### 4. 资源监控
-- 实时资源使用监控
-- 成本效益分析
-- 资源优化建议
-- 告警机制
+### 4. Resource Monitoring
+- Real-time resource usage monitoring
+- Cost-benefit analysis
+- Resource optimization suggestions
+- Alert mechanisms
 
-### 5. 权重调整历史
-- 记录所有权重调整操作
-- 性能影响追踪
-- 趋势分析
+### 5. Weight Adjustment History
+- Records all weight adjustment operations
+- Performance impact tracking
+- Trend analysis
 
-## 快速开始
+## Quick Start
 
-### 环境要求
+### Environment Requirements
 
 - Rust: 1.89+
 - Node.js: 20+
 - SQLite 3.x
 
-### 后端开发
+### Backend Development
 
 ```bash
 cd backend
 
-# 安装依赖（首次运行）
+# Install dependencies (first run)
 cargo build
 
-# 运行开发服务器
+# Run development server
 cargo run
 
-# 服务器将在 http://127.0.0.1:8008 启动
+# Server will start at http://127.0.0.1:8008
 ```
 
-### 前端开发
+### Frontend Development
 
 ```bash
 cd frontend/ant-design-pro-template
 
-# 安装依赖（首次运行）
+# Install dependencies (first run)
 npm install
 
-# 启动开发服务器
+# Start development server
 npm start
 
-# 应用将在 http://localhost:8000 启动
+# Application will start at http://localhost:8000
 ```
 
-## API 使用示例
+## API Usage Examples
 
-### 1. 自适应记忆选择
+### 1. Adaptive Memory Selection
 
 ```bash
 curl -X POST "http://127.0.0.1:8008/api/v1/memory/adaptive" \
@@ -171,158 +171,158 @@ curl -X POST "http://127.0.0.1:8008/api/v1/memory/adaptive" \
   }'
 ```
 
-### 2. 分析任务特征
+### 2. Analyze Task Characteristics
 
 ```bash
 curl -X POST "http://127.0.0.1:8008/api/v1/memory/analyzer/task-characteristics" \
   -H "Content-Type: application/json" \
   -d '{
     "task_context": {
-      "content": "请分析这个复杂的多模态数据",
+      "content": "Please analyze this complex multimodal data",
       "modality": ["text", "image"],
       "context_history": []
     }
   }'
 ```
 
-### 3. 获取资源状态
+### 3. Get Resource Status
 
 ```bash
 curl -X GET "http://127.0.0.1:8008/api/v1/memory/monitor/resources"
 ```
 
-### 4. 获取权重调整历史
+### 4. Get Weight Adjustment History
 
 ```bash
 curl -X GET "http://127.0.0.1:8008/api/v1/memory/weights/history"
 ```
 
-## 数据库架构
+## Database Schema
 
-系统使用 SQLite 数据库，主要表结构包括：
+The system uses SQLite database with the following main tables:
 
-### 记忆配置表 (memory_configurations)
-- 存储用户和智能体的记忆配置
-- 支持多种配置类型（default, custom, optimized）
-- 记录各记忆层的启用状态和参数
+### Memory Configurations Table (memory_configurations)
+- Stores memory configurations for users and agents
+- Supports multiple configuration types (default, custom, optimized)
+- Records enable status and parameters for each memory layer
 
-### 性能指标表 (performance_metrics)
-- 记录系统性能指标
-- 支持按时间范围查询
-- 提供聚合统计功能
+### Performance Metrics Table (performance_metrics)
+- Records system performance metrics
+- Supports time-range queries
+- Provides aggregation and statistics
 
-### 权重调整历史表 (weight_adjustment_history)
-- 记录所有权重调整操作
-- 包含调整前后的权重对比
-- 记录性能影响和调整原因
+### Weight Adjustment History Table (weight_adjustment_history)
+- Records all weight adjustment operations
+- Includes before/after weight comparison
+- Records performance impact and adjustment reasons
 
-### 其他表
-- `context_sessions` - 短期记忆会话
-- `context_messages` - 上下文消息
-- `knowledge_entries` - 长期记忆条目
-- `entities` - 知识图谱实体
-- `relations` - 知识图谱关系
-- `multimodal_entries` - 多模态记忆条目
+### Other Tables
+- `context_sessions` - Short-term memory sessions
+- `context_messages` - Context messages
+- `knowledge_entries` - Long-term memory entries
+- `entities` - Knowledge graph entities
+- `relations` - Knowledge graph relations
+- `multimodal_entries` - Multimodal memory entries
 
-## 开发指南
+## Development Guide
 
-### 添加新的 API 端点
+### Adding New API Endpoints
 
-1. 在 `backend/src/routers/memory.rs` 中添加新的处理函数
-2. 使用 `#[endpoint]` 宏标记函数
-3. 在 `backend/src/routers/mod.rs` 中注册路由
+1. Add new handler function in `backend/src/routers/memory.rs`
+2. Use `#[endpoint]` macro to mark the function
+3. Register the route in `backend/src/routers/mod.rs`
 
-### 添加新的数据库操作
+### Adding New Database Operations
 
-1. 在相应的仓库模块（`db/memory.rs`, `db/performance.rs`, `db/weights.rs`）中添加方法
-2. 使用 SQLx 进行类型安全的查询
-3. 添加适当的错误处理
+1. Add methods in the corresponding repository module (`db/memory.rs`, `db/performance.rs`, `db/weights.rs`)
+2. Use SQLx for type-safe queries
+3. Add appropriate error handling
 
-### 前端页面开发
+### Frontend Page Development
 
-1. 在 `frontend/ant-design-pro-template/src/pages/` 下创建新页面
-2. 使用 Ant Design Pro 组件和图表库
-3. 在 `config/routes.ts` 中配置路由
+1. Create new page under `frontend/ant-design-pro-template/src/pages/`
+2. Use Ant Design Pro components and charts library
+3. Configure routes in `config/routes.ts`
 
-## 测试
+## Testing
 
-### 后端测试
+### Backend Testing
 
 ```bash
 cd backend
 cargo test
 ```
 
-### 前端测试
+### Frontend Testing
 
 ```bash
 cd frontend/ant-design-pro-template
 npm test
 ```
 
-## 部署
+## Deployment
 
-### Docker 部署
+### Docker Deployment
 
 ```bash
-# 构建镜像
+# Build images
 docker-compose build
 
-# 启动服务
+# Start services
 docker-compose up -d
 ```
 
-### 生产环境配置
+### Production Configuration
 
-1. 配置环境变量（数据库连接、JWT密钥等）
-2. 设置日志级别
-3. 配置 TLS/HTTPS
-4. 设置资源限制
+1. Configure environment variables (database connection, JWT secret, etc.)
+2. Set log level
+3. Configure TLS/HTTPS
+4. Set resource limits
 
-## 性能优化
+## Performance Optimization
 
-- 数据库连接池已配置（最大10个连接）
-- 前端图表使用虚拟滚动处理大数据量
-- API 响应使用适当的缓存策略
-- 日志记录使用结构化格式便于分析
+- Database connection pool configured (max 10 connections)
+- Frontend charts use virtual scrolling for large datasets
+- API responses use appropriate caching strategies
+- Structured logging format for analysis
 
-## 故障排查
+## Troubleshooting
 
-### 数据库连接失败
-- 检查数据库文件路径是否正确
-- 确认数据库文件权限
-- 查看日志中的详细错误信息
+### Database Connection Failed
+- Check if database file path is correct
+- Confirm database file permissions
+- Check detailed error messages in logs
 
-### API 请求失败
-- 检查后端服务是否运行
-- 确认 API 路径和端口正确
-- 查看浏览器控制台和网络请求
+### API Request Failed
+- Check if backend service is running
+- Confirm API path and port are correct
+- Check browser console and network requests
 
-### 前端构建错误
-- 清除 node_modules 和重新安装
-- 检查 Node.js 版本是否符合要求
-- 查看构建日志中的详细错误
+### Frontend Build Error
+- Remove node_modules and reinstall
+- Check if Node.js version meets requirements
+- Check detailed errors in build logs
 
-## 贡献指南
+## Contributing
 
-详见 [CONTRIBUTING.md](CONTRIBUTING.md)：构建与测试、提交流程、扩展点（策略与 Agent）。扩展新策略或 Agent 请参考 [EXTENSION_GUIDE.md](docs/EXTENSION_GUIDE.md)。
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, testing, submission process, and extension points (Strategies and Agents). For extending new Strategies or Agents, see [EXTENSION_GUIDE.md](docs/EXTENSION_GUIDE.md).
 
-## 许可证与开源
+## License & Open Source
 
-本项目采用 [MIT License](LICENSE) 开源。你可以在遵守许可证条款的前提下自由使用、修改和分发本软件。安全相关问题请通过 [SECURITY.md](SECURITY.md) 中说明的方式报告。
+This project is open-sourced under [MIT License](LICENSE). You are free to use, modify, and distribute this software under the license terms. For security issues, please report as specified in [SECURITY.md](SECURITY.md).
 
-## 相关文档
+## Related Documentation
 
-- [变更记录 (CHANGELOG)](CHANGELOG.md) — 版本更新与改动说明
-- [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告与支持版本
-- [行为准则 (CODE_OF_CONDUCT)](CODE_OF_CONDUCT.md) — 社区参与规范
-- [开源审查清单 (OPEN_SOURCE_CHECKLIST)](docs/OPEN_SOURCE_CHECKLIST.md) — 开源就绪项与发布前待办
-- [架构说明 (ARCHITECTURE)](docs/ARCHITECTURE.md) — Why adaptive / Why agent-like / 决策链路
-- [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划与生态对齐
-- [使用场景 (USE_CASES)](docs/USE_CASES.md) — LLM Agent、多模态、成本敏感推理等
-- [贡献指南 (CONTRIBUTING)](CONTRIBUTING.md) — 构建、测试、PR、扩展点
-- [扩展指南 (EXTENSION_GUIDE)](docs/EXTENSION_GUIDE.md) — 新增 WeightStrategy / MemoryAgent
-- [Salvo vs Axum 选型说明](docs/why-salvo-vs-axum.md)
-- [算法设计文档](docs/adaptive_memory_algorithm_design.md)
-- [API 规范文档](docs/adaptive_memory_api_specification.md)
-- [算法可视化](docs/adaptive_memory_algorithm_visualization.md)
+- [Changelog (CHANGELOG)](CHANGELOG.md) — Version updates and changes
+- [Security Policy (SECURITY)](SECURITY.md) — Vulnerability reporting and supported versions
+- [Code of Conduct (CODE_OF_CONDUCT)](CODE_OF_CONDUCT.md) — Community participation guidelines
+- [Open Source Checklist (OPEN_SOURCE_CHECKLIST)](docs/OPEN_SOURCE_CHECKLIST.md) — Open source readiness and pre-release tasks
+- [Architecture (ARCHITECTURE)](docs/ARCHITECTURE.md) — Why adaptive / Why agent-like / Decision pipeline
+- [Roadmap (ROADMAP)](docs/ROADMAP.md) — Version planning and ecosystem alignment
+- [Use Cases (USE_CASES)](docs/USE_CASES.md) — LLM Agent, Multimodal, Cost-aware routing
+- [Contributing (CONTRIBUTING)](CONTRIBUTING.md) — Build, Test, PR, Extension points
+- [Extension Guide (EXTENSION_GUIDE)](docs/EXTENSION_GUIDE.md) — Adding WeightStrategy / MemoryAgent
+- [Salvo vs Axum Selection](docs/why-salvo-vs-axum.md)
+- [Algorithm Design Document](docs/adaptive_memory_algorithm_design.md)
+- [API Specification Document](docs/adaptive_memory_api_specification.md)
+- [Algorithm Visualization](docs/adaptive_memory_algorithm_visualization.md)
