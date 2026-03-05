@@ -4,6 +4,7 @@ import { Column, Line } from '@ant-design/charts';
 import { useRequest } from '@umijs/max';
 import { selectMemoryConfig, predictPerformance, getMemoryStatus } from '@/services/memory';
 import { useState, useMemo } from 'react';
+import { DEFAULT_USER_ID, DEFAULT_AGENT_ID } from '@/config/appConfig';
 
 export default function MemoryConfigPage() {
   const [configResult, setConfigResult] = useState<API.SelectMemoryResponse | null>(null);
@@ -47,8 +48,8 @@ export default function MemoryConfigPage() {
         temporal_scope: values.temporal_scope || 'medium',
         reasoning_depth: values.reasoning_depth || 'medium',
         context_dependency: values.context_dependency || 0.5,
-        user_id: 'user_1',
-        agent_id: 'agent_1',
+        user_id: DEFAULT_USER_ID,
+        agent_id: DEFAULT_AGENT_ID,
       },
       resource_constraints: {
         max_memory_usage_mb: values.max_memory_usage_mb || 1024,

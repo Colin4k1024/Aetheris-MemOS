@@ -3,6 +3,7 @@ import { Card, message, Descriptions, Steps, Tag, Spin, Table } from 'antd';
 import { useRequest } from '@umijs/max';
 import { getDecisionTrace } from '@/services/memory';
 import { useState } from 'react';
+import { DEFAULT_USER_ID, DEFAULT_AGENT_ID } from '@/config/appConfig';
 
 export default function MemoryDecisionTracePage() {
   const [trace, setTrace] = useState<API.DecisionTrace | null>(null);
@@ -34,8 +35,8 @@ export default function MemoryDecisionTracePage() {
         temporal_scope: values.temporal_scope || 'medium',
         reasoning_depth: values.reasoning_depth || 'medium',
         context_dependency: Number(values.context_dependency) ?? 0.5,
-        user_id: values.user_id || 'user_1',
-        agent_id: values.agent_id || 'agent_1',
+        user_id: values.user_id || DEFAULT_USER_ID,
+        agent_id: values.agent_id || DEFAULT_AGENT_ID,
       },
       resource_constraints: {
         max_memory_usage_mb: Number(values.max_memory_usage_mb) || 1024,
@@ -74,8 +75,8 @@ export default function MemoryDecisionTracePage() {
             temporal_scope: 'medium',
             reasoning_depth: 'medium',
             context_dependency: 0.5,
-            user_id: 'user_1',
-            agent_id: 'agent_1',
+            user_id: DEFAULT_USER_ID,
+            agent_id: DEFAULT_AGENT_ID,
             modality_requirements: ['text'],
             max_memory_usage_mb: 1024,
             max_cpu_usage_percent: 80,
