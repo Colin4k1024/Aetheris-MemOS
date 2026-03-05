@@ -207,6 +207,8 @@ impl QdrantClient {
                 ordering: None,
                 shard_key_selector: None,
                 update_filter: None,
+                timeout: None,
+                update_mode: None,
             })
             .await
             .map_err(|e| {
@@ -334,6 +336,7 @@ impl QdrantClient {
                     )),
                 }),
                 shard_key_selector: None,
+                timeout: None,
             })
             .await
             .map_err(|e| {

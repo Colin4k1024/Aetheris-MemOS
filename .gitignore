@@ -4,14 +4,16 @@ backend/**/*.rs.bk
 backend/Cargo.lock
 
 # Node.js
-frontend/node_modules/
-frontend/.umi/
-frontend/.umi-production/
-frontend/dist/
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
+frontend/ant-design-pro-template/.npm
+frontend/ant-design-pro-template/.npm-cache
+frontend/ant-design-pro-template/node_modules/
+frontend/ant-design-pro-template/.umi/
+frontend/ant-design-pro-template/.umi-production/
+frontend/ant-design-pro-template/dist/
+frontend/ant-design-pro-template/.env.local
+frontend/ant-design-pro-template/.env.development.local
+frontend/ant-design-pro-template/.env.test.local
+frontend/ant-design-pro-template/.env.production.local
 
 # IDE
 .idea/
