@@ -58,17 +58,12 @@ pub async fn create_user(idata: JsonBody<CreateInData>) -> JsonResult<SafeUser> 
     let id = Ulid::new().to_string();
     let password = utils::hash_password(&password)?;
     let conn = db::pool();
-    let _ = sqlx::query!(
-        r#"
-            INSERT INTO users (id, username, password)
-            VALUES ($1, $2, $3)
-            "#,
-        id,
-        username,
-        password,
-    )
-    .execute(conn)
-    .await?;
+    sqlx::query("INSERT INTO users (id, username, password) VALUES ($1, $2, $3)")
+        .bind(&id)
+        .bind(&username)
+        .bind(&password)
+        .execute(conn)
+        .await?;
 
     json_ok(SafeUser { id, username })
 }
@@ -88,18 +83,12 @@ pub async fn update_user(
     let user_id = user_id.into_inner();
     let UpdateInData { username, password } = idata.into_inner();
     let conn = db::pool();
-    let _ = sqlx::query!(
-        r#"
-            UPDATE users
-            SET username = $1, password = $2
-            WHERE id = $3
-            "#,
-        username,
-        password,
-        user_id,
-    )
-    .execute(conn)
-    .await?;
+    sqlx::query("UPDATE users SET username = $1, password = $2 WHERE id = $3")
+        .bind(&username)
+        .bind(&password)
+        .bind(&user_id)
+        .execute(conn)
+        .await?;
     json_ok(SafeUser {
         id: user_id,
         username,
@@ -110,15 +99,10 @@ pub async fn update_user(
 pub async fn delete_user(user_id: PathParam<String>) -> EmptyResult {
     let user_id = user_id.into_inner();
     let conn = db::pool();
-    sqlx::query!(
-        r#"
-            DELETE FROM users
-            WHERE id = $1
-            "#,
-        user_id,
-    )
-    .execute(conn)
-    .await?;
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(&user_id)
+        .execute(conn)
+        .await?;
     empty_ok()
 }
 
@@ -151,27 +135,17 @@ pub async fn list_users(query: &mut Request) -> JsonResult<UserListResponse> {
     let like_pattern = format!("%{}%", username_filter);
     let offset = (query.current_page - 1) * query.page_size;
     
-    let total = sqlx::query_scalar!(
-        r#"
-        SELECT COUNT(*) as "count!: i64" FROM users
-        WHERE username LIKE $1
-        "#,
-        like_pattern
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM users WHERE username LIKE $1")
+        .bind(&like_pattern)
+        .fetch_one(conn)
+        .await?;
+
+    let users = sqlx::query_as::<_, SafeUser>(
+        "SELECT id, username FROM users WHERE username LIKE $1 LIMIT $2 OFFSET $3",
     )
-    .fetch_one(conn)
-    .await?;
-    
-    let users = sqlx::query_as!(
-        SafeUser,
-        r#"
-        SELECT id, username FROM users
-        WHERE username LIKE $1
-        LIMIT $2 OFFSET $3
-        "#,
-        like_pattern,
-        query.page_size,
-        offset
-    )
+    .bind(&like_pattern)
+    .bind(query.page_size)
+    .bind(offset)
     .fetch_all(conn)
     .await?;
     

@@ -326,15 +326,15 @@ impl MemorySearchService {
             r#"
             SELECT entry_id, 
                    (CASE 
-                        WHEN content LIKE ? THEN 1.0 
-                        WHEN title LIKE ? THEN 0.8 
+                        WHEN content LIKE $1 THEN 1.0 
+                        WHEN title LIKE $2 THEN 0.8 
                         ELSE 0.0 
                     END) as score
             FROM knowledge_entries
-            WHERE content LIKE ? OR title LIKE ?
+            WHERE (content LIKE $3 OR title LIKE $4)
             AND status = 'active'
             ORDER BY score DESC, access_count DESC, created_at DESC
-            LIMIT ?
+            LIMIT $5
             "#,
         )
         .bind(&query_with_wildcards)

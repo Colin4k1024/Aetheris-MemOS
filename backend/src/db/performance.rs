@@ -26,11 +26,11 @@ impl PerformanceMetricsRepository {
                 accuracy_score, coherence_score, user_satisfaction,
                 error_count
             ) VALUES (
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?, ?,
-                ?, ?, ?,
-                ?
+                $1, $2, $3,
+                $4, $5, $6,
+                $7, $8, $9, $10,
+                $11, $12, $13,
+                $14
             )
             "#,
         )
@@ -72,7 +72,7 @@ impl PerformanceMetricsRepository {
                 accuracy_score, coherence_score, user_satisfaction,
                 error_count, error_types
             FROM performance_metrics
-            WHERE metric_id = ?
+            WHERE metric_id = $1
             "#,
         )
         .bind(metric_id)
@@ -106,9 +106,9 @@ impl PerformanceMetricsRepository {
                     accuracy_score, coherence_score, user_satisfaction,
                     error_count, error_types
                 FROM performance_metrics
-                WHERE config_id = ? AND timestamp >= ? AND timestamp <= ?
+                WHERE config_id = $1 AND timestamp >= $2::timestamptz AND timestamp <= $3::timestamptz
                 ORDER BY timestamp DESC
-                LIMIT ?
+                LIMIT $4
                 "#,
             )
             .bind(config_id)
@@ -127,9 +127,9 @@ impl PerformanceMetricsRepository {
                     accuracy_score, coherence_score, user_satisfaction,
                     error_count, error_types
                 FROM performance_metrics
-                WHERE config_id = ?
+                WHERE config_id = $1
                 ORDER BY timestamp DESC
-                LIMIT ?
+                LIMIT $2
                 "#,
             )
             .bind(config_id)
@@ -170,7 +170,7 @@ impl PerformanceMetricsRepository {
                     MIN(cpu_usage_percent) as min_cpu_usage,
                     COUNT(*) as count
                 FROM performance_metrics
-                WHERE config_id = ? AND timestamp >= ? AND timestamp <= ?
+                WHERE config_id = $1 AND timestamp >= $2::timestamptz AND timestamp <= $3::timestamptz
                 "#,
             )
             .bind(config_id)
@@ -195,7 +195,7 @@ impl PerformanceMetricsRepository {
                     MIN(cpu_usage_percent) as min_cpu_usage,
                     COUNT(*) as count
                 FROM performance_metrics
-                WHERE config_id = ?
+                WHERE config_id = $1
                 "#,
             )
             .bind(config_id)

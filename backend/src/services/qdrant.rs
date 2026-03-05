@@ -184,12 +184,7 @@ impl QdrantClient {
                     point_id,
                     Vectors {
                         vectors_options: Some(VectorsOptions::Vector(
-                            qdrant_client::qdrant::Vector {
-                                data: vector.clone(),
-                                indices: None,
-                                vector: None,
-                                vectors_count: None,
-                            },
+                            qdrant_client::qdrant::Vector::new(vector.clone()),
                         )),
                     },
                     payload,

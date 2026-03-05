@@ -49,8 +49,8 @@ impl STMRepository {
         let session_id = Ulid::new().to_string();
         let pool = pool();
 
-        // 计算过期时间
-        let expires_at = format!(
+        // 计算过期时间（用于日志，实际过期时间在SQL中计算）
+        let _expires_at = format!(
             "datetime('now', '+{} hours')",
             retention_hours
         );
@@ -60,7 +60,7 @@ impl STMRepository {
             INSERT INTO context_sessions (
                 session_id, user_id, agent_id, session_type,
                 max_context_length, expires_at, status, priority
-            ) VALUES (?, ?, ?, ?, ?, datetime('now', '+' || ? || ' hours'), 'active', 5)
+            ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP + ($6::text || ' hours')::interval, 'active', 5)
             "#,
         )
         .bind(&session_id)
@@ -95,7 +95,7 @@ impl STMRepository {
             r#"
             INSERT INTO session_messages (
                 message_id, session_id, role, content, token_count, importance_score
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(&message_id)
@@ -115,9 +115,9 @@ impl STMRepository {
         sqlx::query(
             r#"
             UPDATE context_sessions
-            SET context_length = context_length + ?,
-                updated_at = datetime('now')
-            WHERE session_id = ?
+            SET context_length = context_length + $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = $2
             "#,
         )
         .bind(token_count.unwrap_or(0))
@@ -143,11 +143,11 @@ impl STMRepository {
 
         let messages = sqlx::query_as::<_, SessionMessage>(
             r#"
-            SELECT message_id, session_id, role, content, created_at, token_count, importance_score
+            SELECT message_id, session_id, role, content, created_at::text, token_count, importance_score
             FROM session_messages
-            WHERE session_id = ?
+            WHERE session_id = $1
             ORDER BY created_at ASC
-            LIMIT ?
+            LIMIT $2
             "#,
         )
         .bind(session_id)
@@ -173,12 +173,12 @@ impl STMRepository {
 
         let sessions = sqlx::query_as::<_, Session>(
             r#"
-            SELECT session_id, user_id, agent_id, created_at, updated_at, expires_at,
+            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
                    session_type, context_length, max_context_length, status, priority
             FROM context_sessions
-            WHERE user_id = ? AND agent_id = ? AND status = 'active'
+            WHERE user_id = $1 AND agent_id = $2 AND status = 'active'
             ORDER BY updated_at DESC
-            LIMIT ?
+            LIMIT $3
             "#,
         )
         .bind(user_id)

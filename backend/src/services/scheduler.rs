@@ -193,6 +193,7 @@ Agent ID: {}",
             let task_id = task_context.task_id.clone();
             let user_id = task_context.user_id.clone();
             tokio::spawn(async move {
+                let _ = user_id; // 保留用于未来扩展（如用户隔离的日志）
                 match MemoryStorageService::store_ltm(
                     &task_id,
                     "task",

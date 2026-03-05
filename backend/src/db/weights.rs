@@ -1,11 +1,10 @@
-use sqlx::Row;
 use tracing::{error, info};
 use ulid::Ulid;
 
+use crate::AppError;
 use crate::db::pool;
 use crate::models::*;
 use crate::services::weight_adjuster::AdjustmentReasons;
-use crate::AppError;
 
 pub struct WeightHistoryRepository;
 
@@ -45,7 +44,7 @@ impl WeightHistoryRepository {
                 history_id, task_id,
                 old_weights_json, new_weights_json,
                 adjustment_reasons_json, performance_impact, strategy_metadata
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(&history_id)
@@ -84,9 +83,9 @@ impl WeightHistoryRepository {
                     adjustment_reasons_json, performance_impact,
                     strategy_metadata
                 FROM weight_adjustment_history
-                WHERE timestamp >= ? AND timestamp <= ?
+                WHERE timestamp >= $1::timestamptz AND timestamp <= $2::timestamptz
                 ORDER BY timestamp DESC
-                LIMIT ?
+                LIMIT $3
                 "#,
             )
             .bind(start)
@@ -104,7 +103,7 @@ impl WeightHistoryRepository {
                     strategy_metadata
                 FROM weight_adjustment_history
                 ORDER BY timestamp DESC
-                LIMIT ?
+                LIMIT $1
                 "#,
             )
             .bind(limit)
@@ -135,9 +134,9 @@ impl WeightHistoryRepository {
                 adjustment_reasons_json, performance_impact,
                 strategy_metadata
             FROM weight_adjustment_history
-            WHERE task_id = ?
+            WHERE task_id = $1
             ORDER BY timestamp DESC
-            LIMIT ?
+            LIMIT $2
             "#,
         )
         .bind(task_id)
@@ -166,7 +165,7 @@ impl WeightHistoryRepository {
                     COUNT(*) as total_adjustments,
                     AVG(performance_impact) as avg_performance_impact
                 FROM weight_adjustment_history
-                WHERE timestamp >= ? AND timestamp <= ?
+                WHERE timestamp >= $1::timestamptz AND timestamp <= $2::timestamptz
                 "#,
             )
             .bind(start)
@@ -180,7 +179,7 @@ impl WeightHistoryRepository {
                     COUNT(*) as total_adjustments,
                     AVG(performance_impact) as avg_performance_impact
                 FROM weight_adjustment_history
-                "#
+                "#,
             )
             .fetch_one(pool)
             .await
@@ -202,14 +201,14 @@ impl WeightHistoryRepository {
 
     /// 将数据库行转换为 HistoryItem
     pub fn row_to_history_item(row: &WeightHistoryRow) -> Result<HistoryItem, AppError> {
-        let old_weights: MemoryWeights = serde_json::from_str(&row.old_weights_json)
-            .map_err(|e| {
+        let old_weights: MemoryWeights =
+            serde_json::from_str(&row.old_weights_json).map_err(|e| {
                 error!("Failed to deserialize old weights: {}", e);
                 AppError::Internal(format!("Deserialization error: {}", e))
             })?;
 
-        let new_weights: MemoryWeights = serde_json::from_str(&row.new_weights_json)
-            .map_err(|e| {
+        let new_weights: MemoryWeights =
+            serde_json::from_str(&row.new_weights_json).map_err(|e| {
                 error!("Failed to deserialize new weights: {}", e);
                 AppError::Internal(format!("Deserialization error: {}", e))
             })?;

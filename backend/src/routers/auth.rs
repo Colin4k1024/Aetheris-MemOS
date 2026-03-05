@@ -1,13 +1,13 @@
 use cookie::Cookie;
 use rinja::Template;
+use salvo::jwt_auth::JwtAuthState;
 use salvo::oapi::extract::*;
 use salvo::prelude::*;
-use salvo::jwt_auth::JwtAuthState;
 use serde::{Deserialize, Serialize};
 
 use crate::hoops::jwt;
 use crate::models::User;
-use crate::{db, json_ok, utils, AppError, AppResult, JsonResult};
+use crate::{AppError, AppResult, JsonResult, db, json_ok, utils};
 
 #[handler]
 pub async fn login_page(res: &mut Response) -> AppResult<()> {
@@ -52,14 +52,10 @@ pub async fn post_login(
         id,
         username,
         password,
-    }) = sqlx::query_as!(
-        User,
-        r#"
-            SELECT id, username, password FROM users
-            WHERE username = $1
-            "#,
-        idata.username
+    }) = sqlx::query_as::<_, User>(
+        "SELECT id, username, password FROM users WHERE username = $1",
     )
+    .bind(&idata.username)
     .fetch_optional(conn)
     .await?
     else {
@@ -68,8 +64,7 @@ pub async fn post_login(
             .into());
     };
 
-    if utils::verify_password(&idata.password, &password).is_err()
-    {
+    if utils::verify_password(&idata.password, &password).is_err() {
         return Err(StatusError::unauthorized()
             .brief("Account not exist or password is incorrect.")
             .into());
@@ -106,7 +101,7 @@ pub async fn post_login_with_token(
                     .brief("Token is invalid or expired.")
                     .into());
             }
-            
+
             // Token 有效，设置 cookie 并返回成功
             // 注意：这里无法从 token 中提取用户信息，所以返回一个简化的响应
             // 如果需要完整的用户信息，需要解码 token
@@ -116,7 +111,7 @@ pub async fn post_login_with_token(
                 .same_site(cookie::SameSite::None)
                 .build();
             res.add_cookie(cookie);
-            
+
             // 返回一个简化的登录响应
             // 实际应用中应该从 token 中解析用户信息
             return json_ok(LoginOutData {
@@ -127,24 +122,20 @@ pub async fn post_login_with_token(
             });
         }
     }
-    
+
     // 如果没有 token 查询参数，尝试从 JSON body 获取用户名和密码
     let idata: LoginInData = req.parse_json().await
         .map_err(|_| StatusError::bad_request().brief("Invalid request body. Expected JSON with username and password, or provide token as query parameter."))?;
-    
+
     let conn = db::pool();
     let Some(User {
         id,
         username,
         password,
-    }) = sqlx::query_as!(
-        User,
-        r#"
-            SELECT id, username, password FROM users
-            WHERE username = $1
-            "#,
-        idata.username
+    }) = sqlx::query_as::<_, User>(
+        "SELECT id, username, password FROM users WHERE username = $1",
     )
+    .bind(&idata.username)
     .fetch_optional(conn)
     .await?
     else {
@@ -153,8 +144,7 @@ pub async fn post_login_with_token(
             .into());
     };
 
-    if utils::verify_password(&idata.password, &password).is_err()
-    {
+    if utils::verify_password(&idata.password, &password).is_err() {
         return Err(StatusError::unauthorized()
             .brief("Account not exist or password is incorrect.")
             .into());
@@ -176,7 +166,6 @@ pub async fn post_login_with_token(
     json_ok(odata)
 }
 
-
 #[derive(Serialize, ToSchema, Default, Debug)]
 pub struct TokenVerifyResponse {
     pub valid: bool,
@@ -190,7 +179,7 @@ pub async fn get_login_with_token(
 ) -> JsonResult<TokenVerifyResponse> {
     // 从查询参数获取 token
     let token = req.query::<&str>("token").map(|s| s.to_string());
-    
+
     // 如果没有 token，返回错误
     let token = match token {
         Some(t) if !t.is_empty() => t,
@@ -204,7 +193,7 @@ pub async fn get_login_with_token(
 
     // 验证 token
     let valid = jwt::decode_token(&token);
-    
+
     if valid {
         // 如果 token 有效，设置 cookie
         let cookie = Cookie::build(("jwt_token", token.clone()))
@@ -213,7 +202,7 @@ pub async fn get_login_with_token(
             .same_site(cookie::SameSite::None)
             .build();
         res.add_cookie(cookie);
-        
+
         json_ok(TokenVerifyResponse {
             valid: true,
             message: "Token is valid".to_string(),
@@ -236,8 +225,8 @@ pub struct CurrentUserResponse {
     pub title: Option<String>,
     pub group: Option<String>,
     pub tags: Option<Vec<Tag>>,
-    pub notifyCount: Option<u32>,
-    pub unreadCount: Option<u32>,
+    pub notify_count: Option<u32>,
+    pub unread_count: Option<u32>,
     pub country: Option<String>,
     pub access: Option<String>,
     pub geographic: Option<Geographic>,
@@ -264,32 +253,27 @@ pub struct Location {
 }
 
 #[endpoint(tags("auth"))]
-pub async fn get_current_user(
-    depot: &mut Depot,
-) -> JsonResult<CurrentUserResponse> {
+pub async fn get_current_user(depot: &mut Depot) -> JsonResult<CurrentUserResponse> {
     // 检查认证状态
     match depot.jwt_auth_state() {
         JwtAuthState::Authorized => {
             // 获取 JWT claims
-            let jwt_data = depot.jwt_auth_data::<jwt::JwtClaims>()
+            let jwt_data = depot
+                .jwt_auth_data::<jwt::JwtClaims>()
                 .ok_or_else(|| StatusError::unauthorized().brief("Not authenticated"))?;
-            
+
             let user_id = &jwt_data.claims.uid;
             let conn = db::pool();
-            
+
             // 从数据库查询用户信息
-            let user = sqlx::query_as!(
-                User,
-                r#"
-                    SELECT id, username, password FROM users
-                    WHERE id = $1
-                    "#,
-                user_id
+            let user = sqlx::query_as::<_, User>(
+                "SELECT id, username, password FROM users WHERE id = $1",
             )
+            .bind(&user_id)
             .fetch_optional(conn)
             .await?
             .ok_or_else(|| StatusError::not_found().brief("User not found"))?;
-            
+
             // 构建返回数据
             json_ok(CurrentUserResponse {
                 name: user.username.clone(),
@@ -300,8 +284,8 @@ pub async fn get_current_user(
                 title: None,
                 group: None,
                 tags: None,
-                notifyCount: Some(0),
-                unreadCount: Some(0),
+                notify_count: Some(0),
+                unread_count: Some(0),
                 country: None,
                 access: Some("admin".to_string()), // 默认设置为 admin
                 geographic: None,
@@ -309,11 +293,9 @@ pub async fn get_current_user(
                 phone: None,
             })
         }
-        JwtAuthState::Unauthorized => {
-            Err(StatusError::unauthorized().brief("Not authenticated").into())
-        }
-        JwtAuthState::Forbidden => {
-            Err(StatusError::forbidden().brief("Access forbidden").into())
-        }
+        JwtAuthState::Unauthorized => Err(StatusError::unauthorized()
+            .brief("Not authenticated")
+            .into()),
+        JwtAuthState::Forbidden => Err(StatusError::forbidden().brief("Access forbidden").into()),
     }
 }

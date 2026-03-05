@@ -24,7 +24,7 @@ impl DecisionTraceRepository {
         sqlx::query(
             r#"
             INSERT INTO decision_trace (trace_id, task_id, trace_json)
-            VALUES (?, ?, ?)
+            VALUES ($1, $2, $3)
             "#,
         )
         .bind(&trace_id)
@@ -49,11 +49,11 @@ impl DecisionTraceRepository {
         let limit = limit.unwrap_or(50);
         let rows = sqlx::query_as::<_, DecisionTraceRow>(
             r#"
-            SELECT trace_id, task_id, trace_json, created_at
+            SELECT trace_id, task_id, trace_json, created_at::text
             FROM decision_trace
-            WHERE task_id = ?
+            WHERE task_id = $1
             ORDER BY created_at DESC
-            LIMIT ?
+            LIMIT $2
             "#,
         )
         .bind(task_id)
@@ -78,11 +78,11 @@ impl DecisionTraceRepository {
         let rows = if let (Some(start), Some(end)) = (start_time, end_time) {
             sqlx::query_as::<_, DecisionTraceRow>(
                 r#"
-                SELECT trace_id, task_id, trace_json, created_at
+                SELECT trace_id, task_id, trace_json, created_at::text
                 FROM decision_trace
-                WHERE created_at >= ? AND created_at <= ?
+                WHERE created_at >= $1::timestamptz AND created_at <= $2::timestamptz
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT $3
                 "#,
             )
             .bind(start)
@@ -93,10 +93,10 @@ impl DecisionTraceRepository {
         } else {
             sqlx::query_as::<_, DecisionTraceRow>(
                 r#"
-                SELECT trace_id, task_id, trace_json, created_at
+                SELECT trace_id, task_id, trace_json, created_at::text
                 FROM decision_trace
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT $1
                 "#,
             )
             .bind(limit)

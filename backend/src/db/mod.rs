@@ -1,8 +1,7 @@
-//! Database layer: SQLite is the default adapter for local & demo.
-//! Adapter abstraction (e.g. PostgreSQL/MySQL) is planned for production; see docs/ROADMAP.md.
+//! Database layer: PostgreSQL for Docker/production.
 
-use sqlx::SqlitePool;
 use sqlx::migrate::Migrator;
+use sqlx::PgPool;
 use std::path::Path;
 use std::sync::OnceLock;
 use tracing::{error, info};
@@ -21,8 +20,6 @@ impl std::fmt::Display for DbInitError {
 
 impl std::error::Error for DbInitError {}
 
-/// Adapter namespace: current implementation uses SQLite directly in this crate.
-/// Future: move SQLite behind `adapters::sqlite`, add `adapters::postgres` etc.
 pub mod adapters;
 
 pub mod decision_trace;
@@ -38,14 +35,12 @@ pub use kg::KGRepository;
 pub use neo4j::{init as init_neo4j, init_neo4j_indexes};
 pub use stm::SessionMessage;
 
-pub static SQLX_POOL: OnceLock<SqlitePool> = OnceLock::new();
+pub static SQLX_POOL: OnceLock<PgPool> = OnceLock::new();
 
 pub async fn init(config: &DbConfig) -> Result<(), DbInitError> {
-    // 连接数据库
-    info!("正在连接数据库: {}", config.url);
+    info!("Connecting to database: {} (redacted)", config.url.split('@').last().unwrap_or(""));
 
-    // 配置连接池选项
-    let pool_options = sqlx::sqlite::SqlitePoolOptions::new()
+    let pool_options = sqlx::postgres::PgPoolOptions::new()
         .max_connections(10)
         .min_connections(2)
         .acquire_timeout(std::time::Duration::from_secs(30))
@@ -56,39 +51,36 @@ pub async fn init(config: &DbConfig) -> Result<(), DbInitError> {
         error!("Database connection failed: {}", e);
         DbInitError(format!("Database connection failed: {}", e))
     })?;
-    info!("数据库连接成功，连接池已初始化");
+    info!("Database connected, pool initialized");
 
-    // 健康检查
     sqlx_pool.acquire().await.map_err(|e| {
-        error!("数据库连接池健康检查失败: {}", e);
+        error!("Database pool health check failed: {}", e);
         DbInitError(format!("Database pool health check failed: {}", e))
     })?;
-    info!("数据库连接池健康检查通过");
+    info!("Database pool health check passed");
 
-    // 执行迁移
-    info!("开始执行数据库迁移...");
+    info!("Running migrations...");
     let migrations_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-    info!("迁移文件目录: {:?}", migrations_path);
+    info!("Migrations path: {:?}", migrations_path);
 
     let migrator = Migrator::new(migrations_path).await.map_err(|e| {
-        error!("创建迁移器失败: {}", e);
+        error!("Failed to create migrator: {}", e);
         DbInitError(format!("Failed to create migrator: {}", e))
     })?;
 
     migrator.run(&sqlx_pool).await.map_err(|e| {
-        error!("数据库迁移执行失败: {}", e);
+        error!("Migrations failed: {}", e);
         DbInitError(format!("Failed to run migrations: {}", e))
     })?;
-    info!("数据库迁移执行成功");
+    info!("Migrations completed");
 
-    // 设置连接池
-    crate::db::SQLX_POOL.set(sqlx_pool).map_err(|_| {
-        DbInitError("sqlx pool already set".to_string())
-    })?;
-    info!("数据库初始化完成");
+    crate::db::SQLX_POOL
+        .set(sqlx_pool)
+        .map_err(|_| DbInitError("sqlx pool already set".to_string()))?;
+    info!("Database initialization complete");
     Ok(())
 }
 
-pub fn pool() -> &'static SqlitePool {
+pub fn pool() -> &'static PgPool {
     SQLX_POOL.get().expect("sqlx pool should be set")
 }

@@ -1,10 +1,1 @@
--- =============================================
--- SQLite 初始化脚本
--- =============================================
-
--- 启用外键约束
-PRAGMA foreign_keys = ON;
-
--- 启用 JSON 支持（SQLite 3.38+）
--- PRAGMA compile_options;
-
+-- PostgreSQL init (no-op; foreign keys enabled by default)

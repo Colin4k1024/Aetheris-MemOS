@@ -43,12 +43,12 @@ impl MemoryConfigRepository {
                 max_response_time_ms, max_memory_usage_mb, max_cpu_usage_percent,
                 status
             ) VALUES (
-                ?, ?, ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
+                $1, $2, $3, $4, $5,
+                $6, $7, $8,
+                $9, $10, $11,
+                $12, $13, $14,
+                $15, $16, $17,
+                $18, $19, $20,
                 'active'
             )
             "#,
@@ -101,9 +101,9 @@ impl MemoryConfigRepository {
                 kg_enabled, kg_max_entities, kg_confidence_threshold,
                 mm_enabled, mm_max_entries, mm_modality_types,
                 max_response_time_ms, max_memory_usage_mb, max_cpu_usage_percent,
-                created_at, updated_at, status
+                created_at::text, updated_at::text, status
             FROM memory_configurations
-            WHERE config_id = ?
+            WHERE config_id = $1
             "#,
         )
         .bind(config_id)
@@ -133,9 +133,9 @@ impl MemoryConfigRepository {
                 kg_enabled, kg_max_entities, kg_confidence_threshold,
                 mm_enabled, mm_max_entries, mm_modality_types,
                 max_response_time_ms, max_memory_usage_mb, max_cpu_usage_percent,
-                created_at, updated_at, status
+                created_at::text, updated_at::text, status
             FROM memory_configurations
-            WHERE user_id = ? AND agent_id = ? AND status = 'active'
+            WHERE user_id = $1 AND agent_id = $2 AND status = 'active'
             ORDER BY created_at DESC
             LIMIT 1
             "#,
@@ -178,7 +178,7 @@ impl MemoryConfigRepository {
                 kg_enabled, kg_max_entities, kg_confidence_threshold,
                 mm_enabled, mm_max_entries, mm_modality_types,
                 max_response_time_ms, max_memory_usage_mb, max_cpu_usage_percent,
-                created_at, updated_at, status
+                created_at::text, updated_at::text, status
             FROM memory_configurations
             ORDER BY created_at DESC
             "#,
@@ -242,28 +242,28 @@ impl MemoryConfigRepository {
             r#"
             UPDATE memory_configurations
             SET 
-                user_id = ?,
-                agent_id = ?,
-                config_name = ?,
-                config_type = ?,
-                stm_enabled = ?,
-                stm_max_length = ?,
-                stm_retention_hours = ?,
-                ltm_enabled = ?,
-                ltm_max_entries = ?,
-                ltm_quality_threshold = ?,
-                kg_enabled = ?,
-                kg_max_entities = ?,
-                kg_confidence_threshold = ?,
-                mm_enabled = ?,
-                mm_max_entries = ?,
-                mm_modality_types = ?,
-                max_response_time_ms = ?,
-                max_memory_usage_mb = ?,
-                max_cpu_usage_percent = ?,
-                status = ?,
-                updated_at = datetime('now')
-            WHERE config_id = ?
+                user_id = $1,
+                agent_id = $2,
+                config_name = $3,
+                config_type = $4,
+                stm_enabled = $5,
+                stm_max_length = $6,
+                stm_retention_hours = $7,
+                ltm_enabled = $8,
+                ltm_max_entries = $9,
+                ltm_quality_threshold = $10,
+                kg_enabled = $11,
+                kg_max_entities = $12,
+                kg_confidence_threshold = $13,
+                mm_enabled = $14,
+                mm_max_entries = $15,
+                mm_modality_types = $16,
+                max_response_time_ms = $17,
+                max_memory_usage_mb = $18,
+                max_cpu_usage_percent = $19,
+                status = $20,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE config_id = $21
             "#,
         )
         .bind(&row.user_id)
@@ -308,8 +308,8 @@ impl MemoryConfigRepository {
         sqlx::query(
             r#"
             UPDATE memory_configurations
-            SET status = ?, updated_at = datetime('now')
-            WHERE config_id = ?
+            SET status = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE config_id = $2
             "#,
         )
         .bind(status)

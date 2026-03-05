@@ -94,7 +94,7 @@ impl LTMRepository {
                 entry_id, source_id, source_type, title, content, content_type, content_hash,
                 embedding_vector, embedding_model, embedding_dimension,
                 quality_score, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
             "#,
         )
         .bind(&entry_id)
@@ -128,47 +128,26 @@ impl LTMRepository {
     ) -> Result<(), AppError> {
         let pool = pool();
 
-        // 构建动态更新查询
-        let mut updates = Vec::new();
-        let mut bindings: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = Vec::new();
-
-        if let Some(t) = title {
-            updates.push("title = ?");
-            bindings.push(Box::new(t.to_string()));
-        }
-        if let Some(c) = content {
-            updates.push("content = ?");
-            bindings.push(Box::new(c.to_string()));
-        }
-        if let Some(qs) = quality_score {
-            updates.push("quality_score = ?");
-            bindings.push(Box::new(qs));
-        }
-
-        if updates.is_empty() {
-            return Ok(());
-        }
-
-        updates.push("updated_at = datetime('now')");
-
-        let query = format!(
-            "UPDATE knowledge_entries SET {} WHERE entry_id = ?",
-            updates.join(", ")
-        );
-
-        let mut query_builder = sqlx::query(&query);
-        for binding in bindings {
-            // 这里需要根据实际类型进行绑定，简化处理
-        }
-        query_builder = query_builder.bind(entry_id);
-
-        query_builder
-            .execute(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to update knowledge entry: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })?;
+        sqlx::query(
+            r#"
+            UPDATE knowledge_entries
+            SET title = COALESCE($1, title),
+                content = COALESCE($2, content),
+                quality_score = COALESCE($3, quality_score),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE entry_id = $4
+            "#,
+        )
+        .bind(title)
+        .bind(content)
+        .bind(quality_score)
+        .bind(entry_id)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to update knowledge entry: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         info!("Updated knowledge entry: {}", entry_id);
         Ok(())
@@ -185,7 +164,7 @@ impl LTMRepository {
                    created_at, updated_at, last_accessed_at, access_count,
                    quality_score, relevance_score, status
             FROM knowledge_entries
-            WHERE entry_id = ? AND status = 'active'
+            WHERE entry_id = $1 AND status = 'active'
             "#,
         )
         .bind(entry_id)
@@ -216,9 +195,9 @@ impl LTMRepository {
                        created_at, updated_at, last_accessed_at, access_count,
                        quality_score, relevance_score, status
                 FROM knowledge_entries
-                WHERE source_id = ? AND source_type = ? AND status = 'active'
+                WHERE source_id = $1 AND source_type = $2 AND status = 'active'
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT $3
                 "#,
             )
             .bind(source_id)
@@ -232,9 +211,9 @@ impl LTMRepository {
                        created_at, updated_at, last_accessed_at, access_count,
                        quality_score, relevance_score, status
                 FROM knowledge_entries
-                WHERE source_id = ? AND status = 'active'
+                WHERE source_id = $1 AND status = 'active'
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT $2
                 "#,
             )
             .bind(source_id)

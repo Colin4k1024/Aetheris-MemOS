@@ -1,14 +1,10 @@
--- =============================================
--- Decision trace persistence (v0.3 explainability)
--- =============================================
-
-PRAGMA foreign_keys = ON;
+-- Decision trace (PostgreSQL)
 
 CREATE TABLE IF NOT EXISTS decision_trace (
     trace_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
     trace_json TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_decision_trace_task_id ON decision_trace (task_id);

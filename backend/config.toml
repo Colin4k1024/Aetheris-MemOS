@@ -1,7 +1,8 @@
 listen_addr = "127.0.0.1:8008"
 
 [db]
-url = "file:./data/sqlx.sqlite"
+# PostgreSQL (local: start with docker compose up -d postgres, or set DATABASE_URL)
+url = "postgres://memory:memory@localhost:5432/memory"
 
 [jwt]
 # 生产环境必须通过 APP_JWT_SECRET 环境变量设置强随机密钥，勿使用示例值

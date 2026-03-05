@@ -1,38 +1,30 @@
+use once_cell::sync::Lazy;
 use salvo::oapi::extract::*;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use once_cell::sync::Lazy;
 
+use crate::db::{
+    decision_trace::DecisionTraceRepository, memory::MemoryConfigRepository,
+    performance::PerformanceMetricsRepository, weights::WeightHistoryRepository,
+};
 use crate::models::*;
 use crate::services::*;
-use crate::db::{
-    decision_trace::DecisionTraceRepository,
-    memory::MemoryConfigRepository,
-    performance::PerformanceMetricsRepository,
-    weights::WeightHistoryRepository,
-};
-use crate::{json_ok, JsonResult};
+use crate::{JsonResult, json_ok};
 
-static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> = Lazy::new(|| {
-    Arc::new(AdaptiveMemoryScheduler::new())
-});
+static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> =
+    Lazy::new(|| Arc::new(AdaptiveMemoryScheduler::new()));
 
-static ANALYZER: Lazy<Arc<TaskCharacteristicAnalyzer>> = Lazy::new(|| {
-    Arc::new(TaskCharacteristicAnalyzer::new())
-});
+static ANALYZER: Lazy<Arc<TaskCharacteristicAnalyzer>> =
+    Lazy::new(|| Arc::new(TaskCharacteristicAnalyzer::new()));
 
-static PREDICTOR: Lazy<Arc<PerformancePredictionModel>> = Lazy::new(|| {
-    Arc::new(PerformancePredictionModel::new())
-});
+static PREDICTOR: Lazy<Arc<PerformancePredictionModel>> =
+    Lazy::new(|| Arc::new(PerformancePredictionModel::new()));
 
-static MONITOR: Lazy<Arc<ResourceMonitor>> = Lazy::new(|| {
-    Arc::new(ResourceMonitor::new())
-});
+static MONITOR: Lazy<Arc<ResourceMonitor>> = Lazy::new(|| Arc::new(ResourceMonitor::new()));
 
-static WEIGHT_ADJUSTER: Lazy<Arc<DynamicWeightAdjuster>> = Lazy::new(|| {
-    Arc::new(DynamicWeightAdjuster::new())
-});
+static WEIGHT_ADJUSTER: Lazy<Arc<DynamicWeightAdjuster>> =
+    Lazy::new(|| Arc::new(DynamicWeightAdjuster::new()));
 
 // ========== 自适应记忆调度器 API ==========
 
@@ -118,11 +110,7 @@ pub async fn select_memory_config(
         }
         let what_if_result = if let Some(ref w) = request.what_if_constraints {
             SCHEDULER
-                .adaptive_memory_selection_trace(
-                    &request.task_context,
-                    w,
-                    &request.preferences,
-                )
+                .adaptive_memory_selection_trace(&request.task_context, w, &request.preferences)
                 .await
                 .ok()
                 .map(|t| t.final_result)
@@ -148,11 +136,7 @@ pub async fn select_memory_config(
 
     let what_if_result = if let Some(ref w) = request.what_if_constraints {
         SCHEDULER
-            .adaptive_memory_selection_trace(
-                &request.task_context,
-                w,
-                &request.preferences,
-            )
+            .adaptive_memory_selection_trace(&request.task_context, w, &request.preferences)
             .await
             .ok()
             .map(|t| t.final_result)
@@ -182,9 +166,8 @@ pub async fn select_memory_config_trace(
         )
         .await?;
     if request.persist_trace == Some(true) {
-        let trace_json = serde_json::to_string(&trace).map_err(|e| {
-            crate::AppError::Internal(format!("Failed to serialize trace: {}", e))
-        })?;
+        let trace_json = serde_json::to_string(&trace)
+            .map_err(|e| crate::AppError::Internal(format!("Failed to serialize trace: {}", e)))?;
         let _ = DecisionTraceRepository::create(&trace.task_id, &trace_json).await;
     }
     json_ok(trace)
@@ -257,7 +240,7 @@ pub async fn get_memory_status() -> JsonResult<MemoryStatusResponse> {
     let config_row = MemoryConfigRepository::get_latest("default_user", "default_agent")
         .await
         .unwrap_or(None);
-    
+
     let (current_config, performance_metrics) = if let Some(row) = config_row {
         let config = MemoryConfigRepository::row_to_memory_config(&row);
         // 获取该配置的最新性能指标
@@ -269,7 +252,7 @@ pub async fn get_memory_status() -> JsonResult<MemoryStatusResponse> {
         )
         .await
         .unwrap_or_default();
-        
+
         let metrics = if let Some(metric_row) = metrics_rows.first() {
             PerformanceMetricsRepository::row_to_performance_metrics(metric_row)
         } else {
@@ -306,9 +289,9 @@ pub async fn get_memory_status() -> JsonResult<MemoryStatusResponse> {
             },
         )
     };
-    
+
     let resource_status = MONITOR.get_current_status().await;
-    
+
     json_ok(MemoryStatusResponse {
         current_config,
         performance_metrics,
@@ -340,7 +323,7 @@ pub async fn analyze_task_characteristics(
     let request = body.into_inner();
     let (characteristics, memory_strategy, confidence_score) =
         ANALYZER.analyze_task_characteristics(&request.task_context);
-    
+
     json_ok(AnalyzeTaskResponse {
         characteristics,
         memory_strategy,
@@ -396,20 +379,20 @@ pub async fn batch_analyze_characteristics(
     let request = body.into_inner();
     let mut results = Vec::new();
     let mut total_complexity = 0.0;
-    
+
     for task in request.tasks {
         let (characteristics, memory_strategy, _) =
             ANALYZER.analyze_task_characteristics(&task.task_context);
-        
+
         total_complexity += characteristics.complexity;
-        
+
         results.push(TaskResult {
             task_id: task.task_id,
             characteristics,
             memory_strategy,
         });
     }
-    
+
     let total_tasks = results.len();
     json_ok(BatchAnalyzeResponse {
         results,
@@ -455,7 +438,7 @@ pub async fn predict_performance(
     let request = body.into_inner();
     let (predicted_performance, synergy_factor, decay_factor, performance_breakdown) =
         PREDICTOR.predict_memory_performance(&request.memory_config);
-    
+
     json_ok(PredictPerformanceResponse {
         predicted_performance,
         synergy_factor,
@@ -513,18 +496,16 @@ pub async fn calculate_cost_benefit(
     body: JsonBody<CostBenefitRequest>,
 ) -> JsonResult<CostBenefitResponse> {
     let request = body.into_inner();
-    let cost_benefit_ratio = MONITOR.calculate_cost_benefit_ratio(
-        &request.performance_prediction,
-        &request.resource_status,
-    );
-    
+    let cost_benefit_ratio = MONITOR
+        .calculate_cost_benefit_ratio(&request.performance_prediction, &request.resource_status);
+
     let performance_score = request.performance_prediction.efficiency_gain * 0.6
         + request.performance_prediction.coherence_gain * 0.4;
-    
+
     let resource_cost = (request.resource_status.memory_usage_percent as f64 / 100.0) * 0.4
         + (request.resource_status.cpu_usage_percent as f64 / 100.0) * 0.4
         + (request.resource_status.response_time_ms as f64 / 2000.0) * 0.2;
-    
+
     let recommendation = if cost_benefit_ratio > 1.5 {
         "optimal"
     } else if cost_benefit_ratio > 1.0 {
@@ -532,15 +513,13 @@ pub async fn calculate_cost_benefit(
     } else {
         "poor"
     };
-    
+
     let mut suggestions = Vec::new();
     if cost_benefit_ratio < 1.0 {
-        suggestions.push(
-            "Consider reducing LTM weight to improve cost-benefit ratio".to_string(),
-        );
+        suggestions.push("Consider reducing LTM weight to improve cost-benefit ratio".to_string());
         suggestions.push("KG memory may provide better value for this task type".to_string());
     }
-    
+
     json_ok(CostBenefitResponse {
         cost_benefit_ratio,
         performance_score,
@@ -559,9 +538,7 @@ pub struct OptimizeRequest {
 }
 
 #[endpoint(tags("memory"))]
-pub async fn optimize(
-    body: JsonBody<OptimizeRequest>,
-) -> JsonResult<OptimizationResult> {
+pub async fn optimize(body: JsonBody<OptimizeRequest>) -> JsonResult<OptimizationResult> {
     let request = body.into_inner();
     let result = MONITOR.optimize_config(&request.current_config, &request.performance_goals);
     json_ok(result)
@@ -594,14 +571,15 @@ pub async fn adjust_weights(
     body: JsonBody<AdjustWeightsRequest>,
 ) -> JsonResult<AdjustWeightsResponse> {
     let request = body.into_inner();
-    let (adjusted_weights, adjustment_reasons) = WEIGHT_ADJUSTER.adjust_memory_weights(
-        &request.task_profile,
-        request.cost_benefit_ratio,
-        Some(&request.current_weights),
-        None, // task_id can be added to request if needed
-    )
-    .await?;
-    
+    let (adjusted_weights, adjustment_reasons) = WEIGHT_ADJUSTER
+        .adjust_memory_weights(
+            &request.task_profile,
+            request.cost_benefit_ratio,
+            Some(&request.current_weights),
+            None, // task_id can be added to request if needed
+        )
+        .await?;
+
     json_ok(AdjustWeightsResponse {
         adjusted_weights,
         adjustment_reasons,
@@ -646,21 +624,23 @@ pub async fn get_weight_history() -> JsonResult<WeightHistoryResponse> {
     let history_rows = WeightHistoryRepository::get_by_time_range(None, None, Some(100))
         .await
         .unwrap_or_default();
-    
+
     let adjustment_history: Vec<HistoryItem> = history_rows
         .iter()
         .filter_map(|row| {
-            WeightHistoryRepository::row_to_history_item(row).ok().map(|item| HistoryItem {
-                timestamp: item.timestamp,
-                task_id: item.task_id,
-                old_weights: item.old_weights,
-                new_weights: item.new_weights,
-                reason: item.reason,
-                performance_impact: item.performance_impact,
-            })
+            WeightHistoryRepository::row_to_history_item(row)
+                .ok()
+                .map(|item| HistoryItem {
+                    timestamp: item.timestamp,
+                    task_id: item.task_id,
+                    old_weights: item.old_weights,
+                    new_weights: item.new_weights,
+                    reason: item.reason,
+                    performance_impact: item.performance_impact,
+                })
         })
         .collect();
-    
+
     let summary_row = WeightHistoryRepository::get_summary(None, None)
         .await
         .unwrap_or(crate::db::weights::WeightHistorySummary {
@@ -668,7 +648,7 @@ pub async fn get_weight_history() -> JsonResult<WeightHistoryResponse> {
             average_performance_impact: 0.0,
             most_common_adjustment: "ltm_weight_increase".to_string(),
         });
-    
+
     json_ok(WeightHistoryResponse {
         adjustment_history,
         summary: HistorySummary {
@@ -712,7 +692,7 @@ pub struct HealthResponse {
 #[endpoint(tags("memory"))]
 pub async fn health_check() -> JsonResult<HealthResponse> {
     use time::OffsetDateTime;
-    
+
     json_ok(HealthResponse {
         status: "healthy".to_string(),
         timestamp: OffsetDateTime::now_utc().to_string(),
@@ -882,9 +862,7 @@ pub struct UpdateMemoryConfigRequest {
 }
 
 #[endpoint(tags("memory"))]
-pub async fn list_memory_configs(
-    req: &mut Request,
-) -> JsonResult<ListMemoryConfigsResponse> {
+pub async fn list_memory_configs(req: &mut Request) -> JsonResult<ListMemoryConfigsResponse> {
     let page: Option<u32> = req.query::<u32>("page");
     let page_size: Option<u32> = req.query::<u32>("pageSize");
     let user_id: Option<String> = req.query::<String>("userId");
@@ -914,7 +892,8 @@ pub async fn list_memory_configs(
 pub async fn get_memory_config(
     req: &mut Request,
 ) -> JsonResult<crate::db::memory::MemoryConfigRow> {
-    let config_id = req.param::<String>("config_id")
+    let config_id = req
+        .param::<String>("config_id")
         .ok_or_else(|| crate::AppError::BadRequest("config_id is required".to_string()))?;
 
     let config = MemoryConfigRepository::get_by_id(&config_id)
@@ -953,8 +932,12 @@ pub async fn create_memory_config(
         max_response_time_ms: req.max_response_time_ms,
         max_memory_usage_mb: req.max_memory_usage_mb,
         max_cpu_usage_percent: req.max_cpu_usage_percent,
-        created_at: time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_else(|_| String::from("")),
-        updated_at: time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_else(|_| String::from("")),
+        created_at: time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|_| String::from("")),
+        updated_at: time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|_| String::from("")),
         status: req.status,
     };
 
@@ -971,13 +954,13 @@ pub async fn create_memory_config(
             max_response_time_ms, max_memory_usage_mb, max_cpu_usage_percent,
             status
         ) VALUES (
-            ?, ?, ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?
+            $1, $2, $3, $4, $5,
+            $6, $7, $8,
+            $9, $10, $11,
+            $12, $13, $14,
+            $15, $16, $17,
+            $18, $19, $20,
+            $21
         )
         "#,
     )
@@ -1017,7 +1000,8 @@ pub async fn update_memory_config(
     req: &mut Request,
     body: JsonBody<UpdateMemoryConfigRequest>,
 ) -> JsonResult<serde_json::Value> {
-    let config_id = req.param::<String>("config_id")
+    let config_id = req
+        .param::<String>("config_id")
         .ok_or_else(|| crate::AppError::BadRequest("config_id is required".to_string()))?;
 
     let update_req = body.into_inner();
@@ -1095,14 +1079,12 @@ pub async fn update_memory_config(
 }
 
 #[endpoint(tags("memory"))]
-pub async fn delete_memory_config(
-    req: &mut Request,
-) -> JsonResult<serde_json::Value> {
-    let config_id = req.param::<String>("config_id")
+pub async fn delete_memory_config(req: &mut Request) -> JsonResult<serde_json::Value> {
+    let config_id = req
+        .param::<String>("config_id")
         .ok_or_else(|| crate::AppError::BadRequest("config_id is required".to_string()))?;
 
     MemoryConfigRepository::delete(&config_id).await?;
 
     json_ok(serde_json::json!({ "success": true }))
 }
-

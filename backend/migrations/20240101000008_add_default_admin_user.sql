@@ -1,8 +1,1 @@
--- =============================================
--- 添加默认管理员用户 (Add Default Admin User)
--- =============================================
--- 开源版本不插入默认凭据。请通过 POST /api/register 或部署后手动创建首个管理员。
-
--- 启用外键约束
-PRAGMA foreign_keys = ON;
-
+-- Add default admin user (no-op for PostgreSQL; create users via API)

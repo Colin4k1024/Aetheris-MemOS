@@ -78,7 +78,7 @@ impl MMRepository {
             INSERT INTO multimodal_entries (
                 entry_id, session_id, source_id, modality_type, content_metadata,
                 text_content, image_url, audio_url, video_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
         )
         .bind(&entry_id)
@@ -115,7 +115,7 @@ impl MMRepository {
                    created_at, updated_at, quality_score, modality_consistency,
                    access_count, success_count, status
             FROM multimodal_entries
-            WHERE entry_id = ? AND status = 'active'
+            WHERE entry_id = $1 AND status = 'active'
             "#,
         )
         .bind(entry_id)
@@ -145,14 +145,14 @@ impl MMRepository {
         sqlx::query(
             r#"
             UPDATE multimodal_entries
-            SET title = COALESCE(?, title),
-                description = COALESCE(?, description),
-                text_embedding = COALESCE(?, text_embedding),
-                image_embedding = COALESCE(?, image_embedding),
-                audio_embedding = COALESCE(?, audio_embedding),
-                video_embedding = COALESCE(?, video_embedding),
-                unified_embedding = COALESCE(?, unified_embedding)
-            WHERE entry_id = ?
+            SET title = COALESCE($1, title),
+                description = COALESCE($2, description),
+                text_embedding = COALESCE($3, text_embedding),
+                image_embedding = COALESCE($4, image_embedding),
+                audio_embedding = COALESCE($5, audio_embedding),
+                video_embedding = COALESCE($6, video_embedding),
+                unified_embedding = COALESCE($7, unified_embedding)
+            WHERE entry_id = $8
             "#,
         )
         .bind(title)
@@ -188,9 +188,9 @@ impl MMRepository {
                    created_at, updated_at, quality_score, modality_consistency,
                    access_count, success_count, status
             FROM multimodal_entries
-            WHERE session_id = ? AND status = 'active'
+            WHERE session_id = $1 AND status = 'active'
             ORDER BY created_at DESC
-            LIMIT ?
+            LIMIT $2
             "#,
         )
         .bind(session_id)
@@ -220,9 +220,9 @@ impl MMRepository {
                    created_at, updated_at, quality_score, modality_consistency,
                    access_count, success_count, status
             FROM multimodal_entries
-            WHERE modality_type = ? AND status = 'active'
+            WHERE modality_type = $1 AND status = 'active'
             ORDER BY created_at DESC
-            LIMIT ?
+            LIMIT $2
             "#,
         )
         .bind(modality_type)
@@ -255,7 +255,7 @@ impl MMRepository {
             INSERT INTO modality_relations (
                 relation_id, source_entry_id, target_entry_id, relation_type,
                 relation_strength, relation_confidence, description
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(&relation_id)
@@ -285,9 +285,9 @@ impl MMRepository {
             SELECT relation_id, source_entry_id, target_entry_id, relation_type,
                    relation_strength, relation_confidence, created_at, metadata, description
             FROM modality_relations
-            WHERE source_entry_id = ? OR target_entry_id = ?
+            WHERE source_entry_id = $1 OR target_entry_id = $2
             ORDER BY relation_strength DESC, relation_confidence DESC
-            LIMIT ?
+            LIMIT $3
             "#,
         )
         .bind(entry_id)

@@ -35,11 +35,16 @@ pub fn init() {
             std::process::exit(1);
         }
     };
+    if let Ok(url) = std::env::var("DATABASE_URL") {
+        if !url.is_empty() {
+            config.db.url = url;
+        }
+    }
     if config.db.url.is_empty() {
         config.db.url = std::env::var("DATABASE_URL").unwrap_or_default();
     }
     if config.db.url.is_empty() {
-        eprintln!("DATABASE_URL is not set");
+        eprintln!("DATABASE_URL is not set and db.url is empty in config");
         std::process::exit(1);
     }
     crate::config::CONFIG

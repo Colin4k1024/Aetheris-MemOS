@@ -102,7 +102,7 @@ impl KGRepository {
             INSERT INTO entities (
                 entity_id, entity_name, entity_type, description, attributes, aliases,
                 embedding_vector, embedding_model, embedding_dimension, confidence_score
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(entity_id.clone())
@@ -140,7 +140,7 @@ impl KGRepository {
                        created_at, updated_at, confidence_score, popularity_score,
                        relation_count, mention_count, status
                 FROM entities
-                WHERE entity_name = ? AND entity_type = ? AND status = 'active'
+                WHERE entity_name = $1 AND entity_type = $2 AND status = 'active'
                 LIMIT 1
                 "#,
             )
@@ -154,7 +154,7 @@ impl KGRepository {
                        created_at, updated_at, confidence_score, popularity_score,
                        relation_count, mention_count, status
                 FROM entities
-                WHERE entity_name = ? AND status = 'active'
+                WHERE entity_name = $1 AND status = 'active'
                 LIMIT 1
                 "#,
             )
@@ -180,7 +180,7 @@ impl KGRepository {
                    created_at, updated_at, confidence_score, popularity_score,
                    relation_count, mention_count, status
             FROM entities
-            WHERE entity_id = ? AND status = 'active'
+            WHERE entity_id = $1 AND status = 'active'
             LIMIT 1
             "#,
         )
@@ -222,7 +222,7 @@ impl KGRepository {
             INSERT INTO relations (
                 relation_id, source_entity_id, target_entity_id, relation_type,
                 weight, confidence, properties
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(relation_id.clone())
@@ -240,7 +240,7 @@ impl KGRepository {
         })?;
 
         // 更新源实体和目标实体的关系计数
-        sqlx::query("UPDATE entities SET relation_count = relation_count + 1 WHERE entity_id = ?")
+        sqlx::query("UPDATE entities SET relation_count = relation_count + 1 WHERE entity_id = $1")
             .bind(source_entity_id)
             .execute(pool)
             .await
@@ -249,7 +249,7 @@ impl KGRepository {
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-        sqlx::query("UPDATE entities SET relation_count = relation_count + 1 WHERE entity_id = ?")
+        sqlx::query("UPDATE entities SET relation_count = relation_count + 1 WHERE entity_id = $1")
             .bind(target_entity_id)
             .execute(pool)
             .await
@@ -278,9 +278,9 @@ impl KGRepository {
                        r.description, properties, weight, confidence, 
                        r.created_at, r.updated_at, usage_count, success_count, r.status
                 FROM relations r
-                WHERE r.source_entity_id = ? AND r.relation_type = ? AND r.status = 'active'
+                WHERE r.source_entity_id = $1 AND r.relation_type = $2 AND r.status = 'active'
                 ORDER BY r.weight DESC, r.confidence DESC
-                LIMIT ?
+                LIMIT $3
                 "#,
             )
             .bind(entity_id)
@@ -293,9 +293,9 @@ impl KGRepository {
                        r.description, properties, weight, confidence, 
                        r.created_at, r.updated_at, usage_count, success_count, r.status
                 FROM relations r
-                WHERE r.source_entity_id = ? AND r.status = 'active'
+                WHERE r.source_entity_id = $1 AND r.status = 'active'
                 ORDER BY r.weight DESC, r.confidence DESC
-                LIMIT ?
+                LIMIT $2
                 "#,
             )
             .bind(entity_id)
@@ -331,11 +331,11 @@ impl KGRepository {
             r#"
             SELECT ke.entry_id, (0.5 + r.weight * 0.3 + r.confidence * 0.2) as score
             FROM knowledge_entries ke
-            JOIN relations r ON ke.content LIKE '%' || (SELECT entity_name FROM entities WHERE entity_id = ?) || '%'
-            WHERE r.source_entity_id = ? OR r.target_entity_id = ?
+            JOIN relations r ON ke.content LIKE '%' || (SELECT entity_name FROM entities WHERE entity_id = $1) || '%'
+            WHERE r.source_entity_id = $2 OR r.target_entity_id = $3
             GROUP BY ke.entry_id
             ORDER BY score DESC
-            LIMIT ?
+            LIMIT $4
             "#,
         )
         .bind(entity_id)
@@ -364,9 +364,9 @@ impl KGRepository {
             r#"
             SELECT entry_id, 0.8 as score
             FROM knowledge_entries
-            WHERE content LIKE '%' || ? || '%' AND status = 'active'
+            WHERE content LIKE '%' || $1 || '%' AND status = 'active'
             ORDER BY access_count DESC, created_at DESC
-            LIMIT ?
+            LIMIT $2
             "#,
         )
         .bind(entity_name)

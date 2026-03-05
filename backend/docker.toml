@@ -1,0 +1,54 @@
+# Docker环境配置文件
+# 使用方式: APP_CONFIG=docker.toml cargo run
+
+listen_addr = "0.0.0.0:8008"
+
+[db]
+# Docker 内使用 PostgreSQL
+url = "postgres://memory:memory@postgres:5432/memory"
+
+[jwt]
+secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
+expiry = 3600
+
+[log]
+file_name = "app.log"
+rolling = "daily"
+
+[llm]
+# Ollama 配置：使用本机已运行的 Ollama（宿主机需运行 ollama serve）
+base_url = "http://host.docker.internal:11434"
+model = "llama3"
+timeout_seconds = 30
+
+[embedding]
+# 嵌入模型配置（通过本机 Ollama）
+base_url = "http://host.docker.internal:11434"
+model = "nomic-embed-text"
+dimension = 768
+timeout_seconds = 30
+
+[qdrant]
+# Qdrant 向量数据库配置（Docker容器内）
+host = "qdrant"
+port = 6334
+collection_name = "long_term_memory"
+vector_dimension = 768
+distance_type = "Euclid"
+
+[rerank]
+# Rerank 重排序配置（本机 Ollama）
+base_url = "http://host.docker.internal:11434"
+model = "bge-reranker-base"
+enabled = true
+candidate_multiplier = 2
+min_score_threshold = 0.3
+timeout_seconds = 30
+
+[neo4j]
+# Neo4j图数据库配置（Docker容器内）
+host = "neo4j"
+port = 7687
+username = "neo4j"
+password = "password"
+database = "neo4j"
