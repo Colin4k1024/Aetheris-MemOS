@@ -34,7 +34,9 @@ pub fn empty_ok() -> JsonResult<Empty> {
 async fn main() {
     crate::config::init();
     let config = crate::config::get();
-    crate::db::init(&config.db).await;
+    crate::db::init(&config.db)
+        .await
+        .expect("Database initialization failed");
 
     // 初始化Neo4j连接
     tracing::info!("Initializing Neo4j connection");
@@ -144,7 +146,7 @@ mod tests {
         .await
         .take_string()
         .await
-        .unwrap();
+        .expect("test response body");
         assert_eq!(content, "Hello World from salvo");
     }
 }

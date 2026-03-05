@@ -13,5 +13,8 @@ pub async fn hello(req: &mut Request) -> AppResult<Text<String>> {
     let hello_tmpl = HelloTemplate {
         name: req.query::<&str>("name").unwrap_or("World"),
     };
-    Ok(Text::Html(hello_tmpl.render().unwrap()))
+    let html = hello_tmpl
+        .render()
+        .map_err(|e| crate::AppError::Internal(e.to_string()))?;
+    Ok(Text::Html(html))
 }

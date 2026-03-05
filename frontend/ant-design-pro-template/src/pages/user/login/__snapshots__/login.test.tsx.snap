@@ -313,9 +313,9 @@ exports[`Login Page should login success 1`] = `
                           <input
                             class="ant-input ant-input-lg"
                             id="password"
-                            placeholder="Password: ant.design"
+                            placeholder="Password: demo"
                             type="password"
-                            value="ant.design"
+                            value="demo"
                           />
                           <span
                             class="ant-input-suffix"
@@ -857,7 +857,7 @@ exports[`Login Page should show login form 1`] = `
                           <input
                             class="ant-input ant-input-lg"
                             id="password"
-                            placeholder="Password: ant.design"
+                            placeholder="Password: demo"
                             type="password"
                           />
                           <span

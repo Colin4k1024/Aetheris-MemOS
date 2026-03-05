@@ -7,7 +7,7 @@ use validator::Validate;
 use crate::hoops::jwt;
 
 use crate::models::SafeUser;
-use crate::{db, empty_ok, json_ok, utils, AppResult, EmptyResult, JsonResult};
+use crate::{db, empty_ok, json_ok, utils, AppError, AppResult, EmptyResult, JsonResult};
 
 #[derive(Template)]
 #[template(path = "user_list_page.html")]
@@ -29,11 +29,17 @@ pub async fn list_page(req: &mut Request, res: &mut Response) -> AppResult<()> {
     match is_fragment {
         Some(_) => {
             let hello_tmpl = UserListFragTemplate {};
-            res.render(Text::Html(hello_tmpl.render().unwrap()));
+            let html = hello_tmpl
+                .render()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            res.render(Text::Html(html));
         }
         None => {
             let hello_tmpl = UserListPageTemplate {};
-            res.render(Text::Html(hello_tmpl.render().unwrap()));
+            let html = hello_tmpl
+                .render()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            res.render(Text::Html(html));
         }
     }
     Ok(())

@@ -111,31 +111,33 @@ impl LogConfig {
         self
     }
 
-    /// Valid values: minutely | hourly | daily | never
-    ///
-    /// Will panic on other values.
+    /// Valid values: minutely | hourly | daily | never.
+    /// Invalid values fall back to "never" and are logged.
     pub fn rolling(mut self, rolling: impl Into<String>) -> Self {
         let rolling = rolling.into();
-        if !["minutely", "hourly", "daily", "never"].contains(&&*rolling) {
-            panic!("Unknown rolling")
+        if ["minutely", "hourly", "daily", "never"].contains(&&*rolling) {
+            self.rolling = rolling;
+        } else {
+            tracing::warn!(value = %rolling, "Unknown rolling value, using 'never'");
+            self.rolling = "never".to_string();
         }
-        self.rolling = rolling;
         self
     }
 
-    /// Valid values: pretty | compact | json | full
-    ///
-    /// Will panic on other values.
+    /// Valid values: pretty | compact | json | full.
+    /// Invalid values fall back to "pretty" and are logged.
     pub fn format(mut self, format: impl Into<String>) -> Self {
         let format = format.into();
-        if format != FORMAT_PRETTY
-            && format != FORMAT_COMPACT
-            && format != FORMAT_JSON
-            && format != FORMAT_FULL
+        if format == FORMAT_PRETTY
+            || format == FORMAT_COMPACT
+            || format == FORMAT_JSON
+            || format == FORMAT_FULL
         {
-            panic!("Unknown format")
+            self.format = format;
+        } else {
+            tracing::warn!(value = %format, "Unknown format value, using 'pretty'");
+            self.format = FORMAT_PRETTY.to_string();
         }
-        self.format = format;
         self
     }
 

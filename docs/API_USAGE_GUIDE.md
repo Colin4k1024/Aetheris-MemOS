@@ -13,7 +13,7 @@
 系统使用Bearer Token认证，在请求头中添加：
 
 ```
-Authorization: Bearer YOUR_TOKEN_HERE
+Authorization: Bearer <your-access-token>
 ```
 
 ### 1.3 数据格式
@@ -43,8 +43,8 @@ Authorization: Bearer YOUR_TOKEN_HERE
 **请求参数**:
 ```json
 {
-  "username": "admin",
-  "password": "password"
+  "username": "<your-username>",
+  "password": "<your-password>"
 }
 ```
 
@@ -53,7 +53,7 @@ Authorization: Bearer YOUR_TOKEN_HERE
 {
   "success": true,
   "data": {
-    "access_token": "YOUR_TOKEN_HERE",
+    "access_token": "<token-returned-by-login>",
     "token_type": "bearer",
     "expires_in": 3600,
     "user": {
@@ -77,7 +77,7 @@ Authorization: Bearer YOUR_TOKEN_HERE
 
 **请求头**:
 ```
-Authorization: Bearer YOUR_TOKEN_HERE
+Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
@@ -1146,13 +1146,13 @@ Authorization: Bearer YOUR_TOKEN_HERE
 ### 12.1 完整工作流程示例
 
 ```bash
-# 1. 用户登录
+# 1. 用户登录（将 <your-username> 和 <your-password> 替换为实际凭据）
 curl -X POST "http://127.0.0.1:8008/api/login" \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "password"}'
+  -d '{"username": "<your-username>", "password": "<your-password>"}'
 
-# 2. 分析任务特征
-token="YOUR_TOKEN_HERE"
+# 2. 分析任务特征（将下方 token 替换为登录接口返回的 access_token）
+token="<your-access-token>"
 curl -X POST "http://127.0.0.1:8008/api/v1/memory/analyzer/task-characteristics" \
   -H "Authorization: Bearer $token" \
   -H "Content-Type: application/json" \

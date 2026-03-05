@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::hoops::jwt;
 use crate::models::User;
-use crate::{db, json_ok, utils, AppResult, JsonResult};
+use crate::{db, json_ok, utils, AppError, AppResult, JsonResult};
 
 #[handler]
 pub async fn login_page(res: &mut Response) -> AppResult<()> {
@@ -22,7 +22,10 @@ pub async fn login_page(res: &mut Response) -> AppResult<()> {
         }
     }
     let hello_tmpl = LoginTemplate {};
-    res.render(Text::Html(hello_tmpl.render().unwrap()));
+    let html = hello_tmpl
+        .render()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    res.render(Text::Html(html));
     Ok(())
 }
 

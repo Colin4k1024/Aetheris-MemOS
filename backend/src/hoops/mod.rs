@@ -24,7 +24,10 @@ pub async fn error_404(&self, res: &mut Response, ctrl: &mut FlowCtrl) {
                 "Page not found".to_owned()
             },
         };
-        res.render(Text::Html(handle404.render().unwrap()));
+        let html = handle404
+            .render()
+            .unwrap_or_else(|_| "Page not found".to_string());
+        res.render(Text::Html(html));
         ctrl.skip_rest();
     }
 }

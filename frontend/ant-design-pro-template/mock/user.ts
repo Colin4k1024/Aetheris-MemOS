@@ -119,10 +119,12 @@ export default {
       address: 'Sidney No. 1 Lake Park',
     },
   ],
+  // 仅用于本地 Mock：使用占位凭据，生产请走真实后端登录
   'POST /api/login/account': async (req: Request, res: Response) => {
     const { password, username, type } = req.body;
     await waitTime(2000);
-    if (password === 'ant.design' && username === 'admin') {
+    const mockPassword = 'demo';
+    if (password === mockPassword && username === 'admin') {
       res.send({
         status: 'ok',
         type,
@@ -131,7 +133,7 @@ export default {
       access = 'admin';
       return;
     }
-    if (password === 'ant.design' && username === 'user') {
+    if (password === mockPassword && username === 'user') {
       res.send({
         status: 'ok',
         type,

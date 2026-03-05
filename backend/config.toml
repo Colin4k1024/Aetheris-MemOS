@@ -4,7 +4,8 @@ listen_addr = "127.0.0.1:8008"
 url = "file:./data/sqlx.sqlite"
 
 [jwt]
-secret = "10015d7a3a32161e5b889d98ad16e05ac6aea52ff2185f0fec58fbb8272c3afb"
+# 生产环境必须通过 APP_JWT_SECRET 环境变量设置强随机密钥，勿使用示例值
+secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
 expiry = 3600
 
 [log]
@@ -43,9 +44,9 @@ min_score_threshold = 0.3
 timeout_seconds = 30
 
 [neo4j]
-# Neo4j图数据库配置
+# Neo4j图数据库配置（密码可通过 APP_NEO4J_PASSWORD 环境变量覆盖）
 host = "localhost"
 port = 7687
 username = "neo4j"
-password = "password"
+password = "REPLACE_WITH_YOUR_NEO4J_PASSWORD"
 database = "neo4j"

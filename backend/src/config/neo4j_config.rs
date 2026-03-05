@@ -28,7 +28,7 @@ fn default_neo4j_username() -> String {
 }
 
 fn default_neo4j_password() -> String {
-    "password".to_string()
+    "REPLACE_WITH_YOUR_NEO4J_PASSWORD".to_string()
 }
 
 fn default_neo4j_database() -> String {

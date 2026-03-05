@@ -37,3 +37,6 @@ logs/
 *.sqlite
 *.sqlite3
 
+# Internal planning (do not publish)
+.trae/
+

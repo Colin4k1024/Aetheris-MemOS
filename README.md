@@ -1,8 +1,14 @@
 # 自适应记忆管理系统
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **Adaptive Memory Management System for Agent & LLM Workloads**
 
-基于自适应记忆管理算法设计文档，使用 Rust (Salvo) 实现后端 API 服务，使用 React (Ant Design Pro) 实现前端管理界面。
+基于自适应记忆管理算法设计文档，使用 Rust (Salvo) 实现后端 API 服务，使用 React (Ant Design Pro) 实现前端管理界面。本项目采用 MIT 许可证对外开源，欢迎参与贡献与二次开发。
+
+- **许可证**: [LICENSE](LICENSE)（MIT）
+- **安全**: 漏洞反馈请参见 [SECURITY.md](SECURITY.md)
+- **变更记录**: [CHANGELOG.md](CHANGELOG.md)
 
 ## 项目结构
 
@@ -301,12 +307,14 @@ docker-compose up -d
 
 详见 [CONTRIBUTING.md](CONTRIBUTING.md)：构建与测试、提交流程、扩展点（策略与 Agent）。扩展新策略或 Agent 请参考 [EXTENSION_GUIDE.md](docs/EXTENSION_GUIDE.md)。
 
-## 许可证
+## 许可证与开源
 
-MIT License
+本项目采用 [MIT License](LICENSE) 开源。你可以在遵守许可证条款的前提下自由使用、修改和分发本软件。安全相关问题请通过 [SECURITY.md](SECURITY.md) 中说明的方式报告。
 
 ## 相关文档
 
+- [变更记录 (CHANGELOG)](CHANGELOG.md) — 版本更新与改动说明
+- [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告与支持版本
 - [架构说明 (ARCHITECTURE)](docs/ARCHITECTURE.md) — Why adaptive / Why agent-like / 决策链路
 - [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划与生态对齐
 - [使用场景 (USE_CASES)](docs/USE_CASES.md) — LLM Agent、多模态、成本敏感推理等

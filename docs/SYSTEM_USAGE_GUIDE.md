@@ -66,9 +66,9 @@ listen_addr = "127.0.0.1:8008"
 [db]
 url = "file:./data/sqlx.sqlite"
 
-# JWT认证配置
+# JWT认证配置（生产环境请使用强随机密钥，勿使用示例值）
 [jwt]
-secret = "your-secret-key"
+secret = "<your-jwt-secret>"
 expiry = 3600
 
 # 日志配置
@@ -111,7 +111,7 @@ timeout_seconds = 30
 host = "localhost"
 port = 7687
 username = "neo4j"
-password = "password"
+password = "<your-neo4j-password>"
 database = "neo4j"
 
 ### 4.2 前端配置
