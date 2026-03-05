@@ -399,3 +399,65 @@ pub fn get_llm_service() -> Result<&'static LLMService> {
     LLM_SERVICE.get_or_try_init(|| LLMService::new())
         .map_err(|e| anyhow::anyhow!("Failed to initialize LLM service: {}", e))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_entity_type_display() {
+        assert_eq!(EntityType::Person.to_string(), "PERSON");
+        assert_eq!(EntityType::Organization.to_string(), "ORG");
+        assert_eq!(EntityType::Location.to_string(), "LOC");
+        assert_eq!(EntityType::Event.to_string(), "EVENT");
+        assert_eq!(EntityType::Concept.to_string(), "CONCEPT");
+        assert_eq!(EntityType::Time.to_string(), "TIME");
+        assert_eq!(EntityType::Number.to_string(), "NUMBER");
+        assert_eq!(EntityType::Product.to_string(), "PRODUCT");
+        assert_eq!(EntityType::Unknown.to_string(), "UNKNOWN");
+    }
+
+    #[test]
+    fn test_entity_type_default() {
+        let et: EntityType = EntityType::default();
+        assert_eq!(et, EntityType::Unknown);
+    }
+
+    #[test]
+    fn test_typed_entity_serialization() {
+        let entity = TypedEntity {
+            name: "John Doe".to_string(),
+            entity_type: "PERSON".to_string(),
+        };
+
+        let json = serde_json::to_string(&entity).unwrap();
+        assert!(json.contains("John Doe"));
+        assert!(json.contains("PERSON"));
+
+        let decoded: TypedEntity = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.name, "John Doe");
+    }
+
+    #[test]
+    fn test_relation_serialization() {
+        let relation = Relation {
+            from: "Alice".to_string(),
+            to: "Bob".to_string(),
+            relation_type: "friend".to_string(),
+        };
+
+        let json = serde_json::to_string(&relation).unwrap();
+        assert!(json.contains("Alice"));
+        assert!(json.contains("Bob"));
+        assert!(json.contains("friend"));
+    }
+
+    #[test]
+    fn test_structured_extraction_default() {
+        let extraction = StructuredExtraction::default();
+        assert!(extraction.entities.is_empty());
+        assert!(extraction.relations.is_empty());
+        assert!(extraction.key_facts.is_empty());
+        assert!(extraction.summary.is_empty());
+    }
+}

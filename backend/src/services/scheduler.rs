@@ -522,11 +522,59 @@ pub struct WeightAdjustmentTraceStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{TaskContext, TaskType, TemporalScope, ReasoningDepth, ResourceConstraints, TaskPreferences};
 
     #[tokio::test]
     async fn test_scheduler_creation() {
         let scheduler = AdaptiveMemoryScheduler::new();
-        // 测试调度器可以正常创建
         assert!(true);
+    }
+
+    #[test]
+    fn test_task_context_default() {
+        let context = TaskContext {
+            task_id: "test_001".to_string(),
+            task_type: TaskType::Query,
+            complexity: 0.5,
+            modality_requirements: vec!["text".to_string()],
+            temporal_scope: TemporalScope::Short,
+            reasoning_depth: ReasoningDepth::Shallow,
+            user_id: "user_1".to_string(),
+            agent_id: "agent_1".to_string(),
+            session_id: None,
+            task_metadata: None,
+        };
+
+        assert_eq!(context.task_id, "test_001");
+        assert_eq!(context.task_type, TaskType::Query);
+        assert_eq!(context.complexity, 0.5);
+    }
+
+    #[test]
+    fn test_resource_constraints_default() {
+        let constraints = ResourceConstraints {
+            max_memory_mb: Some(1024),
+            max_cpu_usage_percent: Some(80),
+            max_response_time_ms: Some(2000),
+            storage_quota_percent: Some(90),
+        };
+
+        assert_eq!(constraints.max_memory_mb, Some(1024));
+        assert_eq!(constraints.max_cpu_usage_percent, Some(80));
+    }
+
+    #[test]
+    fn test_task_preferences_default() {
+        let preferences = TaskPreferences {
+            prioritize_efficiency: true,
+            prioritize_coherence: false,
+            enable_multimodal: true,
+            enable_reasoning: true,
+        };
+
+        assert!(preferences.prioritize_efficiency);
+        assert!(!preferences.prioritize_coherence);
+        assert!(preferences.enable_multimodal);
+        assert!(preferences.enable_reasoning);
     }
 }

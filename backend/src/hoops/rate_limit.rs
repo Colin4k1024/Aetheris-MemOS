@@ -128,3 +128,67 @@ impl Handler for RateLimitHoop {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_rate_limiter_creation() {
+        let config = RateLimitConfig::new(100, 60);
+        let limiter = RateLimiter::new(config);
+        assert_eq!(limiter.config.max_requests, 100);
+        assert_eq!(limiter.config.window_seconds, 60);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_allows_requests() {
+        let config = RateLimitConfig::new(5, 1);
+        let limiter = RateLimiter::new(config);
+
+        // First 5 requests should be allowed
+        for _ in 0..5 {
+            assert!(limiter.check_and_record("test_client").await);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_blocks_excess() {
+        let config = RateLimitConfig::new(3, 1);
+        let limiter = RateLimiter::new(config);
+
+        // First 3 requests should be allowed
+        for _ in 0..3 {
+            assert!(limiter.check_and_record("test_client2").await);
+        }
+
+        // 4th request should be blocked
+        assert!(!limiter.check_and_record("test_client2").await);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_different_clients() {
+        let config = RateLimitConfig::new(2, 1);
+        let limiter = RateLimiter::new(config);
+
+        // Different clients should have independent counts
+        assert!(limiter.check_and_record("client_a").await);
+        assert!(limiter.check_and_record("client_b").await);
+        assert!(!limiter.check_and_record("client_a").await);
+        assert!(!limiter.check_and_record("client_b").await);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_remaining() {
+        let config = RateLimitConfig::new(3, 1);
+        let limiter = RateLimiter::new(config);
+
+        assert_eq!(limiter.remaining("test").await, 3);
+
+        limiter.check_and_record("test").await;
+        assert_eq!(limiter.remaining("test").await, 2);
+
+        limiter.check_and_record("test").await;
+        assert_eq!(limiter.remaining("test").await, 1);
+    }
+}
