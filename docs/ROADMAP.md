@@ -41,7 +41,105 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 
 ---
 
-## Database adapters
+## v0.5 — Memory Kernel 正式版 (Q1)
+
+**Theme:** Unified Memory Kernel Architecture
+
+### Architecture Modules
+
+| Module | Location | Status |
+|--------|----------|--------|
+| Memory Kernel | `src/kernel/` (traits.rs, types.rs, error.rs) | Implemented |
+| Memory Layers | `src/layers/` (stm, ltm, kg, mm) | Implemented |
+| Policy Engine | `src/policy/` (scheduler.rs, cost_model.rs) | Implemented |
+
+### Planned
+
+- **Kernel integration** — Refactor scheduler to use unified kernel interface
+- **Redis STM cache** — Replace in-memory STM with Redis backend
+- **Qdrant integration** — Vector search for LTM layer
+- **Neo4j integration** — Graph queries for KG layer
+
+---
+
+## v0.6 — Agent Runtime Integration (Q2)
+
+**Theme:** Native Agent Runtime SDK
+
+### Architecture Modules
+
+| Module | Location | Status |
+|--------|----------|--------|
+| Memory Agent | `src/agent/` (compressor, merger, forgetter) | Implemented |
+| Runtime Adapters | `src/runtime/` (openai, anthropic) | Implemented |
+
+### Planned
+
+- **OpenAI Agents SDK** — Complete adapter implementation
+- **Anthropic Claude** — Complete adapter implementation
+- **LangChain adapter** — New adapter for LangChain ecosystem
+- **LLM compression** — Smart summarization for STM→LTM
+
+---
+
+## v0.7 — Production API Gateway (Q3)
+
+**Theme:** Enterprise-Ready APIs
+
+### Architecture Modules
+
+| Module | Location | Status |
+|--------|----------|--------|
+| Protocol | `src/protocol/` (grpc, websocket) | Implemented |
+| Multi-Tenant | `src/tenant/` (context, quota, isolation) | Implemented |
+
+### Planned
+
+- **gRPC service** — tonic-based gRPC API
+- **WebSocket** — Real-time memory subscriptions
+- **Multi-Tenant** — Complete tenant isolation
+- **Authentication** — JWT + API Key auth middleware
+
+---
+
+## v0.8 — Distributed Cluster (Q4)
+
+**Theme:** Horizontally Scalable Memory
+
+### Architecture Modules
+
+| Module | Location | Status |
+|--------|----------|--------|
+| Distributed | `src/distributed/` (node, replication, sharding, consensus) | Implemented |
+
+### Planned
+
+- **Node discovery** — Cluster membership and heartbeats
+- **Replication** — Multi-replica sync
+- **Sharding** — Consistent hash-based sharding
+- **Consensus** — Leader election (Raft)
+
+---
+
+## v1.0 — Agent Memory OS (Next Year Q1)
+
+**Theme:** Production-Ready Memory Operating System
+
+| Feature | Status |
+|---------|--------|
+| Memory Kernel | Production-ready |
+| Agent Integration | OpenAI/Anthropic/LangChain |
+| Protocol | gRPC/REST/WS + Auth |
+| Multi-Tenant | Full tenant isolation |
+| Distributed | Cluster support |
+| Observability | Prometheus + Tracing |
+
+---
+
+## Database Adapters
 
 - **SQLite** — Default for local and demo.
-- **PostgreSQL / MySQL** — Planned for production; adapter abstraction in a future release.
+- **Redis** — STM layer (planned v0.5)
+- **Qdrant** — Vector search for LTM (planned v0.5)
+- **Neo4j** — Graph DB for KG (planned v0.5)
+- **PostgreSQL / MySQL** — Planned for production

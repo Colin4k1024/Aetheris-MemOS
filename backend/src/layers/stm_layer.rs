@@ -13,7 +13,6 @@ use crate::kernel::traits::{MemoryLayer, LayerStats};
 /// Short-term memory layer implementation.
 /// 
 /// STM stores ephemeral data that is fast to access but has limited capacity.
-/// It uses an in-memory cache backed by SQLite for persistence.
 pub struct StmMemoryLayer {
     cache: Arc<RwLock<HashMap<String, MemoryEntry>>>,
     max_capacity: usize,
@@ -23,7 +22,7 @@ impl StmMemoryLayer {
     pub fn new() -> Self {
         Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
-            max_capacity: 1000, // Default max entries in cache
+            max_capacity: 1000,
         }
     }
 
@@ -49,7 +48,6 @@ impl MemoryLayer for StmMemoryLayer {
     async fn store(&self, entry: MemoryEntry) -> MemoryResult<MemoryId> {
         let mut cache = self.cache.write().await;
         
-        // Check capacity
         if cache.len() >= self.max_capacity {
             return Err(MemoryError::ResourceConstraint(
                 "STM cache is at capacity".to_string()
@@ -73,7 +71,6 @@ impl MemoryLayer for StmMemoryLayer {
         let cache = self.cache.read().await;
         let mut results = Vec::new();
         
-        // Simple text search implementation
         if let Some(text) = &query.text {
             for entry in cache.values() {
                 let content_match = match &entry.content {
@@ -94,12 +91,10 @@ impl MemoryLayer for StmMemoryLayer {
             }
         }
         
-        // Apply filters
         if let Some(ref user_id) = query.filters.user_id {
             results.retain(|m| m.entry.metadata.user_id.as_ref() == Some(user_id));
         }
         
-        // Apply limit
         results.truncate(query.limit);
         
         Ok(results)

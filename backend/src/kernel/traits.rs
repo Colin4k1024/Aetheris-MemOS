@@ -1,8 +1,6 @@
 //! Memory Kernel - Core Trait Definitions
-//!
-//! This module defines the core traits that represent the Memory Kernel interface.
-//! All memory operations go through these traits, enabling flexible implementations.
 
+use std::collections::HashMap;
 use crate::kernel::types::*;
 use crate::kernel::error::{MemoryError, MemoryResult};
 

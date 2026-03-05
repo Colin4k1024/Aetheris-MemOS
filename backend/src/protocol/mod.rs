@@ -7,6 +7,7 @@ pub mod websocket;
 
 use serde::{Deserialize, Serialize};
 use crate::kernel::types::*;
+use crate::kernel::traits::{EvictionPolicy, MemoryStats};
 
 /// Memory Protocol Methods
 #[derive(Debug, Clone, Serialize, Deserialize)]

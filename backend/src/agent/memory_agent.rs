@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use crate::kernel::types::*;
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::traits::MemoryKernel;
-use crate::agent::config::AgentConfig;
+use crate::agent::AgentConfig;
 use crate::agent::compressor::MemoryCompressor;
 use crate::agent::merger::MemoryMerger;
 use crate::agent::forgetter::MemoryForGetter;

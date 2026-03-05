@@ -69,6 +69,15 @@ pub enum MemoryContent {
     Graph(GraphData),
 }
 
+/// Memory weights for layer selection.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MemoryWeights {
+    pub stm: f64,
+    pub ltm: f64,
+    pub kg: f64,
+    pub mm: f64,
+}
+
 /// Graph data for knowledge graph memory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphData {
