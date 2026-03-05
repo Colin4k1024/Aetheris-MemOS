@@ -8,6 +8,8 @@ mod user;
 mod memory;
 mod memory_storage;
 mod memory_search;
+mod knowledge_graph;
+mod multimodal;
 
 use crate::{config, hoops};
 
@@ -176,7 +178,51 @@ pub fn root() -> Router {
                                        .post(memory_search::search_by_entity),
                                ),
                        ),
-                ),
+                )
+                // Knowledge Graph API
+                .push(
+                    Router::with_path("kg")
+                        .push(
+                            Router::with_path("entities")
+                                .post(knowledge_graph::create_entity)
+                        )
+                        .push(
+                            Router::with_path("entities/by-name/{name}")
+                                .get(knowledge_graph::get_entity_by_name)
+                        )
+                        .push(
+                            Router::with_path("entities/{entity_id}/related")
+                                .get(knowledge_graph::get_related_entities)
+                        )
+                        .push(
+                            Router::with_path("relations")
+                                .post(knowledge_graph::create_relation)
+                        )
+                        .push(
+                            Router::with_path("search")
+                                .post(knowledge_graph::search_by_entity)
+                        ),
+                )
+                // Multimodal API
+                .push(
+                    Router::with_path("mm")
+                        .push(
+                            Router::with_path("store")
+                                .post(multimodal::store_mm)
+                        )
+                        .push(
+                            Router::with_path("entry/{entry_id}")
+                                .get(multimodal::get_mm)
+                        )
+                        .push(
+                            Router::with_path("session/{session_id}")
+                                .get(multimodal::get_session_mm)
+                        )
+                        .push(
+                            Router::with_path("modality/{modality_type}")
+                                .get(multimodal::get_by_modality)
+                        ),
+                )
         )
         .push(Router::with_path("favicon.ico").get(favicon))
         .push(Router::with_path("assets/{**rest}").get(static_embed::<Assets>()));
