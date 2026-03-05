@@ -35,3 +35,4 @@ sysinfo = "0.29"
 chrono = "0.4"
 moka = { version = "0.11", features = ["future"] }
 neo4rs = "0.8"
+async-trait = "0.1"
