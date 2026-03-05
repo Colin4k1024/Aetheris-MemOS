@@ -3,26 +3,27 @@
 //! KG provides structured, relational memory using graph database.
 
 use std::collections::HashMap;
+use tokio::sync::RwLock;
 use crate::kernel::types::*;
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::traits::{MemoryLayer, LayerStats, GraphMemory};
 
 /// Knowledge Graph memory layer implementation.
-/// 
+///
 /// KG stores structured data as nodes and edges in a graph.
 /// Uses Neo4j for graph operations.
 pub struct KgMemoryLayer {
     // In production, this would hold a Neo4j connection
     // For now, we'll use in-memory storage
-    nodes: std::sync::RwLock<HashMap<String, GraphNode>>,
-    edges: std::sync::RwLock<Vec<GraphEdge>>,
+    nodes: RwLock<HashMap<String, GraphNode>>,
+    edges: RwLock<Vec<GraphEdge>>,
 }
 
 impl KgMemoryLayer {
     pub fn new() -> Self {
         Self {
-            nodes: std::sync::RwLock::new(HashMap::new()),
-            edges: std::sync::RwLock::new(Vec::new()),
+            nodes: RwLock::new(HashMap::new()),
+            edges: RwLock::new(Vec::new()),
         }
     }
 }
@@ -41,17 +42,17 @@ impl MemoryLayer for KgMemoryLayer {
     async fn store(&self, entry: MemoryEntry) -> MemoryResult<MemoryId> {
         match entry.content {
             MemoryContent::Graph(graph_data) => {
-                let mut nodes = self.nodes.write().unwrap();
-                let mut edges = self.edges.write().unwrap();
-                
+                let mut nodes = self.nodes.write().await;
+                let mut edges = self.edges.write().await;
+
                 for node in graph_data.nodes {
                     nodes.insert(node.id.clone(), node);
                 }
-                
+
                 for edge in graph_data.edges {
                     edges.push(edge);
                 }
-                
+
                 Ok(entry.id)
             }
             _ => Err(MemoryError::InvalidOperation(
@@ -61,18 +62,18 @@ impl MemoryLayer for KgMemoryLayer {
     }
 
     async fn retrieve(&self, id: &MemoryId) -> MemoryResult<MemoryEntry> {
-        let nodes = self.nodes.read().unwrap();
-        
+        let nodes = self.nodes.read().await;
+
         let node = nodes.get(&id.0)
             .ok_or_else(|| MemoryError::NotFound(format!("Node not found: {}", id.0)))?
             .clone();
-        
-        let edges = self.edges.read().unwrap();
+
+        let edges = self.edges.read().await;
         let related_edges: Vec<_> = edges.iter()
             .filter(|e| e.source == id.0 || e.target == id.0)
             .cloned()
             .collect();
-        
+
         let graph_data = GraphData {
             nodes: vec![node],
             edges: related_edges,
@@ -89,7 +90,7 @@ impl MemoryLayer for KgMemoryLayer {
     }
 
     async fn search(&self, query: &MemoryQuery) -> MemoryResult<Vec<MemoryMatch>> {
-        let nodes = self.nodes.read().unwrap();
+        let nodes = self.nodes.read().await;
         let mut results = Vec::new();
         
         // Search by label or properties
@@ -122,7 +123,7 @@ impl MemoryLayer for KgMemoryLayer {
     }
 
     async fn update(&self, id: &MemoryId, entry: MemoryEntry) -> MemoryResult<()> {
-        let mut nodes = self.nodes.write().unwrap();
+        let mut nodes = self.nodes.write().await;
         
         if let MemoryContent::Graph(graph_data) = entry.content {
             for node in graph_data.nodes {
@@ -134,8 +135,8 @@ impl MemoryLayer for KgMemoryLayer {
     }
 
     async fn delete(&self, id: &MemoryId) -> MemoryResult<()> {
-        let mut nodes = self.nodes.write().unwrap();
-        let mut edges = self.edges.write().unwrap();
+        let mut nodes = self.nodes.write().await;
+        let mut edges = self.edges.write().await;
         
         nodes.remove(&id.0);
         edges.retain(|e| e.source != id.0 && e.target != id.0);
@@ -144,8 +145,8 @@ impl MemoryLayer for KgMemoryLayer {
     }
 
     async fn stats(&self) -> MemoryResult<LayerStats> {
-        let nodes = self.nodes.read().unwrap();
-        let edges = self.edges.read().unwrap();
+        let nodes = self.nodes.read().await;
+        let edges = self.edges.read().await;
         
         Ok(LayerStats {
             entry_count: nodes.len(),
@@ -157,19 +158,19 @@ impl MemoryLayer for KgMemoryLayer {
 
 impl GraphMemory for KgMemoryLayer {
     async fn add_node(&self, node: GraphNode) -> MemoryResult<()> {
-        let mut nodes = self.nodes.write().unwrap();
+        let mut nodes = self.nodes.write().await;
         nodes.insert(node.id.clone(), node);
         Ok(())
     }
 
     async fn add_edge(&self, edge: GraphEdge) -> MemoryResult<()> {
-        let mut edges = self.edges.write().unwrap();
+        let mut edges = self.edges.write().await;
         edges.push(edge);
         Ok(())
     }
 
     async fn query_nodes(&self, _labels: &[String], properties: &HashMap<String, serde_json::Value>) -> MemoryResult<Vec<GraphNode>> {
-        let nodes = self.nodes.read().unwrap();
+        let nodes = self.nodes.read().await;
         let mut results = Vec::new();
         
         for node in nodes.values() {
@@ -189,7 +190,7 @@ impl GraphMemory for KgMemoryLayer {
     }
 
     async fn query_edges(&self, from: Option<&str>, to: Option<&str>, relation: Option<&str>) -> MemoryResult<Vec<GraphEdge>> {
-        let edges = self.edges.read().unwrap();
+        let edges = self.edges.read().await;
         
         let results: Vec<_> = edges.iter()
             .filter(|e| {
@@ -205,8 +206,8 @@ impl GraphMemory for KgMemoryLayer {
     }
 
     async fn traverse(&self, start: &str, depth: usize) -> MemoryResult<Vec<GraphNode>> {
-        let nodes = self.nodes.read().unwrap();
-        let edges = self.edges.read().unwrap();
+        let nodes = self.nodes.read().await;
+        let edges = self.edges.read().await;
         
         let mut visited = std::collections::HashSet::new();
         let mut queue = vec![(start.to_string(), 0)];

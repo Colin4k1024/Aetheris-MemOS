@@ -52,18 +52,31 @@ impl LLMService {
 
         let prompt = format!(
             r#"你是一个专业的知识提取助手。请从给定的内容中提取以下结构化信息：
-1. 实体（entities）：重要的人物、地点、组织、概念等
+1. 实体（entities）：重要的人物、地点、组织、概念等，每个实体需要包含名称和类型
 2. 关系（relations）：实体之间的关系
 3. 关键事实（key_facts）：重要的信息点
 4. 摘要（summary）：内容的简要总结
 
 请以 JSON 格式返回结果，格式如下：
 {{
-  "entities": ["实体1", "实体2", ...],
+  "entities": [
+    {{"name": "实体名称", "entity_type": "PERSON|ORG|LOC|EVENT|CONCEPT|TIME|NUMBER|PRODUCT"}},
+    ...
+  ],
   "relations": [{{"from": "实体1", "to": "实体2", "type": "关系类型"}}, ...],
   "key_facts": ["事实1", "事实2", ...],
   "summary": "内容摘要"
 }}
+
+实体类型说明：
+- PERSON: 人物（人名、角色等）
+- ORG: 组织（公司、机构、团队等）
+- LOC: 地点（地名、地址等）
+- EVENT: 事件（会议、战争、节日等）
+- CONCEPT: 概念（理论、思想、观点等）
+- TIME: 时间（日期、时间段等）
+- NUMBER: 数字（数量、金额等）
+- PRODUCT: 产品（软件、硬件、产品名等）
 
 请分析以下内容：
 
@@ -170,12 +183,66 @@ struct OllamaResponse {
     response: String,
 }
 
+/// 实体类型枚举
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum EntityType {
+    /// 人物
+    Person,
+    /// 组织
+    Organization,
+    /// 地点
+    Location,
+    /// 事件
+    Event,
+    /// 概念
+    Concept,
+    /// 时间
+    Time,
+    /// 数字
+    Number,
+    /// 产品
+    Product,
+    /// 未知
+    Unknown,
+}
+
+impl Default for EntityType {
+    fn default() -> Self {
+        EntityType::Unknown
+    }
+}
+
+impl std::fmt::Display for EntityType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EntityType::Person => write!(f, "PERSON"),
+            EntityType::Organization => write!(f, "ORG"),
+            EntityType::Location => write!(f, "LOC"),
+            EntityType::Event => write!(f, "EVENT"),
+            EntityType::Concept => write!(f, "CONCEPT"),
+            EntityType::Time => write!(f, "TIME"),
+            EntityType::Number => write!(f, "NUMBER"),
+            EntityType::Product => write!(f, "PRODUCT"),
+            EntityType::Unknown => write!(f, "UNKNOWN"),
+        }
+    }
+}
+
+/// 带类型的实体
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypedEntity {
+    /// 实体名称
+    pub name: String,
+    /// 实体类型
+    pub entity_type: String,
+}
+
 /// 结构化提取结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructuredExtraction {
-    /// 提取的实体列表
+    /// 提取的实体列表（带类型）
     #[serde(default)]
-    pub entities: Vec<String>,
+    pub entities: Vec<TypedEntity>,
     /// 实体之间的关系
     #[serde(default)]
     pub relations: Vec<Relation>,

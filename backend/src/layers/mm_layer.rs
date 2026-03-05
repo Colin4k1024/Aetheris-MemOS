@@ -2,17 +2,19 @@
 //!
 //! MM provides storage for images, audio, video, and other media types.
 
+use std::collections::HashMap;
+use tokio::sync::RwLock;
 use crate::kernel::types::*;
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::traits::{MemoryLayer, LayerStats};
 
 /// Multimodal memory layer implementation.
-/// 
+///
 /// MM stores media data (images, audio, video) with metadata.
 /// In production, would use object storage (S3, etc.) with vector indexing.
 pub struct MmMemoryLayer {
     // In production, this would connect to S3 or similar
-    storage: std::sync::RwLock<std::collections::HashMap<String, MemoryEntry>>,
+    storage: RwLock<HashMap<String, MemoryEntry>>,
 }
 
 impl MmMemoryLayer {
@@ -38,7 +40,7 @@ impl MemoryLayer for MmMemoryLayer {
         // Validate content is binary
         match &entry.content {
             MemoryContent::Binary(data) if !data.is_empty() => {
-                let mut storage = self.storage.write().unwrap();
+                let mut storage = self.storage.write().await;
                 let id = entry.id.clone();
                 storage.insert(id.0.clone(), entry);
                 Ok(id)
@@ -53,7 +55,7 @@ impl MemoryLayer for MmMemoryLayer {
     }
 
     async fn retrieve(&self, id: &MemoryId) -> MemoryResult<MemoryEntry> {
-        let storage = self.storage.read().unwrap();
+        let storage = self.storage.read().await;
         storage
             .get(&id.0)
             .cloned()
@@ -67,7 +69,7 @@ impl MemoryLayer for MmMemoryLayer {
     }
 
     async fn update(&self, id: &MemoryId, entry: MemoryEntry) -> MemoryResult<()> {
-        let mut storage = self.storage.write().unwrap();
+        let mut storage = self.storage.write().await;
         
         if !storage.contains_key(&id.0) {
             return Err(MemoryError::NotFound(format!("Memory not found: {}", id.0)));
@@ -78,7 +80,7 @@ impl MemoryLayer for MmMemoryLayer {
     }
 
     async fn delete(&self, id: &MemoryId) -> MemoryResult<()> {
-        let mut storage = self.storage.write().unwrap();
+        let mut storage = self.storage.write().await;
         
         if storage.remove(&id.0).is_none() {
             return Err(MemoryError::NotFound(format!("Memory not found: {}", id.0)));
@@ -88,7 +90,7 @@ impl MemoryLayer for MmMemoryLayer {
     }
 
     async fn stats(&self) -> MemoryResult<LayerStats> {
-        let storage = self.storage.read().unwrap();
+        let storage = self.storage.read().await;
         
         let total_size: u64 = storage.values()
             .map(|e| {
