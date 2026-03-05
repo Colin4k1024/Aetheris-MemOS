@@ -318,30 +318,33 @@ impl KGRepository {
         Ok(result)
     }
 
-    /// 根据实体搜索相关的知识条目
+    /// 根据实体搜索相关的知识条目 (pool版本)
     pub async fn search_knowledge_by_entity(
-        entity_id: &str,
-        top_k: i32,
-    ) -> Result<Vec<(String, f64)>, AppError> {
-        let pool = pool();
+        pool: &sqlx::PgPool,
+        entity_name: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<Entity>, AppError> {
+        let limit = limit.unwrap_or(10);
 
-        // 这里实现一个简单的基于实体的知识搜索
-        // 实际应该使用更复杂的算法，如基于图的搜索
-        let rows = sqlx::query_as::<_, (String, f64)>(
+        // 搜索与该实体相关的知识条目
+        // 通过关系表找到相关的 source/target 实体，然后搜索知识条目
+        let rows = sqlx::query_as::<_, Entity>(
             r#"
-            SELECT ke.entry_id, (0.5 + r.weight * 0.3 + r.confidence * 0.2) as score
-            FROM knowledge_entries ke
-            JOIN relations r ON ke.content LIKE '%' || (SELECT entity_name FROM entities WHERE entity_id = $1) || '%'
-            WHERE r.source_entity_id = $2 OR r.target_entity_id = $3
-            GROUP BY ke.entry_id
-            ORDER BY score DESC
-            LIMIT $4
+            SELECT DISTINCT e.entity_id, e.entity_name, e.entity_type, e.description,
+                   e.attributes, e.aliases, e.embedding_vector, e.confidence_score,
+                   e.popularity_score, e.relation_count, e.mention_count, e.status
+            FROM entities e
+            LEFT JOIN relations r ON e.entity_id = r.source_entity_id OR e.entity_id = r.target_entity_id
+            LEFT JOIN knowledge_entries ke ON ke.content LIKE '%' || e.entity_name || '%'
+            WHERE e.entity_name LIKE '%' || $1 || '%'
+               OR r.source_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
+               OR r.target_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
+            ORDER BY e.popularity_score DESC, e.mention_count DESC
+            LIMIT $2
             "#,
         )
-        .bind(entity_id)
-        .bind(entity_id)
-        .bind(entity_id)
-        .bind(top_k)
+        .bind(entity_name)
+        .bind(limit)
         .fetch_all(pool)
         .await
         .map_err(|e| {
@@ -354,18 +357,31 @@ impl KGRepository {
 
     /// 搜索包含指定实体的知识条目
     pub async fn search_entries_by_entity(
+        pool: &sqlx::PgPool,
         entity_name: &str,
         top_k: i32,
-    ) -> Result<Vec<(String, f64)>, AppError> {
-        let pool = pool();
-
+    ) -> Result<Vec<Entity>, AppError> {
         // 搜索包含该实体名称的知识条目
-        let rows = sqlx::query_as::<_, (String, f64)>(
+        let rows = sqlx::query_as::<_, Entity>(
             r#"
-            SELECT entry_id, 0.8 as score
-            FROM knowledge_entries
-            WHERE content LIKE '%' || $1 || '%' AND status = 'active'
-            ORDER BY access_count DESC, created_at DESC
+            SELECT DISTINCT e.entity_id, e.entity_name, e.entity_type, e.description,
+                   e.attributes, e.aliases, e.embedding_vector, e.confidence_score,
+                   e.popularity_score, e.relation_count, e.mention_count, e.status
+            FROM entities e
+            WHERE e.entity_name LIKE '%' || $1 || '%'
+               OR e.entity_name IN (
+                   SELECT entity_name FROM entities
+                   WHERE entity_id IN (
+                       SELECT source_entity_id FROM relations WHERE target_entity_id IN (
+                           SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%'
+                       )
+                       UNION
+                       SELECT target_entity_id FROM relations WHERE source_entity_id IN (
+                           SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%'
+                       )
+                   )
+               )
+            ORDER BY e.popularity_score DESC, e.mention_count DESC
             LIMIT $2
             "#,
         )

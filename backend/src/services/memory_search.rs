@@ -413,12 +413,16 @@ impl MemorySearchService {
             );
 
             // 2. 如果找到实体，获取相关的知识条目
+            let pool = crate::db::pool();
             let kg_results = crate::db::KGRepository::search_knowledge_by_entity(
-                &found_entity.entity_id,
-                limit_i32,
+                pool,
+                &found_entity.entity_name,
+                Some(limit_i32),
             )
             .await?;
-            entry_ids_with_scores.extend(kg_results);
+            for entity in kg_results {
+                entry_ids_with_scores.push((entity.entity_id.clone(), entity.popularity_score));
+            }
 
             // 3. 获取相关实体，并搜索相关实体的知识条目
             let related_entities = crate::db::KGRepository::get_related_entities(
@@ -429,21 +433,25 @@ impl MemorySearchService {
             .await?;
             for (related_entity, relation) in related_entities {
                 let related_results = crate::db::KGRepository::search_knowledge_by_entity(
-                    &related_entity.entity_id,
-                    limit_i32 / 2,
+                    pool,
+                    &related_entity.entity_name,
+                    Some(limit_i32 / 2),
                 )
                 .await?;
-                for (entry_id, score) in related_results {
+                for entity in related_results {
                     // 相关实体的分数要乘以关系权重
-                    entry_ids_with_scores.push((entry_id, score * relation.weight));
+                    entry_ids_with_scores.push((entity.entity_id, entity.popularity_score * relation.weight));
                 }
             }
         } else {
             // 4. 如果实体不存在于知识图谱中，搜索包含该实体名称的知识条目
             info!("Entity not found in KG, searching entries containing entity name");
+            let pool = crate::db::pool();
             let text_results =
-                crate::db::KGRepository::search_entries_by_entity(entity, limit_i32).await?;
-            entry_ids_with_scores.extend(text_results);
+                crate::db::KGRepository::search_entries_by_entity(pool, entity, limit_i32).await?;
+            for entity in text_results {
+                entry_ids_with_scores.push((entity.entity_id, entity.popularity_score));
+            }
         }
 
         // 5. 去重并排序
