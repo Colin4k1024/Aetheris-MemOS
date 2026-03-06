@@ -275,6 +275,8 @@ impl LTMRepository {
             (None, None) => "status = 'active'".to_string(),
         };
 
+        eprintln!("DEBUG where_clause: {}", where_clause);
+
         // 查询
         let query = format!(
             "SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
