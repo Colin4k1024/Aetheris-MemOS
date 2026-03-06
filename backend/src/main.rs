@@ -1,7 +1,3 @@
-use axum::{
-    routing::get,
-    Router,
-};
 use tokio::signal;
 use tracing::info;
 use utoipa::OpenApi;
@@ -121,12 +117,17 @@ async fn main() {
             .url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let listen_addr = &config.listen_addr;
-    println!("🔄 在以下位置监听 {}", listen_addr);
 
     // 启动服务器
+    println!("🔄 在以下位置监听 http://{}", listen_addr);
     let listener = tokio::net::TcpListener::bind(listen_addr).await.unwrap();
     println!("📖 Open API 页面: http://{}/swagger-ui", listen_addr.replace("0.0.0.0", "127.0.0.1"));
     println!("📄 OpenAPI JSON: http://{}/api-docs/openapi.json", listen_addr.replace("0.0.0.0", "127.0.0.1"));
+
+    // TLS 支持说明
+    if config.tls.is_some() {
+        println!("⚠️  TLS 配置已存在，请使用反向代理（如 nginx）启用 HTTPS");
+    }
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
