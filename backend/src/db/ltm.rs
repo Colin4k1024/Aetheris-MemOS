@@ -39,6 +39,7 @@ pub struct KnowledgeEntry {
     pub quality_score: Option<f64>,
     pub relevance_score: Option<f64>,
     pub status: String,
+    pub access_count: i32,
 }
 
 impl LTMRepository {
@@ -171,8 +172,11 @@ impl LTMRepository {
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
                    embedding_vector, embedding_model, embedding_dimension,
-                   created_at, updated_at, last_accessed_at, access_count,
-                   quality_score, relevance_score, status
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   last_accessed_at::text as last_accessed_at,
+                   category, domain,
+                   quality_score, relevance_score, status,
+                   COALESCE(access_count, 0) as access_count
             FROM knowledge_entries
             WHERE entry_id = $1 AND status = 'active'
             "#,
@@ -202,8 +206,11 @@ impl LTMRepository {
                 r#"
                 SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
                        embedding_vector, embedding_model, embedding_dimension,
-                       created_at, updated_at, last_accessed_at, access_count,
-                       quality_score, relevance_score, status
+                       created_at::text as created_at, updated_at::text as updated_at,
+                       last_accessed_at::text as last_accessed_at,
+                       category, domain,
+                       quality_score, relevance_score, status,
+                       COALESCE(access_count, 0) as access_count
                 FROM knowledge_entries
                 WHERE source_id = $1 AND source_type = $2 AND status = 'active'
                 ORDER BY created_at DESC
@@ -218,8 +225,11 @@ impl LTMRepository {
                 r#"
                 SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
                        embedding_vector, embedding_model, embedding_dimension,
-                       created_at, updated_at, last_accessed_at, access_count,
-                       quality_score, relevance_score, status
+                       created_at::text as created_at, updated_at::text as updated_at,
+                       last_accessed_at::text as last_accessed_at,
+                       category, domain,
+                       quality_score, relevance_score, status,
+                       COALESCE(access_count, 0) as access_count
                 FROM knowledge_entries
                 WHERE source_id = $1 AND status = 'active'
                 ORDER BY created_at DESC
@@ -252,37 +262,45 @@ impl LTMRepository {
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
 
-        let mut query = String::from(
+        info!("list_entries called with category={:?}, status={:?}, limit={}, offset={}", category, status, limit, offset);
+
+        // 构建过滤条件
+        let cat_filter = category.map(|c| format!("category = '{}'", c));
+        let status_filter = status.map(|s| format!("status = '{}'", s));
+
+        let where_clause = match (cat_filter, status_filter) {
+            (Some(cat), Some(st)) => format!("status = 'active' AND {} AND {}", cat, st),
+            (Some(cat), None) => format!("status = 'active' AND {}", cat),
+            (None, Some(st)) => format!("status = 'active' AND {}", st),
+            (None, None) => "status = 'active'".to_string(),
+        };
+
+        // 查询
+        let query = format!(
             "SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
                     embedding_vector, embedding_model, embedding_dimension,
-                    created_at::text as created_at, updated_at::text as updated_at, last_accessed_at::text as last_accessed_at, category, domain,
-                    quality_score, relevance_score, status
-             FROM knowledge_entries WHERE 1=1"
+                    created_at::text as created_at, updated_at::text as updated_at,
+                    last_accessed_at::text as last_accessed_at,
+                    category, domain, quality_score, relevance_score, status,
+                    COALESCE(access_count, 0) as access_count
+             FROM knowledge_entries WHERE {} ORDER BY created_at DESC LIMIT {} OFFSET {}",
+            where_clause, limit, offset
         );
+        info!("Query: {}", query);
 
-        let mut count_query = String::from("SELECT COUNT(*) FROM knowledge_entries WHERE 1=1");
-
-        if let Some(cat) = category {
-            query.push_str(&format!(" AND category = '{}'", cat));
-            count_query.push_str(&format!(" AND category = '{}'", cat));
-        }
-
-        if let Some(s) = status {
-            query.push_str(&format!(" AND status = '{}'", s));
-            count_query.push_str(&format!(" AND status = '{}'", s));
-        } else {
-            query.push_str(" AND status = 'active'");
-            count_query.push_str(" AND status = 'active'");
-        }
-
-        query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
+        // Count查询
+        let count_query = format!(
+            "SELECT COUNT(*) FROM knowledge_entries WHERE {}",
+            where_clause
+        );
 
         let entries: Vec<KnowledgeEntry> = sqlx::query_as(&query)
             .fetch_all(pool)
             .await
             .map_err(|e| {
-                error!("Failed to list knowledge entries: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
+                eprintln!("ERROR list_entries: query={}, error={}", query, e);
+                error!("Failed to list knowledge entries: query={}, error={}", query, e);
+                AppError::Internal(format!("Database error: query={}, error={}", query, e))
             })?;
 
         let total: (i64,) = sqlx::query_as(&count_query)
