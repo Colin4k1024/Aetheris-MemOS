@@ -10,7 +10,18 @@ anyhow = "1"
 figment = { version = "0.10", features = ["env", "toml"] }
 jsonwebtoken = {version = "10", features = ["rust_crypto"]}
 rust-embed = "8"
+
+# Web framework
 salvo = {version = "0.84", features = ["anyhow", "cookie", "cors", "jwt-auth", "oapi", "serve-static", "rustls", "logging", "test"]}
+axum = { version = "0.7", features = ["macros", "multipart"] }
+tower = { version = "0.4", features = ["util", "limit"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "normalize-path"] }
+hyper = "1"
+
+# OpenAPI
+utoipa = "2"
+utoipa-swagger-ui = "6"
+
 serde = "1"
 thiserror = "2"
 time = "0.3"
