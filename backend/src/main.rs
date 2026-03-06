@@ -4,6 +4,8 @@ use axum::{
 };
 use tokio::signal;
 use tracing::info;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 mod config;
 mod db;
@@ -23,11 +25,41 @@ pub use web::{json_ok as axum_json_ok, AppError as AxumAppError};
 // Axum routers module
 mod axum_routers;
 
+// OpenAPI documentation
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        axum_routers::memory::health_check,
+        axum_routers::memory::get_memory_status,
+        axum_routers::memory::select_memory_config,
+    ),
+    components(
+        schemas(
+            axum_routers::memory::SelectMemoryConfigRequest,
+            axum_routers::memory::SelectMemoryConfigResponse,
+            axum_routers::memory::AnalyzeTaskRequest,
+            axum_routers::memory::PredictPerformanceRequest,
+            axum_routers::memory::CostBenefitRequest,
+            axum_routers::memory::OptimizeRequest,
+            axum_routers::memory::AdjustWeightsRequest,
+        )
+    ),
+    tags(
+        (name = "Memory", description = "Memory management API"),
+        (name = "Analyzer", description = "Task analysis API"),
+        (name = "Predictor", description = "Performance prediction API"),
+        (name = "Monitor", description = "System monitoring API"),
+        (name = "Weights", description = "Weight management API"),
+    )
+)]
+pub struct ApiDoc;
+
 pub type AppResult<T> = Result<T, AppError>;
 
 /// 初始化数据库连接
 async fn init_database() {
     let config = crate::config::get();
+
     match crate::db::init(&config.db).await {
         Ok(_) => tracing::info!("Database connected successfully"),
         Err(e) => tracing::warn!("Database connection failed: {}. Server will run without database.", e),
@@ -84,17 +116,17 @@ async fn main() {
     init_memory_transfer().await;
 
     // 创建 Axum 路由
-    let app = axum_routers::create_router();
+    let app = axum_routers::create_router()
+        .merge(SwaggerUi::new("/swagger-ui")
+            .url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let listen_addr = &config.listen_addr;
     println!("🔄 在以下位置监听 {}", listen_addr);
 
     // 启动服务器
     let listener = tokio::net::TcpListener::bind(listen_addr).await.unwrap();
-    println!(
-        "📖 Open API 页面: http://{}/docs",
-        listen_addr.replace("0.0.0.0", "127.0.0.1")
-    );
+    println!("📖 Open API 页面: http://{}/swagger-ui", listen_addr.replace("0.0.0.0", "127.0.0.1"));
+    println!("📄 OpenAPI JSON: http://{}/api-docs/openapi.json", listen_addr.replace("0.0.0.0", "127.0.0.1"));
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
