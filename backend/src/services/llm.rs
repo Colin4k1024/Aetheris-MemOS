@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -238,7 +240,7 @@ pub struct TypedEntity {
 }
 
 /// 结构化提取结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StructuredExtraction {
     /// 提取的实体列表（带类型）
     #[serde(default)]

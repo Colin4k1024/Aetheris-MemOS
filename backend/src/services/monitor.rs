@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::db::performance::PerformanceMetricsRepository;
 use crate::models::*;
 use sysinfo::{CpuExt, DiskExt, System, SystemExt};

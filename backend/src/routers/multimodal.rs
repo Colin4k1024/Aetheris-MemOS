@@ -1,5 +1,7 @@
 //! Multimodal Memory API Routes
 
+#![allow(dead_code)]
+
 use salvo::oapi::extract::*;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -7,7 +9,6 @@ use tracing::error;
 use validator::Validate;
 
 use crate::db::mm::MMRepository;
-use crate::db::pool;
 use crate::{json_ok, JsonResult};
 
 /// 存储多模态记忆请求

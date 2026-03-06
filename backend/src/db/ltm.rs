@@ -1,6 +1,7 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::Row;
 use tracing::{error, info};
 use ulid::Ulid;
 
@@ -254,8 +255,8 @@ impl LTMRepository {
 
     /// 获取所有知识条目列表
     pub async fn list_entries(
-        category: Option<&str>,
-        status: Option<&str>,
+        _category: Option<&str>,
+        _status: Option<&str>,
         limit: Option<i32>,
         offset: Option<i32>,
     ) -> Result<KnowledgeEntryListResponse, AppError> {

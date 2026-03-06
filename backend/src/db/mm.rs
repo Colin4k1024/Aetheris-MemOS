@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use tracing::{error, info};

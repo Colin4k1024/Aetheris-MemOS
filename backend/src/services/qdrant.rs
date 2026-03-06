@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::Result;
 use qdrant_client::qdrant::{
     CreateCollection, Distance, PointId, PointStruct, SearchPoints, VectorsConfig,

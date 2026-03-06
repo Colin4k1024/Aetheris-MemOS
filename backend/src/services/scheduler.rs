@@ -527,7 +527,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_scheduler_creation() {
-        let scheduler = AdaptiveMemoryScheduler::new();
+        let _scheduler = AdaptiveMemoryScheduler::new();
         assert!(true);
     }
 

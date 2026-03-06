@@ -46,7 +46,7 @@ async fn init_neo4j() -> AppResult<()> {
     let config = crate::config::get();
     
     tracing::info!("Initializing Neo4j connection");
-    crate::db::init_neo4j(&config.neo4j).await;
+    let _ = crate::db::init_neo4j(&config.neo4j).await;
     
     tracing::info!("Initializing Neo4j indexes and constraints");
     crate::db::init_neo4j_indexes()
@@ -120,29 +120,16 @@ async fn main() {
             listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
         
-        let tls_config = match RustlsConfig::new(
+        let tls_config = RustlsConfig::new(
             Keycert::new()
                 .cert(tls.cert.clone())
                 .key(tls.key.clone())
-        ) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("❌ TLS configuration failed: {}", e);
-                std::process::exit(1);
-            }
-        };
-        
-        match TcpListener::new(listen_addr).rustls(tls_config).bind().await {
-            Ok(acceptor) => {
-                let server = Server::new(acceptor);
-                tokio::spawn(shutdown_signal(server.handle()));
-                server.serve(service).await;
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to bind TLS listener: {}", e);
-                std::process::exit(1);
-            }
-        }
+        );
+
+        let acceptor = TcpListener::new(listen_addr).rustls(tls_config).bind().await;
+        let server = Server::new(acceptor);
+        tokio::spawn(shutdown_signal(server.handle()));
+        server.serve(service).await;
     } else {
         println!(
             "📖 Open API 页面: http://{}/scalar",
@@ -153,17 +140,10 @@ async fn main() {
             config.listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
         
-        match TcpListener::new(&config.listen_addr).bind().await {
-            Ok(acceptor) => {
-                let server = Server::new(acceptor);
-                tokio::spawn(shutdown_signal(server.handle()));
-                server.serve(service).await;
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to bind listener: {}", e);
-                std::process::exit(1);
-            }
-        }
+        let acceptor = TcpListener::new(&config.listen_addr).bind().await;
+        let server = Server::new(acceptor);
+        tokio::spawn(shutdown_signal(server.handle()));
+        server.serve(service).await;
     }
 }
 

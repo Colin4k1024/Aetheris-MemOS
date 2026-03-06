@@ -4,6 +4,8 @@
 //! can be described as an agent-based adaptive memory manager. Implementations may
 //! remain rule-based; the abstraction allows future LLM-driven or pluggable agents.
 
+#![allow(dead_code)]
+
 use crate::models::*;
 
 /// Context passed into the agent (input for observe).

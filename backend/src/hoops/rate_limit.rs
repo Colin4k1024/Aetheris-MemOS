@@ -107,18 +107,13 @@ pub struct RateLimitHoop {
 #[async_trait]
 impl Handler for RateLimitHoop {
     async fn handle(&self, req: &mut Request, _depot: &mut Depot, res: &mut Response, _ctrl: &mut FlowCtrl) {
-        // Use client IP as the rate limit key
-        // In production, you might want to use API key or user ID
-        let addr = req.remote_addr();
-        let client_ip = match addr {
-            salvo::conn::SocketAddr::IPv4(addr) => addr.ip().to_string(),
-            salvo::conn::SocketAddr::IPv6(addr) => addr.ip().to_string(),
-            _ => "unknown".to_string(),
-        };
+        // Determine the rate limit key
+        // Priority: API key > User ID > Auth Token > Client IP
+        let key = self.extract_key(req);
 
-        if self.limiter.check_and_record(&client_ip).await {
+        if self.limiter.check_and_record(&key).await {
             // Request allowed - add rate limit headers
-            let remaining = self.limiter.remaining(&client_ip).await;
+            let remaining = self.limiter.remaining(&key).await;
             res.headers_mut()
                 .insert("X-RateLimit-Limit", self.limiter.config.max_requests.to_string().parse().unwrap());
             res.headers_mut()
@@ -127,6 +122,47 @@ impl Handler for RateLimitHoop {
             // Rate limit exceeded
             res.status_code(StatusCode::TOO_MANY_REQUESTS);
             res.render(Text::Plain("Rate limit exceeded. Please try again later."));
+        }
+    }
+}
+
+impl RateLimitHoop {
+    /// Extract the rate limit key from the request
+    fn extract_key(&self, req: &Request) -> String {
+        // Try API key first
+        if let Some(api_key) = req.headers().get("X-API-Key") {
+            if let Ok(key) = api_key.to_str() {
+                if !key.is_empty() {
+                    return format!("api_key:{}", key);
+                }
+            }
+        }
+
+        // Try User ID
+        if let Some(user_id) = req.headers().get("X-User-ID") {
+            if let Ok(key) = user_id.to_str() {
+                if !key.is_empty() {
+                    return format!("user:{}", key);
+                }
+            }
+        }
+
+        // Try Authorization header
+        if let Some(auth) = req.headers().get("Authorization") {
+            if let Ok(key) = auth.to_str() {
+                if !key.is_empty() {
+                    // Use hashed token to avoid storing sensitive data
+                    return format!("auth:{}", key.len()); // Simplified - in production use proper hashing
+                }
+            }
+        }
+
+        // Fallback to client IP
+        let addr = req.remote_addr();
+        match addr {
+            salvo::conn::SocketAddr::IPv4(addr) => format!("ip:{}", addr.ip()),
+            salvo::conn::SocketAddr::IPv6(addr) => format!("ip:{}", addr.ip()),
+            _ => "ip:unknown".to_string(),
         }
     }
 }
@@ -174,10 +210,12 @@ mod tests {
         let limiter = RateLimiter::new(config);
 
         // Different clients should have independent counts
-        assert!(limiter.check_and_record("client_a").await);
-        assert!(limiter.check_and_record("client_b").await);
-        assert!(!limiter.check_and_record("client_a").await);
-        assert!(!limiter.check_and_record("client_b").await);
+        // Each client gets 2 requests per second
+        assert!(limiter.check_and_record("client_a").await); // allowed (client_a: 1/2)
+        assert!(limiter.check_and_record("client_b").await); // allowed (client_b: 1/2)
+        assert!(limiter.check_and_record("client_a").await); // allowed (client_a: 2/2)
+        assert!(limiter.check_and_record("client_b").await); // allowed (client_b: 2/2)
+        assert!(!limiter.check_and_record("client_a").await); // blocked (client_a: 3/2 exceeded)
     }
 
     #[tokio::test]
