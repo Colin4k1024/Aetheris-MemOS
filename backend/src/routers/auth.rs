@@ -34,12 +34,62 @@ pub struct LoginInData {
     pub username: String,
     pub password: String,
 }
+
+#[derive(Deserialize, ToSchema, Debug)]
+pub struct RegisterInData {
+    pub username: String,
+    pub password: String,
+}
+
 #[derive(Serialize, ToSchema, Default, Debug)]
 pub struct LoginOutData {
     pub id: String,
     pub username: String,
     pub token: String,
     pub exp: i64,
+}
+
+/// Register a new user (public endpoint)
+#[endpoint(tags("auth"))]
+pub async fn register(
+    idata: JsonBody<RegisterInData>,
+) -> JsonResult<LoginOutData> {
+    let idata = idata.into_inner();
+    let conn = db::pool();
+
+    // Check if user already exists
+    let existing = sqlx::query_as::<_, User>(
+        "SELECT id, username, password FROM users WHERE username = $1",
+    )
+    .bind(&idata.username)
+    .fetch_optional(conn)
+    .await?;
+
+    if existing.is_some() {
+        return Err(StatusError::bad_request()
+            .brief("Username already exists")
+            .into());
+    }
+
+    // Create new user
+    let id = ulid::Ulid::new().to_string();
+    let password = utils::hash_password(&idata.password)?;
+    sqlx::query("INSERT INTO users (id, username, password) VALUES ($1, $2, $3)")
+        .bind(&id)
+        .bind(&idata.username)
+        .bind(&password)
+        .execute(conn)
+        .await?;
+
+    // Generate token
+    let (token, exp) = jwt::get_token(&id)?;
+    let odata = LoginOutData {
+        id,
+        username: idata.username,
+        token,
+        exp,
+    };
+    json_ok(odata)
 }
 #[endpoint(tags("auth"))]
 pub async fn post_login(

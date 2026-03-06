@@ -186,6 +186,27 @@ pub async fn batch_store_ltm(
     json_ok(BatchStoreLTMResponse { entry_ids })
 }
 
+/// 获取所有会话列表
+#[endpoint(tags("memory-storage"))]
+pub async fn list_sessions(
+    req: &mut Request,
+) -> JsonResult<crate::db::SessionListResponse> {
+    let user_id = req.query::<&str>("user_id");
+    let status = req.query::<&str>("status");
+    let limit: Option<i32> = req.query("limit");
+    let offset: Option<i32> = req.query("offset");
+
+    let sessions = crate::db::stm::STMRepository::list_sessions(
+        user_id,
+        status,
+        limit,
+        offset,
+    )
+    .await?;
+
+    json_ok(sessions)
+}
+
 /// 获取会话消息
 #[endpoint(tags("memory-storage"))]
 pub async fn get_session_messages(

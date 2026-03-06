@@ -170,6 +170,27 @@ pub async fn search_by_entity(
     json_ok(SearchByEntityResponse { results })
 }
 
+/// 获取所有知识条目列表
+#[endpoint(tags("memory-search"))]
+pub async fn list_ltm_entries(
+    req: &mut Request,
+) -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
+    let category = req.query::<&str>("category");
+    let status = req.query::<&str>("status");
+    let limit: Option<i32> = req.query("limit");
+    let offset: Option<i32> = req.query("offset");
+
+    let result = crate::db::ltm::LTMRepository::list_entries(
+        category,
+        status,
+        limit,
+        offset,
+    )
+    .await?;
+
+    json_ok(result)
+}
+
 /// 获取知识条目详情
 #[endpoint(tags("memory-search"))]
 pub async fn get_ltm_entry(

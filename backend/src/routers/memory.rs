@@ -96,7 +96,7 @@ pub async fn select_memory_config(
                 &trace.initial_memory_config.memory_weights,
                 &trace.weight_adjustment.adjusted_weights,
                 &trace.weight_adjustment.adjustment_reasons,
-                (trace.cost_benefit_ratio - 1.0) * 0.1,
+                ((trace.cost_benefit_ratio - 1.0) * 0.1) as f32,
                 None,
             )
             .await;
@@ -636,7 +636,7 @@ pub async fn get_weight_history() -> JsonResult<WeightHistoryResponse> {
                     old_weights: item.old_weights,
                     new_weights: item.new_weights,
                     reason: item.reason,
-                    performance_impact: item.performance_impact,
+                    performance_impact: item.performance_impact as f64,
                 })
         })
         .collect();
@@ -653,7 +653,7 @@ pub async fn get_weight_history() -> JsonResult<WeightHistoryResponse> {
         adjustment_history,
         summary: HistorySummary {
             total_adjustments: summary_row.total_adjustments,
-            average_performance_impact: summary_row.average_performance_impact,
+            average_performance_impact: summary_row.average_performance_impact as f64,
             most_common_adjustment: summary_row.most_common_adjustment,
         },
     })
@@ -917,16 +917,16 @@ pub async fn create_memory_config(
         agent_id: req.agent_id,
         config_name: req.config_name,
         config_type: req.config_type,
-        stm_enabled: req.stm_enabled,
+        stm_enabled: req.stm_enabled as i16,
         stm_max_length: req.stm_max_length,
         stm_retention_hours: req.stm_retention_hours,
-        ltm_enabled: req.ltm_enabled,
+        ltm_enabled: req.ltm_enabled as i16,
         ltm_max_entries: req.ltm_max_entries,
-        ltm_quality_threshold: req.ltm_quality_threshold,
-        kg_enabled: req.kg_enabled,
+        ltm_quality_threshold: req.ltm_quality_threshold as f32,
+        kg_enabled: req.kg_enabled as i16,
         kg_max_entities: req.kg_max_entities,
-        kg_confidence_threshold: req.kg_confidence_threshold,
-        mm_enabled: req.mm_enabled,
+        kg_confidence_threshold: req.kg_confidence_threshold as f32,
+        mm_enabled: req.mm_enabled as i16,
         mm_max_entries: req.mm_max_entries,
         mm_modality_types: req.mm_modality_types,
         max_response_time_ms: req.max_response_time_ms,
@@ -1025,7 +1025,7 @@ pub async fn update_memory_config(
         existing.config_type = ct;
     }
     if let Some(val) = update_req.stm_enabled {
-        existing.stm_enabled = val;
+        existing.stm_enabled = val as i16;
     }
     if let Some(val) = update_req.stm_max_length {
         existing.stm_max_length = val;
@@ -1034,25 +1034,25 @@ pub async fn update_memory_config(
         existing.stm_retention_hours = val;
     }
     if let Some(val) = update_req.ltm_enabled {
-        existing.ltm_enabled = val;
+        existing.ltm_enabled = val as i16;
     }
     if let Some(val) = update_req.ltm_max_entries {
         existing.ltm_max_entries = val;
     }
     if let Some(val) = update_req.ltm_quality_threshold {
-        existing.ltm_quality_threshold = val;
+        existing.ltm_quality_threshold = val as f32;
     }
     if let Some(val) = update_req.kg_enabled {
-        existing.kg_enabled = val;
+        existing.kg_enabled = val as i16;
     }
     if let Some(val) = update_req.kg_max_entities {
         existing.kg_max_entities = val;
     }
     if let Some(val) = update_req.kg_confidence_threshold {
-        existing.kg_confidence_threshold = val;
+        existing.kg_confidence_threshold = val as f32;
     }
     if let Some(val) = update_req.mm_enabled {
-        existing.mm_enabled = val;
+        existing.mm_enabled = val as i16;
     }
     if let Some(val) = update_req.mm_max_entries {
         existing.mm_max_entries = val;

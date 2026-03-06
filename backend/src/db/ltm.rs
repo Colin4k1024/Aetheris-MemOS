@@ -9,6 +9,15 @@ use crate::AppError;
 /// 长期记忆仓库
 pub struct LTMRepository;
 
+/// 知识条目列表响应
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
+pub struct KnowledgeEntryListResponse {
+    pub entries: Vec<KnowledgeEntry>,
+    pub total: usize,
+    pub limit: i32,
+    pub offset: i32,
+}
+
 /// 知识条目
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
 pub struct KnowledgeEntry {
@@ -25,7 +34,8 @@ pub struct KnowledgeEntry {
     pub created_at: String,
     pub updated_at: String,
     pub last_accessed_at: Option<String>,
-    pub access_count: i32,
+    pub category: Option<String>,
+    pub domain: Option<String>,
     pub quality_score: Option<f64>,
     pub relevance_score: Option<f64>,
     pub status: String,
@@ -229,6 +239,66 @@ impl LTMRepository {
             })?;
 
         Ok(entries)
+    }
+
+    /// 获取所有知识条目列表
+    pub async fn list_entries(
+        category: Option<&str>,
+        status: Option<&str>,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<KnowledgeEntryListResponse, AppError> {
+        let pool = pool();
+        let limit = limit.unwrap_or(20);
+        let offset = offset.unwrap_or(0);
+
+        let mut query = String::from(
+            "SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
+                    embedding_vector, embedding_model, embedding_dimension,
+                    created_at::text as created_at, updated_at::text as updated_at, last_accessed_at::text as last_accessed_at, category, domain,
+                    quality_score, relevance_score, status
+             FROM knowledge_entries WHERE 1=1"
+        );
+
+        let mut count_query = String::from("SELECT COUNT(*) FROM knowledge_entries WHERE 1=1");
+
+        if let Some(cat) = category {
+            query.push_str(&format!(" AND category = '{}'", cat));
+            count_query.push_str(&format!(" AND category = '{}'", cat));
+        }
+
+        if let Some(s) = status {
+            query.push_str(&format!(" AND status = '{}'", s));
+            count_query.push_str(&format!(" AND status = '{}'", s));
+        } else {
+            query.push_str(" AND status = 'active'");
+            count_query.push_str(" AND status = 'active'");
+        }
+
+        query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
+
+        let entries: Vec<KnowledgeEntry> = sqlx::query_as(&query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to list knowledge entries: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        let total: (i64,) = sqlx::query_as(&count_query)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count knowledge entries: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        Ok(KnowledgeEntryListResponse {
+            entries,
+            total: total.0 as usize,
+            limit,
+            offset,
+        })
     }
 
     /// 获取长期记忆条目总数

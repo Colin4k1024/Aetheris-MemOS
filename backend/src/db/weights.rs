@@ -15,7 +15,7 @@ impl WeightHistoryRepository {
         old_weights: &MemoryWeights,
         new_weights: &MemoryWeights,
         adjustment_reasons: &AdjustmentReasons,
-        performance_impact: f64,
+        performance_impact: f32,
         strategy_metadata: Option<&str>,
     ) -> Result<String, AppError> {
         let history_id = Ulid::new().to_string();
@@ -77,8 +77,8 @@ impl WeightHistoryRepository {
         let rows = if let (Some(start), Some(end)) = (start_time, end_time) {
             sqlx::query_as::<_, WeightHistoryRow>(
                 r#"
-                SELECT 
-                    history_id, task_id, timestamp,
+                SELECT
+                    history_id, task_id, timestamp::text as timestamp,
                     old_weights_json, new_weights_json,
                     adjustment_reasons_json, performance_impact,
                     strategy_metadata
@@ -96,8 +96,8 @@ impl WeightHistoryRepository {
         } else {
             sqlx::query_as::<_, WeightHistoryRow>(
                 r#"
-                SELECT 
-                    history_id, task_id, timestamp,
+                SELECT
+                    history_id, task_id, timestamp::text as timestamp,
                     old_weights_json, new_weights_json,
                     adjustment_reasons_json, performance_impact,
                     strategy_metadata
@@ -128,8 +128,8 @@ impl WeightHistoryRepository {
 
         let rows = sqlx::query_as::<_, WeightHistoryRow>(
             r#"
-            SELECT 
-                history_id, task_id, timestamp,
+            SELECT
+                history_id, task_id, timestamp::text as timestamp,
                 old_weights_json, new_weights_json,
                 adjustment_reasons_json, performance_impact,
                 strategy_metadata
@@ -194,7 +194,7 @@ impl WeightHistoryRepository {
 
         Ok(WeightHistorySummary {
             total_adjustments: row.total_adjustments.unwrap_or(0) as usize,
-            average_performance_impact: row.avg_performance_impact.unwrap_or(0.0),
+            average_performance_impact: row.avg_performance_impact.unwrap_or(0.0) as f32,
             most_common_adjustment: most_common,
         })
     }
@@ -245,7 +245,7 @@ pub struct WeightHistoryRow {
     pub old_weights_json: String,
     pub new_weights_json: String,
     pub adjustment_reasons_json: String,
-    pub performance_impact: f64,
+    pub performance_impact: f32,
     pub strategy_metadata: Option<String>,
 }
 
@@ -258,7 +258,7 @@ struct WeightHistorySummaryRow {
 #[derive(Debug, Clone)]
 pub struct WeightHistorySummary {
     pub total_adjustments: usize,
-    pub average_performance_impact: f64,
+    pub average_performance_impact: f32,
     pub most_common_adjustment: String,
 }
 
@@ -269,7 +269,7 @@ pub struct HistoryItem {
     pub old_weights: MemoryWeights,
     pub new_weights: MemoryWeights,
     pub reason: String,
-    pub performance_impact: f64,
+    pub performance_impact: f32,
     /// JSON array of strategy names used for this adjustment (e.g. ["MarginalBenefit","LinearDecay"]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy_metadata: Option<String>,

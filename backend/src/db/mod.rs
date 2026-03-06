@@ -33,7 +33,7 @@ pub mod stm;
 pub mod weights;
 pub use kg::KGRepository;
 pub use neo4j::{init_neo4j, init_neo4j_indexes};
-pub use stm::SessionMessage;
+pub use stm::{SessionMessage, SessionListResponse};
 
 pub static SQLX_POOL: OnceLock<PgPool> = OnceLock::new();
 

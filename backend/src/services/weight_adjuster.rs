@@ -72,7 +72,7 @@ impl DynamicWeightAdjuster {
                 &base_weights,
                 &weights,
                 &reasons,
-                performance_impact,
+                performance_impact as f32,
                 strategy_metadata.as_deref(),
             )
             .await;

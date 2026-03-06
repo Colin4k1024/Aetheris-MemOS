@@ -10,7 +10,7 @@ use crate::AppError;
 pub struct STMRepository;
 
 /// 会话信息
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
 pub struct Session {
     pub session_id: String,
     pub user_id: String,
@@ -25,6 +25,15 @@ pub struct Session {
     pub priority: i32,
 }
 
+/// 会话列表响应
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
+pub struct SessionListResponse {
+    pub sessions: Vec<Session>,
+    pub total: usize,
+    pub limit: i32,
+    pub offset: i32,
+}
+
 /// 会话消息
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
 pub struct SessionMessage {
@@ -34,7 +43,7 @@ pub struct SessionMessage {
     pub content: String,
     pub created_at: String,
     pub token_count: Option<i32>,
-    pub importance_score: Option<f64>,
+    pub importance_score: Option<f32>,
 }
 
 impl STMRepository {
@@ -192,6 +201,61 @@ impl STMRepository {
         })?;
 
         Ok(sessions)
+    }
+
+    /// 会话列表响应
+    pub async fn list_sessions(
+        user_id: Option<&str>,
+        status: Option<&str>,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<SessionListResponse, AppError> {
+        let pool = pool();
+        let limit = limit.unwrap_or(20);
+        let offset = offset.unwrap_or(0);
+
+        let mut query = String::from(
+            "SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+             session_type, context_length, max_context_length, status, priority
+             FROM context_sessions WHERE 1=1"
+        );
+
+        let mut count_query = String::from("SELECT COUNT(*) FROM context_sessions WHERE 1=1");
+
+        if let Some(uid) = user_id {
+            query.push_str(&format!(" AND user_id = '{}'", uid));
+            count_query.push_str(&format!(" AND user_id = '{}'", uid));
+        }
+
+        if let Some(s) = status {
+            query.push_str(&format!(" AND status = '{}'", s));
+            count_query.push_str(&format!(" AND status = '{}'", s));
+        }
+
+        query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
+
+        let sessions: Vec<Session> = sqlx::query_as(&query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to list sessions: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        let total: (i64,) = sqlx::query_as(&count_query)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count sessions: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        Ok(SessionListResponse {
+            sessions,
+            total: total.0 as usize,
+            limit,
+            offset,
+        })
     }
 
     /// 获取所有活跃的 user_id 列表

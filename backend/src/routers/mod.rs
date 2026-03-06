@@ -25,6 +25,7 @@ pub fn root() -> Router {
         .hoop(Logger::new())
         .get(demo::hello)
         .push(Router::with_path("login").get(auth::login_page))
+        .push(Router::with_path("register").post(auth::register))
         .push(Router::with_path("users").get(user::list_page))
         .push(
             Router::with_path("api")
@@ -135,6 +136,10 @@ pub fn root() -> Router {
                        .push(
                            Router::with_path("storage")
                                .push(
+                                   Router::with_path("sessions")
+                                       .get(memory_storage::list_sessions),
+                               )
+                               .push(
                                    Router::with_path("stm")
                                        .post(memory_storage::store_stm)
                                        .push(
@@ -163,6 +168,7 @@ pub fn root() -> Router {
                                )
                                .push(
                                    Router::with_path("ltm")
+                                       .get(memory_search::list_ltm_entries)
                                        .post(memory_search::search_ltm)
                                        .push(
                                            Router::with_path("{entry_id}")
