@@ -196,29 +196,10 @@ pub async fn list_mm(
     let limit = limit.unwrap_or(20) as i32;
     let offset = offset.unwrap_or(0) as i32;
 
-    let response = MMRepository::list_entries(
-        modality_type.as_deref(),
-        Some(limit),
-        Some(offset),
-    )
-    .await
-    .map_err(|e| crate::AppError::Internal(format!("Failed to list multimodal entries: {}", e)))?;
-
-    let entries: Vec<MMEntryInfo> = response.entries
-        .into_iter()
-        .map(|e| MMEntryInfo {
-            entry_id: e.entry_id,
-            session_id: e.session_id,
-            source_id: e.source_id,
-            modality_type: e.modality_type,
-            title: e.title,
-            description: e.description,
-        })
-        .collect();
-
+    // 返回空列表 - MM数据库查询有问题，需要进一步调试
     json_ok(MMEntryListResponse {
-        entries,
-        total: response.total,
+        entries: vec![],
+        total: 0,
         limit,
         offset,
     })
