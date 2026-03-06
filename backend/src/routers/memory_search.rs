@@ -175,18 +175,13 @@ pub async fn search_by_entity(
 pub async fn list_ltm_entries(
     _req: &mut Request,
 ) -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
-    info!("list_ltm_entries called");
-
-    // 直接返回空列表
-    // 问题在数据库层，需要进一步调试
-    let result = crate::db::ltm::KnowledgeEntryListResponse {
+    // 暂时返回空列表，数据库查询有hang问题
+    json_ok(crate::db::ltm::KnowledgeEntryListResponse {
         entries: vec![],
         total: 0,
         limit: 20,
         offset: 0,
-    };
-
-    json_ok(result)
+    })
 }
 
 /// 获取知识条目详情

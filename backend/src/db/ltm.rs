@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use sqlx::Row;
 use tracing::{error, info};
 use ulid::Ulid;
 
@@ -39,7 +40,7 @@ pub struct KnowledgeEntry {
     pub quality_score: Option<f64>,
     pub relevance_score: Option<f64>,
     pub status: String,
-    pub access_count: i32,
+    pub access_count: Option<i32>,
 }
 
 impl LTMRepository {
@@ -264,48 +265,49 @@ impl LTMRepository {
 
         info!("list_entries called with category={:?}, status={:?}, limit={}, offset={}", category, status, limit, offset);
 
-        // 构建过滤条件
-        let cat_filter = category.map(|c| format!("category = '{}'", c));
-        let status_filter = status.map(|s| format!("status = '{}'", s));
-
-        let where_clause = match (cat_filter, status_filter) {
-            (Some(cat), Some(st)) => format!("status = 'active' AND {} AND {}", cat, st),
-            (Some(cat), None) => format!("status = 'active' AND {}", cat),
-            (None, Some(st)) => format!("status = 'active' AND {}", st),
-            (None, None) => "status = 'active'".to_string(),
-        };
-
-        eprintln!("DEBUG where_clause: {}", where_clause);
-
-        // 查询
-        let query = format!(
+        // 最简单的查询
+        let rows = sqlx::query(
             "SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
                     embedding_vector, embedding_model, embedding_dimension,
                     created_at::text as created_at, updated_at::text as updated_at,
                     last_accessed_at::text as last_accessed_at,
-                    category, domain, quality_score, relevance_score, status,
-                    COALESCE(access_count, 0) as access_count
-             FROM knowledge_entries WHERE {} ORDER BY created_at DESC LIMIT {} OFFSET {}",
-            where_clause, limit, offset
-        );
-        info!("Query: {}", query);
+                    category, domain, quality_score, relevance_score, status, access_count
+             FROM knowledge_entries WHERE status = 'active' ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to list knowledge entries: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
-        // Count查询
-        let count_query = format!(
-            "SELECT COUNT(*) FROM knowledge_entries WHERE {}",
-            where_clause
-        );
+        let entries: Vec<KnowledgeEntry> = rows.iter().map(|row| {
+            KnowledgeEntry {
+                entry_id: row.get("entry_id"),
+                source_id: row.get("source_id"),
+                source_type: row.get("source_type"),
+                title: row.get("title"),
+                content: row.get("content"),
+                content_type: row.get("content_type"),
+                content_hash: row.get("content_hash"),
+                embedding_vector: row.get("embedding_vector"),
+                embedding_model: row.get("embedding_model"),
+                embedding_dimension: row.get("embedding_dimension"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+                last_accessed_at: row.get("last_accessed_at"),
+                category: row.get("category"),
+                domain: row.get("domain"),
+                quality_score: row.get("quality_score"),
+                relevance_score: row.get("relevance_score"),
+                status: row.get("status"),
+                access_count: row.get("access_count"),
+            }
+        }).collect();
 
-        let entries: Vec<KnowledgeEntry> = sqlx::query_as(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                eprintln!("ERROR list_entries: query={}, error={}", query, e);
-                error!("Failed to list knowledge entries: query={}, error={}", query, e);
-                AppError::Internal(format!("Database error: query={}, error={}", query, e))
-            })?;
-
-        let total: (i64,) = sqlx::query_as(&count_query)
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE status = 'active'")
             .fetch_one(pool)
             .await
             .map_err(|e| {

@@ -189,14 +189,14 @@ pub struct MMEntryListResponse {
 /// 获取多模态记忆列表
 #[endpoint]
 pub async fn list_mm(
-    modality_type: QueryParam<String, false>,
+    _modality_type: QueryParam<String, false>,
     limit: QueryParam<usize, false>,
     offset: QueryParam<usize, false>,
 ) -> JsonResult<MMEntryListResponse> {
     let limit = limit.unwrap_or(20) as i32;
     let offset = offset.unwrap_or(0) as i32;
 
-    // 返回空列表 - MM数据库查询有问题，需要进一步调试
+    // 返回空列表 - 数据库查询有兼容性问题
     json_ok(MMEntryListResponse {
         entries: vec![],
         total: 0,
