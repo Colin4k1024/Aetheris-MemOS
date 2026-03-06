@@ -78,10 +78,8 @@ fn default_limit() -> i32 {
 pub async fn store_mm(
     body: JsonBody<StoreMMRequest>,
 ) -> JsonResult<StoreMMResponse> {
-    let pool = pool();
-
     // 解析二进制内容
-    let binary_data = if let Some(content) = &body.content {
+    let _binary_data = if let Some(content) = &body.content {
         use base64::Engine;
         Some(base64::engine::general_purpose::STANDARD.decode(content).unwrap_or_default())
     } else {
@@ -89,26 +87,14 @@ pub async fn store_mm(
     };
 
     let entry_id = MMRepository::create_entry(
-        pool,
-        &ulid::Ulid::new().to_string(),
         body.session_id.as_deref(),
         &body.source_id,
         &body.modality_type,
-        1,
-        body.title.as_deref(),
-        body.description.as_deref(),
-        "{}",
+        "{}",  // content_metadata
         body.text_content.as_deref(),
-        None,
         body.image_url.as_deref(),
-        None,
-        None,
         body.audio_url.as_deref(),
-        None,
-        None,
-        serde_json::to_string(&Vec::<f32>::new()).ok().as_deref(),
-        serde_json::to_string(&Vec::<f32>::new()).ok().as_deref(),
-        serde_json::to_string(&Vec::<f32>::new()).ok().as_deref(),
+        None,  // video_url
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to store multimodal: {}", e)))?;
@@ -121,9 +107,7 @@ pub async fn store_mm(
 pub async fn get_mm(
     entry_id: PathParam<String>,
 ) -> JsonResult<Option<MMEntryInfo>> {
-    let pool = pool();
-
-    let entry = MMRepository::get_entry_by_id(pool, &entry_id)
+    let entry = MMRepository::get_entry_by_id(&entry_id)
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get multimodal: {}", e)))?;
 
@@ -145,10 +129,9 @@ pub async fn get_session_mm(
     session_id: PathParam<String>,
     limit: QueryParam<usize, false>,
 ) -> JsonResult<Vec<MMEntryInfo>> {
-    let pool = pool();
     let limit = limit.unwrap_or(20) as i32;
 
-    let entries = MMRepository::get_entries_by_session(pool, &session_id, Some(limit))
+    let entries = MMRepository::get_entries_by_session(&session_id, Some(limit))
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get session multimodal: {}", e)))?;
 
@@ -173,10 +156,9 @@ pub async fn get_by_modality(
     modality_type: PathParam<String>,
     limit: QueryParam<usize, false>,
 ) -> JsonResult<Vec<MMEntryInfo>> {
-    let pool = pool();
     let limit = limit.unwrap_or(20) as i32;
 
-    let entries = MMRepository::get_entries_by_modality(pool, &modality_type, Some(limit))
+    let entries = MMRepository::get_entries_by_modality(&modality_type, Some(limit))
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get by modality: {}", e)))?;
 

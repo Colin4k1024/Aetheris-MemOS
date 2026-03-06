@@ -359,20 +359,18 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                         // 处理 relations：过滤掉包含 null 或空值的 relation
                         if let Some(relations) = obj.get_mut("relations") {
                             if relations.is_array() {
-                                let relations_array = match relations.as_array_mut() {
-                                    Some(arr) => arr,
-                                    None => continue,
-                                };
-                                relations_array.retain(|r| {
-                                    if let Some(rel_obj) = r.as_object() {
-                                        let from = rel_obj.get("from").and_then(|v| v.as_str()).unwrap_or("");
-                                        let to = rel_obj.get("to").and_then(|v| v.as_str()).unwrap_or("");
-                                        let rel_type = rel_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                                        !from.is_empty() && !to.is_empty() && !rel_type.is_empty()
-                                    } else {
-                                        false
-                                    }
-                                });
+                                if let Some(relations_array) = relations.as_array_mut() {
+                                    relations_array.retain(|r| {
+                                        if let Some(rel_obj) = r.as_object() {
+                                            let from = rel_obj.get("from").and_then(|v| v.as_str()).unwrap_or("");
+                                            let to = rel_obj.get("to").and_then(|v| v.as_str()).unwrap_or("");
+                                            let rel_type = rel_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                            !from.is_empty() && !to.is_empty() && !rel_type.is_empty()
+                                        } else {
+                                            false
+                                        }
+                                    });
+                                }
                             } else if relations.is_null() {
                                 *relations = serde_json::Value::Array(vec![]);
                             }

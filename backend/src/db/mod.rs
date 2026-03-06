@@ -32,7 +32,7 @@ pub mod performance;
 pub mod stm;
 pub mod weights;
 pub use kg::KGRepository;
-pub use neo4j::{init as init_neo4j, init_neo4j_indexes};
+pub use neo4j::{init_neo4j, init_neo4j_indexes};
 pub use stm::SessionMessage;
 
 pub static SQLX_POOL: OnceLock<PgPool> = OnceLock::new();
@@ -45,8 +45,7 @@ pub async fn init(config: &DbConfig) -> Result<(), DbInitError> {
         .min_connections(config.min_idle.unwrap_or(2))
         .acquire_timeout(std::time::Duration::from_secs(config.connection_timeout))
         .idle_timeout(Some(std::time::Duration::from_secs(600)))
-        .max_lifetime(Some(std::time::Duration::from_secs(1800)))
-        .statement_timeout(std::time::Duration::from_millis(config.statement_timeout));
+        .max_lifetime(Some(std::time::Duration::from_secs(1800)));
 
     let sqlx_pool = pool_options.connect(&config.url).await.map_err(|e| {
         error!("Database connection failed: {}", e);

@@ -476,5 +476,291 @@ declare namespace API {
     maxCpuUsagePercent?: number;
     status?: string;
   };
+
+  // ========== 决策追踪历史 ==========
+  type DecisionTraceItem = {
+    trace_id: string;
+    task_id: string;
+    timestamp: string;
+    analyzer_output: AnalyzerTraceStep;
+    predictor_output: PredictorTraceStep;
+    weight_adjustment: WeightAdjustmentTraceStep;
+    final_result: MemorySelectionResult;
+    cost_benefit_ratio: number;
+  };
+
+  // ========== 记忆存储 (STM/LTM) ==========
+  type StoreStmRequest = {
+    session_id: string;
+    role: string;
+    content: string;
+    metadata?: Record<string, any>;
+  };
+
+  type StoreStmResponse = {
+    message_id: string;
+    session_id: string;
+  };
+
+  type SessionMessagesResponse = {
+    messages: SessionMessage[];
+    session_id: string;
+    total: number;
+  };
+
+  type SessionMessage = {
+    message_id: string;
+    session_id: string;
+    role: string;
+    content: string;
+    metadata?: Record<string, any>;
+    created_at: string;
+  };
+
+  type StoreLtmRequest = {
+    user_id: string;
+    agent_id: string;
+    content: string;
+    content_type: string;
+    embedding?: number[];
+    metadata?: Record<string, any>;
+  };
+
+  type StoreLtmResponse = {
+    entry_id: string;
+    created_at: string;
+  };
+
+  type TransferRequest = {
+    session_id: string;
+    message_ids?: string[];
+    threshold?: number;
+  };
+
+  type TransferResponse = {
+    transferred_count: number;
+    failed_count: number;
+    entry_ids: string[];
+  };
+
+  type BatchStoreLtmRequest = {
+    entries: StoreLtmRequest[];
+  };
+
+  type BatchStoreLtmResponse = {
+    success_count: number;
+    failed_count: number;
+    entry_ids: string[];
+  };
+
+  // ========== 记忆搜索 ==========
+  type SearchStmRequest = {
+    session_id: string;
+    query: string;
+    limit?: number;
+  };
+
+  type SearchStmResponse = {
+    results: SessionMessage[];
+    total: number;
+  };
+
+  type SearchLtmRequest = {
+    query: string;
+    user_id?: string;
+    agent_id?: string;
+    content_type?: string;
+    limit?: number;
+    offset?: number;
+  };
+
+  type SearchLtmResponse = {
+    results: LtmEntry[];
+    total: number;
+  };
+
+  type LtmEntry = {
+    entry_id: string;
+    user_id: string;
+    agent_id: string;
+    content: string;
+    content_type: string;
+    metadata?: Record<string, any>;
+    created_at: string;
+    updated_at: string;
+  };
+
+  type GetLtmEntryResponse = LtmEntry;
+
+  type HybridSearchRequest = {
+    query: string;
+    user_id?: string;
+    agent_id?: string;
+    limit?: number;
+    semantic_weight?: number;
+  };
+
+  type HybridSearchResponse = {
+    results: HybridSearchResult[];
+    total: number;
+  };
+
+  type HybridSearchResult = {
+    entry_id: string;
+    content: string;
+    content_type: string;
+    score: number;
+    source: 'stm' | 'ltm';
+  };
+
+  type SearchByEntityRequest = {
+    entity_name: string;
+    entity_type?: string;
+    relation_type?: string;
+    limit?: number;
+  };
+
+  type SearchByEntityResponse = {
+    results: EntitySearchResult[];
+    total: number;
+  };
+
+  type EntitySearchResult = {
+    entity_id: string;
+    entity_name: string;
+    entity_type: string;
+    description?: string;
+    relations: EntityRelation[];
+  };
+
+  type EntityRelation = {
+    relation_id: string;
+    target_entity_id: string;
+    target_entity_name: string;
+    relation_type: string;
+    weight: number;
+  };
+
+  // ========== 知识图谱 ==========
+  type CreateEntityRequest = {
+    entity_name: string;
+    entity_type: string;
+    description?: string;
+    aliases?: string[];
+    properties?: Record<string, any>;
+  };
+
+  type CreateEntityResponse = {
+    entity_id: string;
+    created_at: string;
+  };
+
+  type EntityInfo = {
+    entity_id: string;
+    entity_name: string;
+    entity_type: string;
+    description?: string;
+    aliases?: string[];
+    properties?: Record<string, any>;
+    created_at?: string;
+    updated_at?: string;
+  };
+
+  type GetEntityByNameResponse = EntityInfo | null;
+
+  type GetRelatedEntitiesRequest = {
+    entity_id: string;
+    relation_type?: string;
+    limit?: number;
+  };
+
+  type GetRelatedEntitiesResponse = {
+    relations: RelationInfo[];
+    total: number;
+  };
+
+  type RelationInfo = {
+    relation_id: string;
+    source_entity_id: string;
+    target_entity_id: string;
+    relation_type: string;
+    weight: number;
+    confidence: number;
+  };
+
+  type CreateRelationRequest = {
+    source_entity_id: string;
+    target_entity_id: string;
+    relation_type: string;
+    weight?: number;
+    confidence?: number;
+    properties?: Record<string, any>;
+  };
+
+  type CreateRelationResponse = {
+    relation_id: string;
+    created_at: string;
+  };
+
+  type SearchKnowledgeRequest = {
+    query: string;
+    entity_types?: string[];
+    relation_types?: string[];
+    limit?: number;
+  };
+
+  type SearchKnowledgeResponse = {
+    results: KnowledgeSearchResult[];
+    total: number;
+  };
+
+  type KnowledgeSearchResult = {
+    entity: EntityInfo;
+    matched_relations: RelationInfo[];
+    relevance_score: number;
+  };
+
+  // ========== 多模态记忆 ==========
+  type StoreMmRequest = {
+    session_id?: string;
+    source_id: string;
+    modality_type: string;
+    title?: string;
+    description?: string;
+    text_content?: string;
+    content?: string; // base64 encoded
+    image_url?: string;
+    audio_url?: string;
+    video_url?: string;
+  };
+
+  type StoreMmResponse = {
+    entry_id: string;
+    created_at: string;
+  };
+
+  type GetMmResponse = {
+    entry_id: string;
+    session_id?: string;
+    source_id: string;
+    modality_type: string;
+    title?: string;
+    description?: string;
+    text_content?: string;
+    image_url?: string;
+    audio_url?: string;
+    video_url?: string;
+    created_at: string;
+  };
+
+  type GetSessionMmResponse = {
+    entries: GetMmResponse[];
+    total: number;
+  };
+
+  type GetModalityMmResponse = {
+    entries: GetMmResponse[];
+    total: number;
+  };
 }
 

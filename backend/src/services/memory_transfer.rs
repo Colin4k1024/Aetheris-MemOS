@@ -74,11 +74,12 @@ impl MemoryTransferService {
                             break; // 成功，跳出重试循环
                         }
                         Err(e) => {
+                            let error_msg = format!("{}", e);
                             last_error = Some(e);
                             if attempt < max_retries {
                                 error!(
                                     attempt = %attempt,
-                                    error = %e,
+                                    error = %error_msg,
                                     "Memory transfer check failed, retrying..."
                                 );
                                 sleep(Duration::from_secs(2u64.pow(attempt as u32))).await;

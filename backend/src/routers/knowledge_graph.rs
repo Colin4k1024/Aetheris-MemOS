@@ -91,14 +91,13 @@ pub struct RelationInfo {
 pub async fn create_entity(
     body: JsonBody<CreateEntityRequest>,
 ) -> JsonResult<CreateEntityResponse> {
-    let pool = pool();
+    let aliases_refs: Option<Vec<&str>> = body.aliases.as_deref().map(|v| v.iter().map(|s| s.as_str()).collect());
     let entity_id = KGRepository::create_entity(
-        pool,
         &body.entity_name,
         &body.entity_type,
         body.description.as_deref(),
         None,
-        body.aliases.as_deref(),
+        aliases_refs.as_deref(),
         None,
         None,
         1.0,
@@ -114,14 +113,13 @@ pub async fn create_entity(
 pub async fn create_relation(
     body: JsonBody<CreateRelationRequest>,
 ) -> JsonResult<CreateRelationResponse> {
-    let pool = pool();
     let relation_id = KGRepository::create_relation(
-        pool,
         &body.source_entity_id,
         &body.target_entity_id,
         &body.relation_type,
-        body.weight.unwrap_or(1.0),
-        body.confidence.unwrap_or(1.0),
+        body.weight.unwrap_or(1.0) as f64,
+        body.confidence.unwrap_or(1.0) as f64,
+        None,
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to create relation: {}", e)))?;
@@ -134,8 +132,7 @@ pub async fn create_relation(
 pub async fn get_entity_by_name(
     name: PathParam<String>,
 ) -> JsonResult<Option<EntityInfo>> {
-    let pool = pool();
-    let entity = KGRepository::get_entity_by_name(pool, &name)
+    let entity = KGRepository::get_entity_by_name(&name, None)
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get entity: {}", e)))?;
 
@@ -155,22 +152,21 @@ pub async fn get_related_entities(
     entity_id: PathParam<String>,
     limit: QueryParam<usize, false>,
 ) -> JsonResult<Vec<RelationInfo>> {
-    let pool = pool();
     let limit = limit.unwrap_or(10) as i32;
 
-    let relations = KGRepository::get_related_entities(pool, &entity_id, Some(limit))
+    let relations = KGRepository::get_related_entities(&entity_id, None, Some(limit))
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get related entities: {}", e)))?;
 
     let infos: Vec<RelationInfo> = relations
         .into_iter()
-        .map(|(entity, relation)| RelationInfo {
+        .map(|(_entity, relation)| RelationInfo {
             relation_id: relation.relation_id,
             source_entity_id: relation.source_entity_id,
             target_entity_id: relation.target_entity_id,
             relation_type: relation.relation_type,
-            weight: relation.weight,
-            confidence: relation.confidence,
+            weight: relation.weight as f32,
+            confidence: relation.confidence as f32,
         })
         .collect();
 

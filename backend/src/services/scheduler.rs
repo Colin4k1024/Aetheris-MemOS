@@ -2,7 +2,7 @@ use crate::db::memory::MemoryConfigRepository;
 use crate::models::*;
 use crate::services::*;
 use crate::services::agent::{MemoryAgent, TaskContextBundle};
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 pub struct AdaptiveMemoryScheduler {
     analyzer: TaskCharacteristicAnalyzer,
@@ -218,12 +218,13 @@ Agent ID: {}",
                             return; // 成功，直接返回
                         }
                         Err(e) => {
+                            let error_msg = format!("{}", e);
                             last_error = Some(e);
                             if attempt < max_retries {
                                 warn!(
                                     task_id = %task_id,
                                     attempt = %attempt,
-                                    error = %e,
+                                    error = %error_msg,
                                     "存储长期记忆失败，尝试重试..."
                                 );
                                 tokio::time::sleep(tokio::time::Duration::from_secs(2u64.pow(attempt as u32))).await;
@@ -536,13 +537,12 @@ mod tests {
             task_id: "test_001".to_string(),
             task_type: TaskType::Query,
             complexity: 0.5,
-            modality_requirements: vec!["text".to_string()],
+            modality_requirements: vec![Modality::Text],
             temporal_scope: TemporalScope::Short,
             reasoning_depth: ReasoningDepth::Shallow,
+            context_dependency: 0.5,
             user_id: "user_1".to_string(),
             agent_id: "agent_1".to_string(),
-            session_id: None,
-            task_metadata: None,
         };
 
         assert_eq!(context.task_id, "test_001");
@@ -553,14 +553,14 @@ mod tests {
     #[test]
     fn test_resource_constraints_default() {
         let constraints = ResourceConstraints {
-            max_memory_mb: Some(1024),
-            max_cpu_usage_percent: Some(80),
-            max_response_time_ms: Some(2000),
-            storage_quota_percent: Some(90),
+            max_memory_usage_mb: 1024,
+            max_cpu_usage_percent: 80,
+            max_response_time_ms: 2000,
+            storage_quota_percent: 90,
         };
 
-        assert_eq!(constraints.max_memory_mb, Some(1024));
-        assert_eq!(constraints.max_cpu_usage_percent, Some(80));
+        assert_eq!(constraints.max_memory_usage_mb, 1024);
+        assert_eq!(constraints.max_cpu_usage_percent, 80);
     }
 
     #[test]

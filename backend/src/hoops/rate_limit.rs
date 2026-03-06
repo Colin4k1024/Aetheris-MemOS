@@ -106,13 +106,15 @@ pub struct RateLimitHoop {
 
 #[async_trait]
 impl Handler for RateLimitHoop {
-    async fn handle(&self, req: &mut Request, res: &mut Response, _ctrl: &mut FlowCtrl) {
+    async fn handle(&self, req: &mut Request, _depot: &mut Depot, res: &mut Response, _ctrl: &mut FlowCtrl) {
         // Use client IP as the rate limit key
         // In production, you might want to use API key or user ID
-        let client_ip = req
-            .remote_addr()
-            .map(|addr| addr.ip().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+        let addr = req.remote_addr();
+        let client_ip = match addr {
+            salvo::conn::SocketAddr::IPv4(addr) => addr.ip().to_string(),
+            salvo::conn::SocketAddr::IPv6(addr) => addr.ip().to_string(),
+            _ => "unknown".to_string(),
+        };
 
         if self.limiter.check_and_record(&client_ip).await {
             // Request allowed - add rate limit headers
