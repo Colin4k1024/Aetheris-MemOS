@@ -24,36 +24,43 @@ pub type EmptyResult = Result<Json<Empty>, AppError>;
 pub fn json_ok<T>(data: T) -> JsonResult<T> {
     Ok(Json(data))
 }
+
 #[derive(Serialize, ToSchema, Clone, Copy, Debug)]
 pub struct Empty {}
+
 pub fn empty_ok() -> JsonResult<Empty> {
     Ok(Json(Empty {}))
 }
 
-#[tokio::main]
-async fn main() {
-    crate::config::init();
+/// 初始化数据库连接
+async fn init_database() -> AppResult<()> {
     let config = crate::config::get();
     crate::db::init(&config.db)
         .await
-        .expect("Database initialization failed");
+        .map_err(|e| AppError::DatabaseConnection(format!("Database initialization failed: {}", e)))?;
+    Ok(())
+}
 
-    // 初始化Neo4j连接
+/// 初始化 Neo4j 连接
+async fn init_neo4j() -> AppResult<()> {
+    let config = crate::config::get();
+    
     tracing::info!("Initializing Neo4j connection");
     crate::db::init_neo4j(&config.neo4j).await;
-    tracing::info!("Neo4j connection initialized successfully");
-
-    // 初始化Neo4j索引和约束
+    
     tracing::info!("Initializing Neo4j indexes and constraints");
     crate::db::init_neo4j_indexes()
         .await
-        .expect("Failed to initialize Neo4j indexes");
-    tracing::info!("Neo4j indexes and constraints initialized successfully");
+        .map_err(|e| AppError::DatabaseConnection(format!("Neo4j indexes initialization failed: {}", e)))?;
+    
+    tracing::info!("Neo4j connection initialized successfully");
+    Ok(())
+}
 
-    let _guard = config.log.guard();
-    tracing::info!("log level: {}", &config.log.filter_level);
-
-    // 初始化记忆转移服务
+/// 初始化记忆转移服务
+async fn init_memory_transfer() -> AppResult<()> {
+    let config = crate::config::get();
+    
     tracing::info!("Initializing memory transfer service");
     crate::services::memory_transfer::init_transfer_service(
         config.memory_transfer.check_interval,
@@ -61,14 +68,47 @@ async fn main() {
         config.memory_transfer.session_time_threshold,
     )
     .await
-    .expect("Failed to initialize memory transfer service");
+    .map_err(|e| AppError::Internal(format!("Memory transfer service initialization failed: {}", e)))?;
+    
     tracing::info!("Memory transfer service initialized successfully");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    // 初始化配置
+    crate::config::init();
+    let config = crate::config::get();
+
+    // 初始化数据库
+    if let Err(e) = init_database().await {
+        eprintln!("❌ Database initialization failed: {}", e);
+        std::process::exit(1);
+    }
+
+    // 初始化 Neo4j
+    if let Err(e) = init_neo4j().await {
+        eprintln!("❌ Neo4j initialization failed: {}", e);
+        std::process::exit(1);
+    }
+
+    // 初始化日志
+    let _guard = config.log.guard();
+    tracing::info!("log level: {}", &config.log.filter_level);
+
+    // 初始化记忆转移服务
+    if let Err(e) = init_memory_transfer().await {
+        eprintln!("❌ Memory transfer service initialization failed: {}", e);
+        std::process::exit(1);
+    }
 
     let service = Service::new(routers::root())
         .catcher(Catcher::default().hoop(hoops::error_404))
         .hoop(hoops::cors_hoop());
+    
     println!("🔄 在以下位置监听 {}", &config.listen_addr);
-    //Acme 支持，自动从 Let's Encrypt 获取 TLS 证书。例子请看 https://github.com/salvo-rs/salvo/blob/main/examples/acme-http01-quinn/src/main.rs
+
+    // TLS 支持
     if let Some(tls) = &config.tls {
         let listen_addr = &config.listen_addr;
         println!(
@@ -79,11 +119,30 @@ async fn main() {
             "🔑 Login Page: https://{}/login",
             listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
-        let config = RustlsConfig::new(Keycert::new().cert(tls.cert.clone()).key(tls.key.clone()));
-        let acceptor = TcpListener::new(listen_addr).rustls(config).bind().await;
-        let server = Server::new(acceptor);
-        tokio::spawn(shutdown_signal(server.handle()));
-        server.serve(service).await;
+        
+        let tls_config = match RustlsConfig::new(
+            Keycert::new()
+                .cert(tls.cert.clone())
+                .key(tls.key.clone())
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("❌ TLS configuration failed: {}", e);
+                std::process::exit(1);
+            }
+        };
+        
+        match TcpListener::new(listen_addr).rustls(tls_config).bind().await {
+            Ok(acceptor) => {
+                let server = Server::new(acceptor);
+                tokio::spawn(shutdown_signal(server.handle()));
+                server.serve(service).await;
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to bind TLS listener: {}", e);
+                std::process::exit(1);
+            }
+        }
     } else {
         println!(
             "📖 Open API 页面: http://{}/scalar",
@@ -93,10 +152,18 @@ async fn main() {
             "🔑 Login Page: http://{}/login",
             config.listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
-        let acceptor = TcpListener::new(&config.listen_addr).bind().await;
-        let server = Server::new(acceptor);
-        tokio::spawn(shutdown_signal(server.handle()));
-        server.serve(service).await;
+        
+        match TcpListener::new(&config.listen_addr).bind().await {
+            Ok(acceptor) => {
+                let server = Server::new(acceptor);
+                tokio::spawn(shutdown_signal(server.handle()));
+                server.serve(service).await;
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to bind listener: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 }
 
