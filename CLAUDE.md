@@ -64,7 +64,32 @@ This is a **monorepo** with two main components:
 
 ### Frontend (`frontend/ant-design-pro-template/`)
 - Uses Umi 4 + Ant Design Pro 6.0
-- Pages in `src/pages/`: Dashboard, TaskAnalysis, MemoryConfig, MemoryDecisionTrace, MemoryManagement, Performance, ResourceMonitor, WeightHistory
+- Pages in `src/pages/`:
+  - `Dashboard/` - Dashboard overview
+  - `TaskAnalysis/` - Task feature analysis
+  - `MemoryConfig/` - Memory configuration management
+  - `MemoryDecisionTrace/` - Decision trace viewer
+  - `MemoryDetails/` - Memory details (STM, LTM, KG, MM lists)
+  - `MemoryManagement/` - Memory management
+  - `Performance/` - Performance analytics
+  - `ResourceMonitor/` - Resource monitoring
+  - `WeightHistory/` - Weight adjustment history
+
+## API Endpoints
+
+### Memory Search Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/memory/search/ltm` | List LTM entries |
+| POST | `/api/v1/memory/search/ltm` | Search LTM by query |
+| GET | `/api/kg/entities` | List KG entities |
+| GET | `/api/mm/list` | List MM entries |
+| GET | `/api/v1/memory/storage/sessions` | List STM sessions |
+
+### Frontend Service Files
+- `src/services/memory/storageApi.ts` - STM/LTM storage APIs
+- `src/services/memory/knowledgeGraphApi.ts` - KG APIs
+- `src/services/memory/multimodalApi.ts` - MM APIs
 
 ## Key Patterns
 

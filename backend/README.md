@@ -163,10 +163,24 @@ cargo build --release
 
 #### 记忆搜索
 - `POST /api/v1/memory/search/stm`: 搜索短期记忆
+- `GET /api/v1/memory/search/ltm`: 获取长期记忆列表
 - `POST /api/v1/memory/search/ltm`: 搜索长期记忆
 - `GET /api/v1/memory/search/ltm/{entry_id}`: 获取长期记忆条目
 - `POST /api/v1/memory/search/hybrid`: 混合搜索
 - `POST /api/v1/memory/search/entity`: 实体搜索
+
+#### 知识图谱 API
+- `GET /api/kg/entities`: 获取实体列表
+- `POST /api/kg/entities`: 创建实体
+- `GET /api/kg/entities/by-name/{name}`: 按名称获取实体
+- `GET /api/kg/entities/{entity_id}/related`: 获取相关实体
+
+#### 多模态记忆 API
+- `GET /api/mm/list`: 获取多模态记忆列表
+- `POST /api/mm/store`: 存储多模态记忆
+- `GET /api/mm/entry/{entry_id}`: 获取多模态记忆
+- `GET /api/mm/session/{session_id}`: 获取会话的多模态记忆
+- `GET /api/mm/modality/{modality_type}`: 按模态类型获取
 
 ## 开发指南
 

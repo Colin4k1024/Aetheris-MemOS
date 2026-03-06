@@ -68,6 +68,7 @@ adaptive-memory-system/
 │       │   │   ├── Dashboard/       # Dashboard
 │       │   │   ├── MemoryConfig/    # Memory configuration
 │       │   │   ├── MemoryDecisionTrace/  # Decision trace
+│       │   │   ├── MemoryDetails/   # Memory details (STM/LTM/KG/MM)
 │       │   │   ├── MemoryManagement/ # Memory management
 │       │   │   ├── Performance/      # Performance analysis
 │       │   │   ├── ResourceMonitor/ # Resource monitoring
@@ -261,6 +262,11 @@ POST /api/login
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/v1/memory/adaptive` | Adaptive memory selection |
+| GET | `/api/v1/memory/search/ltm` | List LTM entries |
+| POST | `/api/v1/memory/search/ltm` | Search LTM |
+| GET | `/api/kg/entities` | List KG entities |
+| GET | `/api/mm/list` | List MM entries |
+| GET | `/api/v1/memory/storage/sessions` | List STM sessions |
 | POST | `/api/v1/memory/analyzer/task-characteristics` | Task analysis |
 | POST | `/api/v1/memory/predictor/performance` | Performance prediction |
 | GET | `/api/v1/memory/monitor/resources` | Resource monitoring |

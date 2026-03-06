@@ -815,7 +815,150 @@ Authorization: Bearer <your-access-token>
 
 ## 9. 记忆搜索API
 
-### 9.1 搜索短期记忆
+### 9.0 获取短期记忆会话列表
+
+**接口**: `GET /api/v1/memory/storage/sessions`
+
+**描述**: 获取所有短期记忆会话列表
+
+**请求参数**:
+```json
+{
+  "limit": 20,
+  "offset": 0
+}
+```
+
+**响应参数**:
+```json
+{
+  "success": true,
+  "data": {
+    "sessions": [
+      {
+        "session_id": "string",
+        "user_id": "string",
+        "agent_id": "string",
+        "status": "active|closed",
+        "message_count": 10,
+        "created_at": "2024-01-01T00:00:00Z",
+        "last_accessed_at": "2024-01-01T12:00:00Z"
+      }
+    ],
+    "total": 3
+  }
+}
+```
+
+### 9.1 获取长期记忆列表
+
+**接口**: `GET /api/v1/memory/search/ltm`
+
+**描述**: 获取长期记忆条目列表
+
+**请求参数**:
+```json
+{
+  "limit": 20,
+  "offset": 0
+}
+```
+
+**响应参数**:
+```json
+{
+  "success": true,
+  "data": {
+    "entries": [
+      {
+        "entry_id": "string",
+        "title": "string",
+        "content": "string",
+        "content_type": "text",
+        "source_type": "document",
+        "quality_score": 0.92,
+        "category": "技术文档",
+        "created_at": "2024-01-01T00:00:00Z"
+      }
+    ],
+    "total": 5,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+### 9.2 获取知识图谱实体列表
+
+**接口**: `GET /api/kg/entities`
+
+**描述**: 获取知识图谱实体列表
+
+**请求参数**:
+```json
+{
+  "limit": 20,
+  "offset": 0
+}
+```
+
+**响应参数**:
+```json
+{
+  "success": true,
+  "data": {
+    "entities": [
+      {
+        "entityId": "string",
+        "entityName": "string",
+        "entityType": "system",
+        "description": "string"
+      }
+    ],
+    "total": 5,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+### 9.3 获取多模态记忆列表
+
+**接口**: `GET /api/mm/list`
+
+**描述**: 获取多模态记忆条目列表
+
+**请求参数**:
+```json
+{
+  "limit": 20,
+  "offset": 0
+}
+```
+
+**响应参数**:
+```json
+{
+  "success": true,
+  "data": {
+    "entries": [
+      {
+        "entryId": "string",
+        "sessionId": "string",
+        "sourceId": "string",
+        "modalityType": "text",
+        "title": "string",
+        "description": "string"
+      }
+    ],
+    "total": 3,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+### 9.4 搜索短期记忆
 
 **接口**: `POST /api/v1/memory/search/stm`
 
