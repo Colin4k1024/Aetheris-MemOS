@@ -18,7 +18,24 @@ Client  →  Router (API)  →  Service  →  Agent (orchestration)  →  Strate
 - **Service**: Coordinates request lifecycle, calls scheduler/agents, persists config.
 - **Agent**: Orchestrates observe → decide → act (Analyzer, Predictor, Scheduler).
 - **Strategy**: Pluggable policies (e.g. weight adjustment strategies).
-- **Decision Trace**: Captures and exposes the decision pipeline for explainability (API + UI; persistence planned).
+- **Decision Trace**: Captures and exposes the decision pipeline for explainability (API + UI).
+
+---
+
+## Storage Architecture
+
+The system uses multiple storage backends for different memory types:
+
+| Memory Type | Storage | Description |
+|-------------|---------|-------------|
+| STM (Short-term) | PostgreSQL | Session context, recent turns |
+| LTM (Long-term) | Qdrant + PostgreSQL | Vector embeddings + metadata |
+| KG (Knowledge Graph) | Neo4j | Entities and relationships |
+| MM (Multimodal) | PostgreSQL + File | Cross-modal memory |
+
+- **Qdrant**: Vector database for semantic search, stores LTM embeddings
+- **Neo4j**: Graph database for knowledge graph storage
+- **PostgreSQL**: Primary relational database for configurations, metrics, traces
 
 ---
 
@@ -93,3 +110,36 @@ flowchart LR
 5. **Scheduler** — Acts: composes analyzer, predictor, monitor, and weight adjuster; produces the final `MemorySelectionResult` (config, prediction, resource requirements, adjustment reasons).
 
 **Planned:** OpenTelemetry tracing export and memory decision trace visualization for full observability of this pipeline.
+
+---
+
+## Core Services
+
+The backend consists of several core services:
+
+### Scheduler (`services/scheduler.rs`)
+The central orchestrator that coordinates all memory selection decisions. Integrates Analyzer, Predictor, Monitor, and WeightAdjuster.
+
+### Analyzer (`services/analyzer.rs`)
+Analyzes task context to determine memory requirements. Outputs TaskCharacteristics and MemoryStrategy.
+
+### Predictor (`services/predictor.rs`)
+Predicts performance for candidate memory configurations. Considers synergy, decay, and resource costs.
+
+### Monitor (`services/monitor.rs`)
+Observes system resources (CPU, memory, latency) and provides optimization suggestions.
+
+### Memory Search (`services/memory_search.rs`)
+Provides semantic, keyword, and hybrid search across all memory types using:
+- **Embedding**: Ollama for text-to-vector conversion
+- **Qdrant**: Vector similarity search
+- **Rerank**: Cross-encoder reranking for improved results
+
+### Memory Storage (`services/memory_storage.rs`)
+Manages storage operations for STM, LTM, and MM memory types.
+
+### Memory Transfer (`services/memory_transfer.rs`)
+Automatically transfers relevant memories from STM to LTM based on configurable policies.
+
+### Multimodal Memory (`services/multimodal_memory.rs`)
+Handles cross-modal memory alignment and retrieval.

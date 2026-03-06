@@ -32,7 +32,7 @@ npm run lint             # Lint code
 This is a **monorepo** with two main components:
 
 ### Backend (`backend/src/`)
-- **routers/** — API endpoint handlers (memory, auth, user, demo, memory_search, memory_storage)
+- **routers/** — API endpoint handlers (memory, auth, user, knowledge_graph, memory_search, memory_storage, multimodal)
 - **services/** — Core business logic
   - `scheduler.rs` — Adaptive memory scheduler (selects optimal memory config)
   - `analyzer.rs` — Task feature analysis (complexity, modality, reasoning depth)
@@ -41,14 +41,30 @@ This is a **monorepo** with two main components:
   - `weight_adjuster.rs` — Dynamic weight adjustment
   - `weight_strategy.rs` — Pluggable weight strategies
   - `agent.rs` — Memory agents (implements MemoryAgent trait)
-- **db/** — Database repositories (memory, performance, weights, stm, ltm, kg, mm)
+  - `embedding.rs` — Embedding model service (Ollama)
+  - `llm.rs` — LLM service (Ollama)
+  - `memory_search.rs` — Memory search (semantic, keyword, hybrid)
+  - `memory_storage.rs` — Memory storage management
+  - `memory_transfer.rs` — Memory transfer (STM → LTM)
+  - `qdrant.rs` — Qdrant vector database client
+  - `rerank.rs` — Reranking service
+- **db/** — Database repositories
+  - `memory.rs` — Memory configuration
+  - `performance.rs` — Performance metrics
+  - `weights.rs` — Weight history
+  - `stm.rs` — Short-term memory
+  - `ltm.rs` — Long-term memory
+  - `kg.rs` — Knowledge graph
+  - `mm.rs` — Multimodal memory
+  - `neo4j.rs` — Neo4j graph database
+  - `decision_trace.rs` — Decision trace
 - **models/** — Data models (memory, task, performance, resource)
 - **config/** — Configuration modules
 - **hoops/** — Middleware (CORS, JWT auth)
 
 ### Frontend (`frontend/ant-design-pro-template/`)
 - Uses Umi 4 + Ant Design Pro 6.0
-- Pages in `src/pages/`: Dashboard, TaskAnalysis, MemoryConfig, Performance, ResourceMonitor, WeightHistory
+- Pages in `src/pages/`: Dashboard, TaskAnalysis, MemoryConfig, MemoryDecisionTrace, MemoryManagement, Performance, ResourceMonitor, WeightHistory
 
 ## Key Patterns
 
@@ -77,4 +93,6 @@ Use `AppError` from `backend/src/error.rs` for structured error responses with p
 
 - Rust: 1.89+
 - Node.js: 20+
-- SQLite 3.x (default, PostgreSQL/MySQL adapters planned)
+- PostgreSQL 14+ (via Docker)
+- Qdrant (via Docker)
+- Neo4j (optional, for knowledge graph)

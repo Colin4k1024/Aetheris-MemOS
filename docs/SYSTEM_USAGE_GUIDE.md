@@ -13,9 +13,9 @@
 - **后端**：基于 Rust + Salvo 框架开发，提供 RESTful API 服务
 - **前端**：基于 React + Ant Design Pro 开发，提供可视化操作界面
 - **数据库**：
-  - 主要数据：SQLite (可扩展到 PostgreSQL)
+  - 主要数据：PostgreSQL
   - 向量存储：Qdrant
-  - 知识图谱：Neo4j (计划中)
+  - 知识图谱：Neo4j (可选)
 
 ### 2.2 核心组件
 
@@ -25,7 +25,10 @@
 4. **资源监控与优化器**：监控系统资源使用情况，提供优化建议
 5. **动态权重调整器**：动态调整各记忆层的权重
 6. **记忆存储管理**：管理短期记忆(STM)和长期记忆(LTM)
-7. **记忆搜索模块**：提供多种记忆搜索方式
+7. **记忆搜索模块**：提供多种记忆搜索方式（语义搜索、关键词搜索、混合搜索）
+8. **记忆转移服务**：自动将短期记忆转移到长期记忆
+9. **多模态记忆服务**：处理跨模态记忆存储和检索
+10. **决策追踪模块**：记录完整的决策链路，支持决策回溯
 
 ## 3. 部署要求
 
@@ -42,13 +45,14 @@
 
 - Rust 1.89+
 - Cargo
-- SQLite 3.0+
+- PostgreSQL 14+
 - Qdrant 1.7+
-- Neo4j 4.0+ (可选)
+- Neo4j 5.0+ (可选，用于知识图谱)
+- Ollama (可选，用于 LLM 和嵌入模型)
 
 #### 前端
 
-- Node.js 16+
+- Node.js 20+
 - npm 或 yarn
 - 现代浏览器
 
@@ -62,13 +66,16 @@
 # 服务器配置
 listen_addr = "127.0.0.1:8008"
 
-# 数据库配置
+# 数据库配置 (PostgreSQL)
 [db]
-url = "file:./data/sqlx.sqlite"
+url = "postgres://memory:memory@localhost:5432/memory"
+pool_size = 10
+min_idle = 2
+connection_timeout = 30
 
-# JWT认证配置（生产环境请使用强随机密钥，勿使用示例值）
+# JWT认证配置（生产环境请使用环境变量 APP_JWT_SECRET）
 [jwt]
-secret = "<your-jwt-secret>"
+secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
 expiry = 3600
 
 # 日志配置
@@ -106,13 +113,14 @@ candidate_multiplier = 2
 min_score_threshold = 0.3
 timeout_seconds = 30
 
-# Neo4j图数据库配置
+# Neo4j图数据库配置 (可选)
 [neo4j]
 host = "localhost"
 port = 7687
 username = "neo4j"
-password = "<your-neo4j-password>"
+password = "REPLACE_WITH_YOUR_NEO4J_PASSWORD"
 database = "neo4j"
+```
 
 ### 4.2 前端配置
 
