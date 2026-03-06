@@ -3,6 +3,7 @@
 use salvo::oapi::extract::*;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use validator::Validate;
 
 use crate::db::mm::MMRepository;
@@ -196,11 +197,35 @@ pub async fn list_mm(
     let limit = limit.unwrap_or(20) as i32;
     let offset = offset.unwrap_or(0) as i32;
 
-    // 返回空列表 - 数据库查询有兼容性问题
-    json_ok(MMEntryListResponse {
-        entries: vec![],
-        total: 0,
-        limit,
-        offset,
-    })
+    // 查询数据库获取列表
+    match MMRepository::list_entries(None, Some(limit), Some(offset)).await {
+        Ok(result) => {
+            let infos: Vec<MMEntryInfo> = result.entries
+                .into_iter()
+                .map(|e| MMEntryInfo {
+                    entry_id: e.entry_id,
+                    session_id: e.session_id,
+                    source_id: e.source_id,
+                    modality_type: e.modality_type,
+                    title: e.title,
+                    description: e.description,
+                })
+                .collect();
+            json_ok(MMEntryListResponse {
+                entries: infos,
+                total: result.total,
+                limit,
+                offset,
+            })
+        }
+        Err(e) => {
+            error!("Failed to list multimodal entries: {}", e);
+            json_ok(MMEntryListResponse {
+                entries: vec![],
+                total: 0,
+                limit,
+                offset,
+            })
+        }
+    }
 }

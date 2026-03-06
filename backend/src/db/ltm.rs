@@ -37,8 +37,8 @@ pub struct KnowledgeEntry {
     pub last_accessed_at: Option<String>,
     pub category: Option<String>,
     pub domain: Option<String>,
-    pub quality_score: Option<f64>,
-    pub relevance_score: Option<f64>,
+    pub quality_score: Option<f32>,
+    pub relevance_score: Option<f32>,
     pub status: String,
     pub access_count: Option<i32>,
 }
@@ -263,49 +263,25 @@ impl LTMRepository {
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
 
-        info!("list_entries called with category={:?}, status={:?}, limit={}, offset={}", category, status, limit, offset);
-
-        // 最简单的查询
-        let rows = sqlx::query(
+        // 直接使用简单的查询，不使用参数绑定
+        let query = format!(
             "SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
                     embedding_vector, embedding_model, embedding_dimension,
                     created_at::text as created_at, updated_at::text as updated_at,
                     last_accessed_at::text as last_accessed_at,
-                    category, domain, quality_score, relevance_score, status, access_count
-             FROM knowledge_entries WHERE status = 'active' ORDER BY created_at DESC LIMIT $1 OFFSET $2"
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            error!("Failed to list knowledge entries: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
-        })?;
+                    category, domain, quality_score, relevance_score, status,
+                    COALESCE(access_count, 0) as access_count
+             FROM knowledge_entries WHERE status = 'active' ORDER BY created_at DESC LIMIT {} OFFSET {}",
+            limit, offset
+        );
 
-        let entries: Vec<KnowledgeEntry> = rows.iter().map(|row| {
-            KnowledgeEntry {
-                entry_id: row.get("entry_id"),
-                source_id: row.get("source_id"),
-                source_type: row.get("source_type"),
-                title: row.get("title"),
-                content: row.get("content"),
-                content_type: row.get("content_type"),
-                content_hash: row.get("content_hash"),
-                embedding_vector: row.get("embedding_vector"),
-                embedding_model: row.get("embedding_model"),
-                embedding_dimension: row.get("embedding_dimension"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-                last_accessed_at: row.get("last_accessed_at"),
-                category: row.get("category"),
-                domain: row.get("domain"),
-                quality_score: row.get("quality_score"),
-                relevance_score: row.get("relevance_score"),
-                status: row.get("status"),
-                access_count: row.get("access_count"),
-            }
-        }).collect();
+        let entries: Vec<KnowledgeEntry> = sqlx::query_as(&query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to list knowledge entries: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
 
         let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE status = 'active'")
             .fetch_one(pool)

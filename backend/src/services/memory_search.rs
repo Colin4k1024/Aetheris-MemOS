@@ -421,7 +421,7 @@ impl MemorySearchService {
             )
             .await?;
             for entity in kg_results {
-                entry_ids_with_scores.push((entity.entity_id.clone(), entity.popularity_score));
+                entry_ids_with_scores.push((entity.entity_id.clone(), entity.popularity_score as f64));
             }
 
             // 3. 获取相关实体，并搜索相关实体的知识条目
@@ -440,7 +440,7 @@ impl MemorySearchService {
                 .await?;
                 for entity in related_results {
                     // 相关实体的分数要乘以关系权重
-                    entry_ids_with_scores.push((entity.entity_id, entity.popularity_score * relation.weight));
+                    entry_ids_with_scores.push((entity.entity_id, (entity.popularity_score as f64) * relation.weight));
                 }
             }
         } else {
@@ -450,7 +450,7 @@ impl MemorySearchService {
             let text_results =
                 crate::db::KGRepository::search_entries_by_entity(pool, entity, limit_i32).await?;
             for entity in text_results {
-                entry_ids_with_scores.push((entity.entity_id, entity.popularity_score));
+                entry_ids_with_scores.push((entity.entity_id, entity.popularity_score as f64));
             }
         }
 

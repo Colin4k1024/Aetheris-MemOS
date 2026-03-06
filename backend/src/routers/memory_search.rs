@@ -175,13 +175,22 @@ pub async fn search_by_entity(
 pub async fn list_ltm_entries(
     _req: &mut Request,
 ) -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
-    // 暂时返回空列表，数据库查询有hang问题
-    json_ok(crate::db::ltm::KnowledgeEntryListResponse {
-        entries: vec![],
-        total: 0,
-        limit: 20,
-        offset: 0,
-    })
+    // 调用数据库
+    match crate::db::ltm::LTMRepository::list_entries(None, None, Some(20), Some(0)).await {
+        Ok(result) => {
+            info!("LTM list success: {} entries", result.entries.len());
+            json_ok(result)
+        }
+        Err(e) => {
+            error!("LTM list error: {}", e);
+            json_ok(crate::db::ltm::KnowledgeEntryListResponse {
+                entries: vec![],
+                total: 0,
+                limit: 20,
+                offset: 0,
+            })
+        }
+    }
 }
 
 /// 获取知识条目详情
