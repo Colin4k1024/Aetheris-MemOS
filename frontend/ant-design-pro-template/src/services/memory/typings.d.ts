@@ -762,5 +762,77 @@ declare namespace API {
     entries: GetMmResponse[];
     total: number;
   };
+
+  // ========== 记忆列表 ==========
+  type SessionInfo = {
+    session_id: string;
+    user_id: string;
+    agent_id: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+    last_accessed_at: string;
+    message_count: number;
+  };
+
+  type SessionListResponse = {
+    sessions: SessionInfo[];
+    total: number;
+    limit: number;
+    offset: number;
+  };
+
+  type KnowledgeEntry = {
+    entry_id: string;
+    source_id: string;
+    source_type: string;
+    title: string;
+    content: string;
+    content_type: string;
+    content_hash: string;
+    embedding_vector: string;
+    embedding_model: string;
+    embedding_dimension: number;
+    created_at: string;
+    updated_at: string;
+    last_accessed_at: string;
+    category: string;
+    domain: string;
+    quality_score: number;
+    relevance_score: number;
+    status: string;
+  };
+
+  type LtmEntryListResponse = {
+    entries: KnowledgeEntry[];
+    total: number;
+    limit: number;
+    offset: number;
+  };
+
+  // ========== 知识图谱列表 ==========
+  type EntityListResponse = {
+    entities: EntityInfo[];
+    total: number;
+    limit: number;
+    offset: number;
+  };
+
+  // ========== 多模态列表 ==========
+  type MMEntryListResponse = {
+    entries: MMEntryInfo[];
+    total: number;
+    limit: number;
+    offset: number;
+  };
+
+  type MMEntryInfo = {
+    entry_id: string;
+    session_id?: string;
+    source_id: string;
+    modality_type: string;
+    title?: string;
+    description?: string;
+  };
 }
 

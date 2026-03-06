@@ -19,6 +19,18 @@ export async function storeMm(
   });
 }
 
+/** 获取多模态记忆列表 GET /api/mm/list */
+export async function listMm(
+  params?: { modality_type?: string; limit?: number; offset?: number },
+  options?: { [key: string]: any },
+) {
+  return request<API.MMEntryListResponse>('/api/mm/list', {
+    method: 'GET',
+    params,
+    ...(options || {}),
+  });
+}
+
 /** 获取多模态记忆 GET /api/mm/entry/{entry_id} */
 export async function getMm(
   entryId: string,

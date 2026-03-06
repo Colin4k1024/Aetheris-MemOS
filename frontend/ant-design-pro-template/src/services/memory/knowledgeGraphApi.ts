@@ -19,6 +19,18 @@ export async function createEntity(
   });
 }
 
+/** 获取实体列表 GET /api/kg/entities */
+export async function listEntities(
+  params?: { entity_type?: string; limit?: number; offset?: number },
+  options?: { [key: string]: any },
+) {
+  return request<API.EntityListResponse>('/api/kg/entities', {
+    method: 'GET',
+    params,
+    ...(options || {}),
+  });
+}
+
 /** 按名称获取实体 GET /api/kg/entities/by-name/{name} */
 export async function getEntityByName(
   name: string,

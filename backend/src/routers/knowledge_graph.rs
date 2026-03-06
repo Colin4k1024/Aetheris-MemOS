@@ -199,3 +199,48 @@ pub async fn search_by_entity(
 
     json_ok(infos)
 }
+
+/// 实体列表响应
+#[derive(Serialize, ToSchema)]
+pub struct EntityListResponse {
+    pub entities: Vec<EntityInfo>,
+    pub total: usize,
+    pub limit: i32,
+    pub offset: i32,
+}
+
+/// 获取实体列表
+#[endpoint]
+pub async fn list_entities(
+    entity_type: QueryParam<String, false>,
+    limit: QueryParam<usize, false>,
+    offset: QueryParam<usize, false>,
+) -> JsonResult<EntityListResponse> {
+    let limit = limit.unwrap_or(20) as i32;
+    let offset = offset.unwrap_or(0) as i32;
+
+    let response = KGRepository::list_entities(
+        entity_type.as_deref(),
+        Some(limit),
+        Some(offset),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
+
+    let entities: Vec<EntityInfo> = response.entities
+        .into_iter()
+        .map(|e| EntityInfo {
+            entity_id: e.entity_id,
+            entity_name: e.entity_name,
+            entity_type: e.entity_type,
+            description: e.description,
+        })
+        .collect();
+
+    json_ok(EntityListResponse {
+        entities,
+        total: response.total,
+        limit,
+        offset,
+    })
+}

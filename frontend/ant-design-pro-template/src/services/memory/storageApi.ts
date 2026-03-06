@@ -163,3 +163,29 @@ export async function searchByEntity(
     ...(options || {}),
   });
 }
+
+// ========== 记忆列表 ==========
+
+/** 获取会话列表 GET /api/v1/memory/storage/sessions */
+export async function listSessions(
+  params?: { user_id?: string; status?: string; limit?: number; offset?: number },
+  options?: { [key: string]: any },
+) {
+  return request<API.SessionListResponse>('/api/v1/memory/storage/sessions', {
+    method: 'GET',
+    params,
+    ...(options || {}),
+  });
+}
+
+/** 获取LTM条目列表 GET /api/v1/memory/search/ltm */
+export async function listLtmEntries(
+  params?: { category?: string; status?: string; limit?: number; offset?: number },
+  options?: { [key: string]: any },
+) {
+  return request<API.LtmEntryListResponse>('/api/v1/memory/search/ltm', {
+    method: 'GET',
+    params,
+    ...(options || {}),
+  });
+}

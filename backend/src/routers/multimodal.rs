@@ -176,3 +176,50 @@ pub async fn get_by_modality(
 
     json_ok(infos)
 }
+
+/// 多模态记忆列表响应
+#[derive(Serialize, ToSchema)]
+pub struct MMEntryListResponse {
+    pub entries: Vec<MMEntryInfo>,
+    pub total: usize,
+    pub limit: i32,
+    pub offset: i32,
+}
+
+/// 获取多模态记忆列表
+#[endpoint]
+pub async fn list_mm(
+    modality_type: QueryParam<String, false>,
+    limit: QueryParam<usize, false>,
+    offset: QueryParam<usize, false>,
+) -> JsonResult<MMEntryListResponse> {
+    let limit = limit.unwrap_or(20) as i32;
+    let offset = offset.unwrap_or(0) as i32;
+
+    let response = MMRepository::list_entries(
+        modality_type.as_deref(),
+        Some(limit),
+        Some(offset),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to list multimodal entries: {}", e)))?;
+
+    let entries: Vec<MMEntryInfo> = response.entries
+        .into_iter()
+        .map(|e| MMEntryInfo {
+            entry_id: e.entry_id,
+            session_id: e.session_id,
+            source_id: e.source_id,
+            modality_type: e.modality_type,
+            title: e.title,
+            description: e.description,
+        })
+        .collect();
+
+    json_ok(MMEntryListResponse {
+        entries,
+        total: response.total,
+        limit,
+        offset,
+    })
+}

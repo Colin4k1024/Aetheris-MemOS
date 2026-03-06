@@ -190,6 +190,7 @@ pub fn root() -> Router {
                     Router::with_path("kg")
                         .push(
                             Router::with_path("entities")
+                                .get(knowledge_graph::list_entities)
                                 .post(knowledge_graph::create_entity)
                         )
                         .push(
@@ -227,6 +228,10 @@ pub fn root() -> Router {
                         .push(
                             Router::with_path("modality/{modality_type}")
                                 .get(multimodal::get_by_modality)
+                        )
+                        .push(
+                            Router::with_path("list")
+                                .get(multimodal::list_mm)
                         ),
                 )
         )

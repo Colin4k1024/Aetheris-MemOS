@@ -10,6 +10,15 @@ use crate::db::pool;
 /// 知识图谱仓库
 pub struct KGRepository;
 
+/// 实体列表响应
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct EntityListResponse {
+    pub entities: Vec<Entity>,
+    pub total: usize,
+    pub limit: i32,
+    pub offset: i32,
+}
+
 /// 实体信息
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Entity {
@@ -395,5 +404,56 @@ impl KGRepository {
         })?;
 
         Ok(rows)
+    }
+
+    /// 获取实体列表
+    pub async fn list_entities(
+        entity_type: Option<&str>,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<EntityListResponse, AppError> {
+        let pool = pool();
+        let limit = limit.unwrap_or(20);
+        let offset = offset.unwrap_or(0);
+
+        let mut query = String::from(
+            "SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
+                    embedding_vector, embedding_model, embedding_dimension,
+                    created_at::text as created_at, updated_at::text as updated_at,
+                    confidence_score, popularity_score, relation_count, mention_count, status
+             FROM entities WHERE status = 'active'"
+        );
+
+        let mut count_query = String::from("SELECT COUNT(*) FROM entities WHERE status = 'active'");
+
+        if let Some(et) = entity_type {
+            query.push_str(&format!(" AND entity_type = '{}'", et));
+            count_query.push_str(&format!(" AND entity_type = '{}'", et));
+        }
+
+        query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
+
+        let entities: Vec<Entity> = sqlx::query_as(&query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to list entities: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        let total: (i64,) = sqlx::query_as(&count_query)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count entities: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        Ok(EntityListResponse {
+            entities,
+            total: total.0 as usize,
+            limit,
+            offset,
+        })
     }
 }

@@ -71,6 +71,12 @@ export default [
     component: './MemoryManagement',
   },
   {
+    path: '/memory-details',
+    name: 'memory-details',
+    icon: 'folderOpen',
+    component: './MemoryDetails',
+  },
+  {
     path: '/',
     redirect: '/dashboard',
   },
