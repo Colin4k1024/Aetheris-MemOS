@@ -6,13 +6,13 @@ use utoipa::ToSchema;
 
 mod config;
 mod db;
+mod error;
 mod hoops;
 mod models;
 mod routers;
 mod services;
 mod utils;
 
-mod error;
 pub use error::AppError;
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -22,8 +22,10 @@ pub type EmptyResult = JsonResult<Empty>;
 pub fn json_ok<T>(data: T) -> JsonResult<T> {
     Ok(Json(data))
 }
+
 #[derive(Serialize, ToSchema, Clone, Copy, Debug)]
 pub struct Empty {}
+
 pub fn empty_ok() -> JsonResult<Empty> {
     Ok(Json(Empty {}))
 }
@@ -36,12 +38,10 @@ async fn main() {
         .await
         .expect("Database initialization failed");
 
-    // 初始化Neo4j连接
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");
 
-    // 初始化Neo4j索引和约束
     tracing::info!("Initializing Neo4j indexes and constraints");
     crate::db::init_neo4j_indexes()
         .await
@@ -51,7 +51,6 @@ async fn main() {
     let _guard = config.log.guard();
     tracing::info!("log level: {}", &config.log.filter_level);
 
-    // 初始化记忆转移服务
     tracing::info!("Initializing memory transfer service");
     crate::services::memory_transfer::init_transfer_service(
         config.memory_transfer.check_interval,
@@ -75,6 +74,7 @@ async fn main() {
             "🔑 Login Page: https://{}/login",
             listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
+
         let addr: std::net::SocketAddr = listen_addr.parse().expect("invalid listen address");
         let rustls_config =
             axum_server::tls_rustls::RustlsConfig::from_pem_file(tls.cert.clone(), tls.key.clone())
@@ -152,7 +152,6 @@ mod tests {
         config::init();
 
         let app = crate::routers::root();
-
         let response = app
             .oneshot(
                 Request::builder()

@@ -1,6 +1,8 @@
 //! Selectable memory types (STM/LTM/KG/MM) as explainable units with cost/value/priority.
 //! Used to attach "why this memory type was selected" to the decision trace.
 
+#![allow(dead_code)]
+
 use crate::models::*;
 
 /// Context for evaluating a memory type (constraints and current config).

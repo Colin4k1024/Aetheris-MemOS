@@ -1,0 +1,60 @@
+listen_addr = "127.0.0.1:8008"
+
+[db]
+# PostgreSQL 连接配置
+# 推荐使用环境变量: DATABASE_URL=postgres://user:pass@host:5432/db
+# 或在此处配置（不推荐提交到版本控制）
+url = "postgres://memory:memory@localhost:5432/memory"
+pool_size = 10
+min_idle = 2
+connection_timeout = 30
+statement_timeout = 30
+
+[jwt]
+# ⚠️ 安全警告：生产环境必须通过环境变量设置
+# APP_JWT_SECRET=your_strong_random_secret
+secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
+expiry = 3600
+
+[log]
+file_name = "app.log"
+rolling = "daily"
+
+[llm]
+# Ollama 配置
+base_url = "http://localhost:11434"
+model = "llama3"
+timeout_seconds = 30
+
+[embedding]
+# 嵌入模型配置
+base_url = "http://localhost:11434"
+model = "nomic-embed-text"
+dimension = 768
+timeout_seconds = 30
+
+[qdrant]
+# Qdrant 向量数据库配置
+host = "localhost"
+port = 6334
+collection_name = "long_term_memory"
+vector_dimension = 768
+distance_type = "Euclid"
+
+[rerank]
+# Rerank 重排序配置
+base_url = "http://localhost:11434"
+model = "bge-reranker-base"
+enabled = true
+candidate_multiplier = 2
+min_score_threshold = 0.3
+timeout_seconds = 30
+
+[neo4j]
+# Neo4j 图数据库配置
+# 推荐使用环境变量: APP_NEO4J_PASSWORD=your_password
+host = "localhost"
+port = 7687
+username = "neo4j"
+password = "REPLACE_WITH_YOUR_NEO4J_PASSWORD"
+database = "neo4j"

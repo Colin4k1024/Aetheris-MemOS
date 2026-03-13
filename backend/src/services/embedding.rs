@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::Result;
 use moka::future::Cache;
 use reqwest::Client;

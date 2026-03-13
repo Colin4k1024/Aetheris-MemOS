@@ -58,19 +58,13 @@ impl RateLimiter {
         let window = Duration::from_secs(self.config.window_seconds);
 
         let mut requests = self.requests.write().await;
-
-        // Get or create the request history for this key
         let timestamps = requests.entry(key.to_string()).or_insert_with(Vec::new);
-
-        // Remove expired timestamps
         timestamps.retain(|&ts| now.duration_since(ts) < window);
 
-        // Check if limit is exceeded
         if timestamps.len() >= self.config.max_requests as usize {
             return false;
         }
 
-        // Record this request
         timestamps.push(now);
         true
     }
@@ -79,7 +73,6 @@ impl RateLimiter {
     pub async fn remaining(&self, key: &str) -> u32 {
         let now = Instant::now();
         let window = Duration::from_secs(self.config.window_seconds);
-
         let requests = self.requests.read().await;
 
         if let Some(timestamps) = requests.get(key) {
@@ -154,7 +147,6 @@ mod tests {
         let config = RateLimitConfig::new(5, 1);
         let limiter = RateLimiter::new(config);
 
-        // First 5 requests should be allowed
         for _ in 0..5 {
             assert!(limiter.check_and_record("test_client").await);
         }
@@ -165,12 +157,10 @@ mod tests {
         let config = RateLimitConfig::new(3, 1);
         let limiter = RateLimiter::new(config);
 
-        // First 3 requests should be allowed
         for _ in 0..3 {
             assert!(limiter.check_and_record("test_client2").await);
         }
 
-        // 4th request should be blocked
         assert!(!limiter.check_and_record("test_client2").await);
     }
 
@@ -179,7 +169,6 @@ mod tests {
         let config = RateLimitConfig::new(2, 1);
         let limiter = RateLimiter::new(config);
 
-        // Different clients should have independent counts
         assert!(limiter.check_and_record("client_a").await);
         assert!(limiter.check_and_record("client_b").await);
         assert!(limiter.check_and_record("client_a").await);
@@ -194,10 +183,8 @@ mod tests {
         let limiter = RateLimiter::new(config);
 
         assert_eq!(limiter.remaining("test").await, 3);
-
         limiter.check_and_record("test").await;
         assert_eq!(limiter.remaining("test").await, 2);
-
         limiter.check_and_record("test").await;
         assert_eq!(limiter.remaining("test").await, 1);
     }

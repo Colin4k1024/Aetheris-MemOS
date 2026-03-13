@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::models::*;
 use crate::db::weights::WeightHistoryRepository;
 use crate::services::weight_strategy::{WeightStrategy, WeightStrategyMetrics, WeightDelta};

@@ -42,3 +42,7 @@ logs/
 # Internal planning (do not publish)
 .trae/
 
+
+# Backend config (contains secrets)
+backend/config.toml
+backend/config.local.toml

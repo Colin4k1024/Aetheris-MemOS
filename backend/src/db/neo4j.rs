@@ -2,6 +2,8 @@
 //!
 //! This module provides Neo4j integration for knowledge graph storage.
 
+#![allow(dead_code)]
+
 use std::sync::Arc;
 use neo4rs::{Graph, Node, Relation, Row, query};
 use tokio::sync::RwLock;
