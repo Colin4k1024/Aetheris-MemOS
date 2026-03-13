@@ -1042,6 +1042,24 @@ Authorization: Bearer <your-access-token>
 }
 ```
 
+### 9.6 KG/MM Route Notes
+
+- KG canonical routes: `/api/kg/*`
+- MM canonical routes: `/api/mm/*`
+- Compatibility note: `/api/v1/memory/kg/*` and `/api/v1/memory/mm/*` are legacy paths. New clients should use canonical routes.
+
+### 9.7 List Knowledge Graph Entities
+
+**Endpoint**: `GET /api/kg/entities`
+
+**Description**: List knowledge graph entities
+
+### 9.8 List Multimodal Entries
+
+**Endpoint**: `GET /api/mm/list`
+
+**Description**: List multimodal memory entries
+
 ## 10. System Management API
 
 ### 10.1 Health Check

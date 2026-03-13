@@ -97,22 +97,29 @@ http://127.0.0.1:8008
 
 ### Knowledge Graph (KG)
 
-| Method | Endpoint                                    | Description          |
-| ------ | ------------------------------------------- | -------------------- |
-| POST   | `/api/v1/memory/kg/entities`                | Create entity        |
-| GET    | `/api/v1/memory/kg/entities/by-name/{name}` | Get entity by name   |
-| GET    | `/api/v1/memory/kg/entities/{id}/related`   | Get related entities |
-| POST   | `/api/v1/memory/kg/relations`               | Create relation      |
-| POST   | `/api/v1/memory/kg/search`                  | Search by entity     |
+| Method | Endpoint                          | Description          |
+| ------ | --------------------------------- | -------------------- |
+| GET    | `/api/kg/entities`                | List entities        |
+| POST   | `/api/kg/entities`                | Create entity        |
+| GET    | `/api/kg/entities/by-name/{name}` | Get entity by name   |
+| GET    | `/api/kg/entities/{id}/related`   | Get related entities |
+| POST   | `/api/kg/relations`               | Create relation      |
+| POST   | `/api/kg/search`                  | Search by entity     |
 
 ### Multimodal Memory (MM)
 
-| Method | Endpoint                            | Description            |
-| ------ | ----------------------------------- | ---------------------- |
-| POST   | `/api/v1/memory/mm/store`           | Store multimodal       |
-| GET    | `/api/v1/memory/mm/entry/{id}`      | Get entry              |
-| GET    | `/api/v1/memory/mm/session/{id}`    | Get session multimodal |
-| GET    | `/api/v1/memory/mm/modality/{type}` | Get by modality        |
+| Method | Endpoint                  | Description            |
+| ------ | ------------------------- | ---------------------- |
+| POST   | `/api/mm/store`           | Store multimodal       |
+| GET    | `/api/mm/entry/{id}`      | Get entry              |
+| GET    | `/api/mm/session/{id}`    | Get session multimodal |
+| GET    | `/api/mm/modality/{type}` | Get by modality        |
+| GET    | `/api/mm/list`            | List multimodal        |
+
+### KG/MM Compatibility Note
+
+- Canonical routes are `/api/kg/*` and `/api/mm/*`.
+- Legacy `/api/v1/memory/kg/*` and `/api/v1/memory/mm/*` paths are deprecated and should not be used by new clients.
 
 ## Authentication
 

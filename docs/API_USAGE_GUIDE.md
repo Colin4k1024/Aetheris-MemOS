@@ -1000,6 +1000,12 @@ Authorization: Bearer <your-access-token>
 }
 ```
 
+### 9.3.1 KG/MM 路由说明
+
+- KG canonical 路径：`/api/kg/*`
+- MM canonical 路径：`/api/mm/*`
+- 兼容性说明：`/api/v1/memory/kg/*` 与 `/api/v1/memory/mm/*` 为历史路径，新增客户端请使用 canonical 路径。
+
 ### 9.4 搜索短期记忆
 
 **接口**: `POST /api/v1/memory/search/stm`
