@@ -6,7 +6,7 @@
 
 ## 基础信息
 
-- **基础URL**: `https://api.agent-memory.com/v1`
+- **基础URL**: `https://api.agent-memory.com/api/v1`
 - **认证方式**: Bearer Token
 - **数据格式**: JSON
 - **字符编码**: UTF-8
@@ -20,6 +20,7 @@
 **描述**: 根据任务上下文和资源约束，选择最优的记忆配置
 
 **请求参数**:
+
 ```json
 {
   "task_context": {
@@ -49,6 +50,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -67,7 +69,7 @@
     },
     "performance_prediction": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "cost_benefit_ratio": 1.85
     },
@@ -88,6 +90,7 @@
 **描述**: 获取当前记忆系统的运行状态
 
 **请求参数**:
+
 ```json
 {
   "session_id": "string",
@@ -96,6 +99,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -136,6 +140,7 @@
 **描述**: 分析任务特征，确定记忆需求
 
 **请求参数**:
+
 ```json
 {
   "task_context": {
@@ -158,6 +163,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -187,6 +193,7 @@
 **描述**: 批量分析多个任务的特征
 
 **请求参数**:
+
 ```json
 {
   "tasks": [
@@ -202,6 +209,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -243,6 +251,7 @@
 **描述**: 预测特定记忆配置的性能表现
 
 **请求参数**:
+
 ```json
 {
   "task_profile": {
@@ -265,13 +274,14 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
   "data": {
     "predicted_performance": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "confidence_score": 0.88
     },
@@ -294,6 +304,7 @@
 **描述**: 获取各记忆层的性能基准数据
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -311,7 +322,7 @@
       },
       "kg": {
         "efficiency_gain": 0.4273,
-        "coherence_gain": 1.5970,
+        "coherence_gain": 1.597,
         "resource_cost": 0.6
       },
       "mm": {
@@ -322,7 +333,7 @@
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -338,6 +349,7 @@
 **描述**: 获取当前系统资源使用状态
 
 **请求参数**:
+
 ```json
 {
   "include_history": false,
@@ -346,6 +358,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -376,11 +389,12 @@
 **描述**: 计算特定配置的成本效益比
 
 **请求参数**:
+
 ```json
 {
   "performance_prediction": {
     "efficiency": 0.4273,
-    "coherence": 1.5970
+    "coherence": 1.597
   },
   "resource_status": {
     "memory_usage_percent": 50,
@@ -391,6 +405,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -414,6 +429,7 @@
 **描述**: 获取资源优化建议
 
 **请求参数**:
+
 ```json
 {
   "current_config": {
@@ -433,6 +449,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -477,6 +494,7 @@
 **描述**: 动态调整记忆层权重
 
 **请求参数**:
+
 ```json
 {
   "task_profile": {
@@ -496,6 +514,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -524,6 +543,7 @@
 **描述**: 获取权重调整历史记录
 
 **请求参数**:
+
 ```json
 {
   "session_id": "string",
@@ -533,6 +553,7 @@
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -575,6 +596,7 @@
 **描述**: 检查记忆系统健康状态
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -604,6 +626,7 @@
 **描述**: 获取系统配置信息
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -615,14 +638,14 @@
       "storage_quota": 0.9
     },
     "performance_baselines": {
-      "stm": {"efficiency_gain": 0.2473, "coherence_gain": 0.5447},
-      "ltm": {"efficiency_gain": 0.3698, "coherence_gain": 1.3751},
-      "kg": {"efficiency_gain": 0.4273, "coherence_gain": 1.5970},
-      "mm": {"efficiency_gain": 0.4314, "coherence_gain": 1.9312}
+      "stm": { "efficiency_gain": 0.2473, "coherence_gain": 0.5447 },
+      "ltm": { "efficiency_gain": 0.3698, "coherence_gain": 1.3751 },
+      "kg": { "efficiency_gain": 0.4273, "coherence_gain": 1.597 },
+      "mm": { "efficiency_gain": 0.4314, "coherence_gain": 1.9312 }
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -631,16 +654,16 @@
 
 ## 错误码说明
 
-| 错误码 | HTTP状态码 | 描述 |
-|--------|------------|------|
-| 1000 | 200 | 成功 |
-| 1001 | 400 | 请求参数错误 |
-| 1002 | 401 | 认证失败 |
-| 1003 | 403 | 权限不足 |
-| 1004 | 404 | 资源不存在 |
-| 1005 | 429 | 请求频率过高 |
-| 1006 | 500 | 内部服务器错误 |
-| 1007 | 503 | 服务不可用 |
+| 错误码 | HTTP状态码 | 描述           |
+| ------ | ---------- | -------------- |
+| 1000   | 200        | 成功           |
+| 1001   | 400        | 请求参数错误   |
+| 1002   | 401        | 认证失败       |
+| 1003   | 403        | 权限不足       |
+| 1004   | 404        | 资源不存在     |
+| 1005   | 429        | 请求频率过高   |
+| 1006   | 500        | 内部服务器错误 |
+| 1007   | 503        | 服务不可用     |
 
 ## 使用示例
 
@@ -648,7 +671,7 @@
 
 ```bash
 # 1. 分析任务特征
-curl -X POST "https://api.agent-memory.com/v1/memory/analyzer/task-characteristics" \
+curl -X POST "https://api.agent-memory.com/api/v1/memory/analyzer/task-characteristics" \
   -H "Authorization: Bearer your-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -660,7 +683,7 @@ curl -X POST "https://api.agent-memory.com/v1/memory/analyzer/task-characteristi
   }'
 
 # 2. 选择最优记忆配置
-curl -X POST "https://api.agent-memory.com/v1/memory/adaptive/select" \
+curl -X POST "https://api.agent-memory.com/api/v1/memory/adaptive/select" \
   -H "Authorization: Bearer your-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -677,7 +700,7 @@ curl -X POST "https://api.agent-memory.com/v1/memory/adaptive/select" \
   }'
 
 # 3. 监控系统状态
-curl -X GET "https://api.agent-memory.com/v1/memory/monitor/resources" \
+curl -X GET "https://api.agent-memory.com/api/v1/memory/monitor/resources" \
   -H "Authorization: Bearer your-token"
 ```
 

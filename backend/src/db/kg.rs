@@ -416,24 +416,22 @@ impl KGRepository {
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
 
-        let mut query = String::from(
-            "SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
-                    embedding_vector, embedding_model, embedding_dimension,
-                    created_at::text as created_at, updated_at::text as updated_at,
-                    confidence_score, popularity_score, relation_count, mention_count, status
-             FROM entities WHERE status = 'active'"
-        );
-
-        let mut count_query = String::from("SELECT COUNT(*) FROM entities WHERE status = 'active'");
-
-        if let Some(et) = entity_type {
-            query.push_str(&format!(" AND entity_type = '{}'", et));
-            count_query.push_str(&format!(" AND entity_type = '{}'", et));
-        }
-
-        query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
-
-        let entities: Vec<Entity> = sqlx::query_as(&query)
+        let (entities, total): (Vec<Entity>, (i64,)) = if let Some(et) = entity_type {
+            let entities = sqlx::query_as::<_, Entity>(
+                r#"
+                SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
+                       embedding_vector, embedding_model, embedding_dimension,
+                       created_at::text as created_at, updated_at::text as updated_at,
+                       confidence_score, popularity_score, relation_count, mention_count, status
+                FROM entities
+                WHERE status = 'active' AND entity_type = $1
+                ORDER BY created_at DESC
+                LIMIT $2 OFFSET $3
+                "#,
+            )
+            .bind(et)
+            .bind(limit)
+            .bind(offset)
             .fetch_all(pool)
             .await
             .map_err(|e| {
@@ -441,13 +439,47 @@ impl KGRepository {
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-        let total: (i64,) = sqlx::query_as(&count_query)
-            .fetch_one(pool)
+            let total =
+                sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM entities WHERE status = 'active' AND entity_type = $1")
+                    .bind(et)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to count entities: {}", e);
+                        AppError::Internal(format!("Database error: {}", e))
+                    })?;
+            (entities, total)
+        } else {
+            let entities = sqlx::query_as::<_, Entity>(
+                r#"
+                SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
+                       embedding_vector, embedding_model, embedding_dimension,
+                       created_at::text as created_at, updated_at::text as updated_at,
+                       confidence_score, popularity_score, relation_count, mention_count, status
+                FROM entities
+                WHERE status = 'active'
+                ORDER BY created_at DESC
+                LIMIT $1 OFFSET $2
+                "#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
             .await
             .map_err(|e| {
-                error!("Failed to count entities: {}", e);
+                error!("Failed to list entities: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
+
+            let total = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM entities WHERE status = 'active'")
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count entities: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
+            (entities, total)
+        };
 
         Ok(EntityListResponse {
             entities,

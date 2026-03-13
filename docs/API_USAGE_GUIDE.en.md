@@ -26,9 +26,9 @@ Authorization: Bearer <your-access-token>
 
 ```json
 {
-  "success": true,  // Whether the request succeeded
-  "data": {},       // Response data
-  "message": ""     // Response message
+  "success": true, // Whether the request succeeded
+  "data": {}, // Response data
+  "message": "" // Response message
 }
 ```
 
@@ -41,6 +41,7 @@ Authorization: Bearer <your-access-token>
 **Description**: User login to obtain authentication token
 
 **Request Parameters**:
+
 ```json
 {
   "username": "<your-username>",
@@ -49,6 +50,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -76,11 +78,13 @@ Authorization: Bearer <your-access-token>
 **Description**: Get current logged-in user's information
 
 **Request Headers**:
+
 ```
 Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -100,11 +104,12 @@ Authorization: Bearer <your-access-token>
 
 ### 3.1 Select Optimal Memory Configuration
 
-**Endpoint**: `POST /api/v1/memory/adaptive`
+**Endpoint**: `POST /api/v1/memory/adaptive/select`
 
 **Description**: Select optimal memory configuration based on task context and resource constraints
 
 **Request Parameters**:
+
 ```json
 {
   "task_context": {
@@ -134,6 +139,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -152,7 +158,7 @@ Authorization: Bearer <your-access-token>
     },
     "performance_prediction": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "cost_benefit_ratio": 1.85
     },
@@ -168,11 +174,12 @@ Authorization: Bearer <your-access-token>
 
 ### 3.2 Get Current Memory Status
 
-**Endpoint**: `GET /api/v1/memory/adaptive`
+**Endpoint**: `GET /api/v1/memory/adaptive/status`
 
 **Description**: Get current memory system operational status
 
 **Request Parameters**:
+
 ```json
 {
   "session_id": "string",
@@ -181,6 +188,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -221,6 +229,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Analyze task characteristics to determine memory requirements
 
 **Request Parameters**:
+
 ```json
 {
   "task_context": {
@@ -243,6 +252,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -272,6 +282,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Batch analyze characteristics of multiple tasks
 
 **Request Parameters**:
+
 ```json
 {
   "tasks": [
@@ -287,6 +298,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -328,6 +340,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Predict performance for a specific memory configuration
 
 **Request Parameters**:
+
 ```json
 {
   "task_profile": {
@@ -350,13 +363,14 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
   "data": {
     "predicted_performance": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "confidence_score": 0.88
     },
@@ -379,6 +393,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get performance baseline data for each memory layer
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -396,7 +411,7 @@ Authorization: Bearer <your-access-token>
       },
       "kg": {
         "efficiency_gain": 0.4273,
-        "coherence_gain": 1.5970,
+        "coherence_gain": 1.597,
         "resource_cost": 0.6
       },
       "mm": {
@@ -407,7 +422,7 @@ Authorization: Bearer <your-access-token>
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -423,6 +438,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get current system resource usage status
 
 **Request Parameters**:
+
 ```json
 {
   "include_history": false,
@@ -431,6 +447,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -461,11 +478,12 @@ Authorization: Bearer <your-access-token>
 **Description**: Calculate cost-benefit ratio for a specific configuration
 
 **Request Parameters**:
+
 ```json
 {
   "performance_prediction": {
     "efficiency": 0.4273,
-    "coherence": 1.5970
+    "coherence": 1.597
   },
   "resource_status": {
     "memory_usage_percent": 50,
@@ -476,6 +494,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -499,6 +518,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get resource optimization suggestions
 
 **Request Parameters**:
+
 ```json
 {
   "current_config": {
@@ -518,6 +538,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -562,6 +583,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Dynamically adjust memory layer weights
 
 **Request Parameters**:
+
 ```json
 {
   "task_profile": {
@@ -581,6 +603,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -609,6 +632,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get weight adjustment history records
 
 **Request Parameters**:
+
 ```json
 {
   "session_id": "string",
@@ -618,6 +642,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -660,6 +685,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Store short-term memory (session history)
 
 **Request Parameters**:
+
 ```json
 {
   "session_id": "string",
@@ -676,6 +702,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -694,6 +721,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get message history for a specific session
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -720,6 +748,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Store long-term memory
 
 **Request Parameters**:
+
 ```json
 {
   "content": "string",
@@ -735,6 +764,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -753,6 +783,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Batch store long-term memory
 
 **Request Parameters**:
+
 ```json
 {
   "entries": [
@@ -768,6 +799,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -788,6 +820,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Transfer short-term memory to long-term memory
 
 **Request Parameters**:
+
 ```json
 {
   "session_id": "string",
@@ -801,6 +834,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -822,6 +856,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Search short-term memory (session history)
 
 **Request Parameters**:
+
 ```json
 {
   "user_id": "string",
@@ -837,6 +872,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -862,6 +898,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Search long-term memory
 
 **Request Parameters**:
+
 ```json
 {
   "query": "string",
@@ -878,6 +915,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -903,6 +941,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get long-term memory entry by ID
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -926,6 +965,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Search both short-term and long-term memory simultaneously
 
 **Request Parameters**:
+
 ```json
 {
   "query": "string",
@@ -945,6 +985,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -971,6 +1012,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Search related memories based on entities
 
 **Request Parameters**:
+
 ```json
 {
   "entity_id": "string",
@@ -982,6 +1024,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -1008,6 +1051,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Check memory system health status
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -1037,6 +1081,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get system configuration information
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -1048,14 +1093,14 @@ Authorization: Bearer <your-access-token>
       "storage_quota": 0.9
     },
     "performance_baselines": {
-      "stm": {"efficiency_gain": 0.2473, "coherence_gain": 0.5447},
-      "ltm": {"efficiency_gain": 0.3698, "coherence_gain": 1.3751},
-      "kg": {"efficiency_gain": 0.4273, "coherence_gain": 1.5970},
-      "mm": {"efficiency_gain": 0.4314, "coherence_gain": 1.9312}
+      "stm": { "efficiency_gain": 0.2473, "coherence_gain": 0.5447 },
+      "ltm": { "efficiency_gain": 0.3698, "coherence_gain": 1.3751 },
+      "kg": { "efficiency_gain": 0.4273, "coherence_gain": 1.597 },
+      "mm": { "efficiency_gain": 0.4314, "coherence_gain": 1.9312 }
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -1069,6 +1114,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Get memory configuration list
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -1101,6 +1147,7 @@ Authorization: Bearer <your-access-token>
 **Description**: Create a new memory configuration
 
 **Request Parameters**:
+
 ```json
 {
   "name": "string",
@@ -1116,6 +1163,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -1130,16 +1178,16 @@ Authorization: Bearer <your-access-token>
 
 ## 11. Error Codes
 
-| Error Code | HTTP Status | Description |
-|-----------|------------|-------------|
-| 1000 | 200 | Success |
-| 1001 | 400 | Invalid request parameters |
-| 1002 | 401 | Authentication failed |
-| 1003 | 403 | Insufficient permissions |
-| 1004 | 404 | Resource not found |
-| 1005 | 429 | Rate limit exceeded |
-| 1006 | 500 | Internal server error |
-| 1007 | 503 | Service unavailable |
+| Error Code | HTTP Status | Description                |
+| ---------- | ----------- | -------------------------- |
+| 1000       | 200         | Success                    |
+| 1001       | 400         | Invalid request parameters |
+| 1002       | 401         | Authentication failed      |
+| 1003       | 403         | Insufficient permissions   |
+| 1004       | 404         | Resource not found         |
+| 1005       | 429         | Rate limit exceeded        |
+| 1006       | 500         | Internal server error      |
+| 1007       | 503         | Service unavailable        |
 
 ## 12. Usage Examples
 
@@ -1159,7 +1207,7 @@ curl -X POST "http://127.0.0.1:8008/api/v1/memory/analyzer/task-characteristics"
   -d '{"task_context": {"content": "Analyze this complex multimodal data", "modality": ["text", "image"]}}'
 
 # 3. Select optimal memory configuration
-curl -X POST "http://127.0.0.1:8008/api/v1/memory/adaptive" \
+curl -X POST "http://127.0.0.1:8008/api/v1/memory/adaptive/select" \
   -H "Authorization: Bearer $token" \
   -H "Content-Type: application/json" \
   -d '{"task_context": {"task_id": "task_123", "complexity": 0.8, "modality_requirements": ["text", "image"], "reasoning_depth": "deep"}, "resource_constraints": {"max_memory_usage_mb": 1024, "max_response_time_ms": 2000}}'

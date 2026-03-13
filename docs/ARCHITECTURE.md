@@ -26,15 +26,15 @@ Client  →  Router (API)  →  Service  →  Agent (orchestration)  →  Strate
 
 The system uses multiple storage backends for different memory types:
 
-| Memory Type | Storage | Description |
-|-------------|---------|-------------|
-| STM (Short-term) | PostgreSQL | Session context, recent turns |
-| LTM (Long-term) | Qdrant + PostgreSQL | Vector embeddings + metadata |
-| KG (Knowledge Graph) | Neo4j | Entities and relationships |
-| MM (Multimodal) | PostgreSQL + File | Cross-modal memory |
+| Memory Type          | Storage                                 | Description                   |
+| -------------------- | --------------------------------------- | ----------------------------- |
+| STM (Short-term)     | PostgreSQL                              | Session context, recent turns |
+| LTM (Long-term)      | Qdrant + PostgreSQL                     | Vector embeddings + metadata  |
+| KG (Knowledge Graph) | PostgreSQL (current) + Neo4j (optional) | Entities and relationships    |
+| MM (Multimodal)      | PostgreSQL + File                       | Cross-modal memory            |
 
 - **Qdrant**: Vector database for semantic search, stores LTM embeddings
-- **Neo4j**: Graph database for knowledge graph storage
+- **Neo4j**: Optional graph backend for advanced KG scenarios
 - **PostgreSQL**: Primary relational database for configurations, metrics, traces
 
 ---
@@ -118,28 +118,37 @@ flowchart LR
 The backend consists of several core services:
 
 ### Scheduler (`services/scheduler.rs`)
+
 The central orchestrator that coordinates all memory selection decisions. Integrates Analyzer, Predictor, Monitor, and WeightAdjuster.
 
 ### Analyzer (`services/analyzer.rs`)
+
 Analyzes task context to determine memory requirements. Outputs TaskCharacteristics and MemoryStrategy.
 
 ### Predictor (`services/predictor.rs`)
+
 Predicts performance for candidate memory configurations. Considers synergy, decay, and resource costs.
 
 ### Monitor (`services/monitor.rs`)
+
 Observes system resources (CPU, memory, latency) and provides optimization suggestions.
 
 ### Memory Search (`services/memory_search.rs`)
+
 Provides semantic, keyword, and hybrid search across all memory types using:
+
 - **Embedding**: Ollama for text-to-vector conversion
 - **Qdrant**: Vector similarity search
 - **Rerank**: Cross-encoder reranking for improved results
 
 ### Memory Storage (`services/memory_storage.rs`)
+
 Manages storage operations for STM, LTM, and MM memory types.
 
 ### Memory Transfer (`services/memory_transfer.rs`)
+
 Automatically transfers relevant memories from STM to LTM based on configurable policies.
 
 ### Multimodal Memory (`services/multimodal_memory.rs`)
+
 Handles cross-modal memory alignment and retrieval.

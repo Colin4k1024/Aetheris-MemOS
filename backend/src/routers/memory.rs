@@ -6,8 +6,8 @@ use std::sync::Arc;
 use utoipa::ToSchema;
 
 use crate::db::{
-    decision_trace::DecisionTraceRepository, memory::MemoryConfigRepository,
-    performance::PerformanceMetricsRepository, weights::WeightHistoryRepository,
+    memory::MemoryConfigRepository, performance::PerformanceMetricsRepository,
+    weights::WeightHistoryRepository,
 };
 use crate::models::*;
 use crate::services::*;
@@ -69,104 +69,40 @@ pub struct SelectMemoryResponse {
 pub async fn select_memory_config(
     Json(request): Json<SelectMemoryRequest>,
 ) -> JsonResult<SelectMemoryResponse> {
-    let dry_run = request.dry_run == Some(true);
-    let explain = request.explain == Some(true);
-
-    if dry_run || explain {
-        let trace = SCHEDULER
-            .adaptive_memory_selection_trace(
-                &request.task_context,
-                &request.resource_constraints,
-                &request.preferences,
-            )
-            .await?;
-        let r = &trace.final_result;
-        if !dry_run {
-            let config_id = MemoryConfigRepository::create(
-                &request.task_context.user_id,
-                &request.task_context.agent_id,
-                &format!("Config for task {}", trace.task_id),
-                "optimized",
-                &r.memory_config,
-            )
-            .await?;
-            let _ = WeightHistoryRepository::create(
-                &trace.task_id,
-                &trace.initial_memory_config.memory_weights,
-                &trace.weight_adjustment.adjusted_weights,
-                &trace.weight_adjustment.adjustment_reasons,
-                ((trace.cost_benefit_ratio - 1.0) * 0.1) as f32,
-                None,
-            )
-            .await;
-            tracing::info!(config_id = %config_id, task_id = %trace.task_id, "Persisted from trace (explain=true)");
-        }
-        if request.persist_trace == Some(true) && !dry_run {
-            let trace_json = serde_json::to_string(&trace).map_err(|e| {
-                crate::AppError::Internal(format!("Failed to serialize trace: {}", e))
-            })?;
-            let _ = DecisionTraceRepository::create(&trace.task_id, &trace_json).await;
-        }
-        let what_if_result = if let Some(ref w) = request.what_if_constraints {
-            SCHEDULER
-                .adaptive_memory_selection_trace(&request.task_context, w, &request.preferences)
-                .await
-                .ok()
-                .map(|t| t.final_result)
-        } else {
-            None
-        };
-        return json_ok(SelectMemoryResponse {
-            memory_config: r.memory_config.clone(),
-            performance_prediction: r.performance_prediction.clone(),
-            resource_requirements: r.resource_requirements.clone(),
-            trace: Some(trace),
-            what_if_result,
-        });
-    }
-
-    let result = SCHEDULER
-        .adaptive_memory_selection(
-            &request.task_context,
-            &request.resource_constraints,
-            &request.preferences,
-        )
-        .await?;
-
-    let what_if_result = if let Some(ref w) = request.what_if_constraints {
-        SCHEDULER
-            .adaptive_memory_selection_trace(&request.task_context, w, &request.preferences)
-            .await
-            .ok()
-            .map(|t| t.final_result)
-    } else {
-        None
-    };
+    let outcome = crate::services::memory_orchestrator::select_memory(
+        SCHEDULER.as_ref(),
+        &request.task_context,
+        &request.resource_constraints,
+        &request.preferences,
+        crate::services::memory_orchestrator::SelectionOptions {
+            explain: request.explain == Some(true),
+            dry_run: request.dry_run == Some(true),
+            persist_trace: request.persist_trace == Some(true),
+            what_if_constraints: request.what_if_constraints.clone(),
+        },
+    )
+    .await?;
 
     json_ok(SelectMemoryResponse {
-        memory_config: result.memory_config,
-        performance_prediction: result.performance_prediction,
-        resource_requirements: result.resource_requirements,
-        trace: None,
-        what_if_result,
+        memory_config: outcome.final_result.memory_config,
+        performance_prediction: outcome.final_result.performance_prediction,
+        resource_requirements: outcome.final_result.resource_requirements,
+        trace: outcome.trace,
+        what_if_result: outcome.what_if_result,
     })
 }
 
 pub async fn select_memory_config_trace(
     Json(request): Json<SelectMemoryRequest>,
 ) -> JsonResult<crate::services::scheduler::DecisionTrace> {
-    let trace = SCHEDULER
-        .adaptive_memory_selection_trace(
-            &request.task_context,
-            &request.resource_constraints,
-            &request.preferences,
-        )
-        .await?;
-    if request.persist_trace == Some(true) {
-        let trace_json = serde_json::to_string(&trace)
-            .map_err(|e| crate::AppError::Internal(format!("Failed to serialize trace: {}", e)))?;
-        let _ = DecisionTraceRepository::create(&trace.task_id, &trace_json).await;
-    }
+    let trace = crate::services::memory_orchestrator::select_memory_trace(
+        SCHEDULER.as_ref(),
+        &request.task_context,
+        &request.resource_constraints,
+        &request.preferences,
+        request.persist_trace == Some(true),
+    )
+    .await?;
     json_ok(trace)
 }
 
@@ -197,24 +133,18 @@ pub struct ListTracesResponse {
 pub async fn get_decision_traces(
     Query(q): Query<ListTracesQuery>,
 ) -> JsonResult<ListTracesResponse> {
-    let rows = if let Some(ref task_id) = q.task_id {
-        DecisionTraceRepository::get_by_task_id(task_id, q.limit).await?
-    } else {
-        DecisionTraceRepository::get_recent(q.limit, None, None).await?
-    };
-    let mut traces = Vec::with_capacity(rows.len());
-    for row in rows {
-        let trace: crate::services::scheduler::DecisionTrace =
-            serde_json::from_str(&row.trace_json).map_err(|e| {
-                crate::AppError::Internal(format!("Failed to parse stored trace: {}", e))
-            })?;
-        traces.push(DecisionTraceItem {
+    let rows =
+        crate::services::memory_orchestrator::list_decision_traces(q.task_id.as_deref(), q.limit)
+            .await?;
+    let traces = rows
+        .into_iter()
+        .map(|row| DecisionTraceItem {
             trace_id: row.trace_id,
             task_id: row.task_id,
             created_at: row.created_at,
-            trace,
-        });
-    }
+            trace: row.trace,
+        })
+        .collect();
     json_ok(ListTracesResponse { traces })
 }
 
@@ -230,9 +160,7 @@ pub struct MemoryStatusResponse {
 
 pub async fn get_memory_status() -> JsonResult<MemoryStatusResponse> {
     // 尝试获取最新配置（使用默认用户和代理ID）
-    let config_row = MemoryConfigRepository::get_latest("default_user", "default_agent")
-        .await
-        .unwrap_or(None);
+    let config_row = MemoryConfigRepository::get_latest("default_user", "default_agent").await?;
 
     let (current_config, performance_metrics) = if let Some(row) = config_row {
         let config = MemoryConfigRepository::row_to_memory_config(&row);
@@ -243,8 +171,7 @@ pub async fn get_memory_status() -> JsonResult<MemoryStatusResponse> {
             None,
             Some(1),
         )
-        .await
-        .unwrap_or_default();
+        .await?;
 
         let metrics = if let Some(metric_row) = metrics_rows.first() {
             PerformanceMetricsRepository::row_to_performance_metrics(metric_row)
@@ -599,33 +526,24 @@ pub struct WeightHistoryResponse {
 
 pub async fn get_weight_history() -> JsonResult<WeightHistoryResponse> {
     // 从数据库获取权重调整历史
-    let history_rows = WeightHistoryRepository::get_by_time_range(None, None, Some(100))
-        .await
-        .unwrap_or_default();
+    let history_rows = WeightHistoryRepository::get_by_time_range(None, None, Some(100)).await?;
 
     let adjustment_history: Vec<HistoryItem> = history_rows
         .iter()
-        .filter_map(|row| {
-            WeightHistoryRepository::row_to_history_item(row)
-                .ok()
-                .map(|item| HistoryItem {
-                    timestamp: item.timestamp,
-                    task_id: item.task_id,
-                    old_weights: item.old_weights,
-                    new_weights: item.new_weights,
-                    reason: item.reason,
-                    performance_impact: item.performance_impact as f64,
-                })
+        .map(|row| {
+            let item = WeightHistoryRepository::row_to_history_item(row)?;
+            Ok(HistoryItem {
+                timestamp: item.timestamp,
+                task_id: item.task_id,
+                old_weights: item.old_weights,
+                new_weights: item.new_weights,
+                reason: item.reason,
+                performance_impact: item.performance_impact as f64,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, crate::AppError>>()?;
 
-    let summary_row = WeightHistoryRepository::get_summary(None, None)
-        .await
-        .unwrap_or(crate::db::weights::WeightHistorySummary {
-            total_adjustments: 0,
-            average_performance_impact: 0.0,
-            most_common_adjustment: "ltm_weight_increase".to_string(),
-        });
+    let summary_row = WeightHistoryRepository::get_summary(None, None).await?;
 
     json_ok(WeightHistoryResponse {
         adjustment_history,

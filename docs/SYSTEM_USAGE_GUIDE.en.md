@@ -13,9 +13,9 @@ The system uses a frontend-backend separated architecture:
 - **Backend**: Built with Rust + Axum framework, providing RESTful API services
 - **Frontend**: Built with React + Ant Design Pro, providing visual operation interface
 - **Database**:
-  - Primary Data: SQLite (extensible to PostgreSQL)
+  - Primary Data: PostgreSQL
   - Vector Storage: Qdrant
-  - Knowledge Graph: Neo4j (planned)
+  - Knowledge Graph: Neo4j (optional)
 
 ### 2.2 Core Components
 
@@ -42,9 +42,9 @@ The system uses a frontend-backend separated architecture:
 
 - Rust 1.89+
 - Cargo
-- SQLite 3.0+
+- PostgreSQL 14+
 - Qdrant 1.7+
-- Neo4j 4.0+ (optional)
+- Neo4j 5.0+ (optional)
 
 #### Frontend
 
@@ -64,7 +64,7 @@ listen_addr = "127.0.0.1:8008"
 
 # Database Configuration
 [db]
-url = "file:./data/sqlx.sqlite"
+url = "postgres://memory:memory@localhost:5432/memory"
 
 # JWT Authentication Configuration (Use strong random key in production, do not use example values)
 [jwt]

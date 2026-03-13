@@ -25,8 +25,8 @@ impl AdaptiveMemoryScheduler {
     pub async fn adaptive_memory_selection(
         &self,
         task_context: &TaskContext,
-        _resource_constraints: &ResourceConstraints,
-        _preferences: &TaskPreferences,
+        resource_constraints: &ResourceConstraints,
+        preferences: &TaskPreferences,
     ) -> Result<MemorySelectionResult, crate::AppError> {
         info!("开始自适应记忆选择，任务ID: {}", task_context.task_id);
         // 1. 任务特征分析
@@ -106,6 +106,13 @@ Agent ID: {}",
             reasoning_depth: memory_strategy.reasoning_depth,
             enable_multimodal: memory_strategy.enable_multimodal,
         };
+        let mut adjustment_reasons = crate::models::AdjustmentReasons {
+            stm: "Primary memory, always enabled".to_string(),
+            ltm: String::new(),
+            kg: String::new(),
+            mm: String::new(),
+        };
+        apply_preferences(&mut memory_config, preferences, &mut adjustment_reasons);
 
         // 4. 性能收益预测
         debug!("步骤4: 预测性能收益");
@@ -121,7 +128,7 @@ Agent ID: {}",
 
         // 6. 动态权重调整
         debug!("步骤6: 动态调整权重");
-        let (adjusted_weights, adjustment_reasons) = self
+        let (adjusted_weights, strategy_reasons) = self
             .weight_adjuster
             .adjust_memory_weights(
                 &characteristics,
@@ -132,30 +139,18 @@ Agent ID: {}",
             .await?;
 
         memory_config.memory_weights = adjusted_weights;
+        merge_adjustment_reasons(&mut adjustment_reasons, &strategy_reasons);
+        apply_preferences(&mut memory_config, preferences, &mut adjustment_reasons);
+        let resource_requirements = enforce_resource_constraints(
+            &mut memory_config,
+            resource_constraints,
+            &mut adjustment_reasons,
+        )?;
 
         // 7. 重新计算性能预测（基于调整后的权重）
         debug!("步骤7: 重新计算性能预测");
         let (final_prediction, _, _, _) = self.predictor.predict_memory_performance(&memory_config);
-
-        // 8. 估算资源需求
-        debug!("步骤8: 估算资源需求");
-        let resource_requirements = ResourceRequirements {
-            estimated_memory_mb: (memory_config.memory_weights.stm * 256.0
-                + memory_config.memory_weights.ltm * 512.0
-                + memory_config.memory_weights.kg * 256.0
-                + memory_config.memory_weights.mm * 512.0) as u64,
-            estimated_cpu_percent: ((memory_config.memory_weights.stm * 20.0
-                + memory_config.memory_weights.ltm * 30.0
-                + memory_config.memory_weights.kg * 25.0
-                + memory_config.memory_weights.mm * 35.0)
-                as u8)
-                .min(80),
-            estimated_response_time_ms: (500.0
-                + memory_config.memory_weights.ltm * 300.0
-                + memory_config.memory_weights.kg * 200.0
-                + memory_config.memory_weights.mm * 400.0)
-                as u64,
-        };
+        debug!("步骤8: 资源约束校验通过");
 
         // 9. 保存配置到数据库
         debug!("步骤9: 保存配置到数据库");
@@ -264,8 +259,8 @@ Agent ID: {}",
     pub async fn adaptive_memory_selection_trace(
         &self,
         task_context: &TaskContext,
-        _resource_constraints: &ResourceConstraints,
-        _preferences: &TaskPreferences,
+        resource_constraints: &ResourceConstraints,
+        preferences: &TaskPreferences,
     ) -> Result<DecisionTrace, crate::AppError> {
         let task_input = TaskContextInput {
             content: format!(
@@ -324,6 +319,13 @@ Agent ID: {}",
             reasoning_depth: memory_strategy.reasoning_depth.clone(),
             enable_multimodal: memory_strategy.enable_multimodal,
         };
+        let mut adjustment_reasons = crate::models::AdjustmentReasons {
+            stm: "Primary memory, always enabled".to_string(),
+            ltm: String::new(),
+            kg: String::new(),
+            mm: String::new(),
+        };
+        apply_preferences(&mut memory_config, preferences, &mut adjustment_reasons);
 
         let (performance_prediction, synergy_factor, decay_factor, performance_breakdown) =
             self.predictor.predict_memory_performance(&memory_config);
@@ -332,7 +334,7 @@ Agent ID: {}",
             .calculate_cost_benefit_ratio(&performance_prediction, &resource_status.current_status);
 
         let initial_memory_config = memory_config.clone();
-        let (adjusted_weights, adjustment_reasons) = self
+        let (adjusted_weights, strategy_reasons) = self
             .weight_adjuster
             .adjust_memory_weights(
                 &characteristics,
@@ -343,24 +345,15 @@ Agent ID: {}",
             .await?;
 
         memory_config.memory_weights = adjusted_weights.clone();
+        merge_adjustment_reasons(&mut adjustment_reasons, &strategy_reasons);
+        apply_preferences(&mut memory_config, preferences, &mut adjustment_reasons);
+        let resource_requirements = enforce_resource_constraints(
+            &mut memory_config,
+            resource_constraints,
+            &mut adjustment_reasons,
+        )?;
+        let adjusted_weights = memory_config.memory_weights.clone();
         let (final_prediction, _, _, _) = self.predictor.predict_memory_performance(&memory_config);
-        let resource_requirements = ResourceRequirements {
-            estimated_memory_mb: (memory_config.memory_weights.stm * 256.0
-                + memory_config.memory_weights.ltm * 512.0
-                + memory_config.memory_weights.kg * 256.0
-                + memory_config.memory_weights.mm * 512.0) as u64,
-            estimated_cpu_percent: ((memory_config.memory_weights.stm * 20.0
-                + memory_config.memory_weights.ltm * 30.0
-                + memory_config.memory_weights.kg * 25.0
-                + memory_config.memory_weights.mm * 35.0)
-                as u8)
-                .min(80),
-            estimated_response_time_ms: (500.0
-                + memory_config.memory_weights.ltm * 300.0
-                + memory_config.memory_weights.kg * 200.0
-                + memory_config.memory_weights.mm * 400.0)
-                as u64,
-        };
 
         let final_result = MemorySelectionResult {
             memory_config: memory_config.clone(),
@@ -419,6 +412,179 @@ Agent ID: {}",
             final_result,
         })
     }
+}
+
+fn estimate_resource_requirements(weights: &MemoryWeights) -> ResourceRequirements {
+    ResourceRequirements {
+        estimated_memory_mb: (weights.stm * 256.0
+            + weights.ltm * 512.0
+            + weights.kg * 256.0
+            + weights.mm * 512.0) as u64,
+        estimated_cpu_percent: ((weights.stm * 20.0
+            + weights.ltm * 30.0
+            + weights.kg * 25.0
+            + weights.mm * 35.0) as u8)
+            .min(95),
+        estimated_response_time_ms: (500.0
+            + weights.ltm * 300.0
+            + weights.kg * 200.0
+            + weights.mm * 400.0) as u64,
+    }
+}
+
+fn estimated_storage_usage_percent(weights: &MemoryWeights) -> u8 {
+    ((10.0 + weights.ltm * 45.0 + weights.kg * 25.0 + weights.mm * 35.0) as u8).min(100)
+}
+
+fn append_reason(reason: &mut String, msg: &str) {
+    if reason.is_empty() {
+        reason.push_str(msg);
+    } else if !reason.contains(msg) {
+        reason.push_str("; ");
+        reason.push_str(msg);
+    }
+}
+
+fn remove_secondary(memory_config: &mut MemoryConfig, memory_type: MemoryType) {
+    memory_config
+        .secondary_memory
+        .retain(|m| match memory_type {
+            MemoryType::Ltm => !matches!(m, MemoryType::Ltm),
+            MemoryType::Kg => !matches!(m, MemoryType::Kg),
+            MemoryType::Mm => !matches!(m, MemoryType::Mm),
+            MemoryType::Stm => true,
+        });
+}
+
+fn apply_preferences(
+    memory_config: &mut MemoryConfig,
+    preferences: &TaskPreferences,
+    reasons: &mut crate::models::AdjustmentReasons,
+) {
+    if !preferences.enable_multimodal {
+        memory_config.memory_weights.mm = 0.0;
+        memory_config.enable_multimodal = false;
+        remove_secondary(memory_config, MemoryType::Mm);
+        append_reason(&mut reasons.mm, "Disabled by user preference");
+    }
+
+    if !preferences.enable_reasoning {
+        memory_config.memory_weights.kg = 0.0;
+        memory_config.reasoning_depth = "shallow".to_string();
+        remove_secondary(memory_config, MemoryType::Kg);
+        append_reason(&mut reasons.kg, "Disabled by user preference");
+    }
+
+    if preferences.prioritize_efficiency && !preferences.prioritize_coherence {
+        memory_config.memory_weights.ltm *= 0.85;
+        memory_config.memory_weights.kg *= 0.85;
+        memory_config.memory_weights.mm *= 0.80;
+        append_reason(
+            &mut reasons.stm,
+            "Efficiency preference: reduce secondary memory usage",
+        );
+    } else if preferences.prioritize_coherence && !preferences.prioritize_efficiency {
+        memory_config.memory_weights.ltm = (memory_config.memory_weights.ltm * 1.10).min(1.0);
+        memory_config.memory_weights.kg = (memory_config.memory_weights.kg * 1.15).min(1.0);
+        if preferences.enable_multimodal {
+            memory_config.memory_weights.mm = (memory_config.memory_weights.mm * 1.05).min(1.0);
+        }
+        append_reason(
+            &mut reasons.stm,
+            "Coherence preference: boost secondary memory usage",
+        );
+    }
+
+    if memory_config.memory_weights.ltm <= 0.0 {
+        remove_secondary(memory_config, MemoryType::Ltm);
+    }
+    if memory_config.memory_weights.kg <= 0.0 {
+        remove_secondary(memory_config, MemoryType::Kg);
+    }
+    if memory_config.memory_weights.mm <= 0.0 {
+        remove_secondary(memory_config, MemoryType::Mm);
+    }
+}
+
+fn enforce_resource_constraints(
+    memory_config: &mut MemoryConfig,
+    resource_constraints: &ResourceConstraints,
+    reasons: &mut crate::models::AdjustmentReasons,
+) -> Result<ResourceRequirements, crate::AppError> {
+    // STM baseline cost from current estimation model.
+    if resource_constraints.max_memory_usage_mb < 256
+        || resource_constraints.max_cpu_usage_percent < 20
+        || resource_constraints.max_response_time_ms < 500
+        || resource_constraints.storage_quota_percent < 10
+    {
+        return Err(crate::AppError::BadRequest(
+            "Resource constraints are lower than STM baseline requirements".to_string(),
+        ));
+    }
+
+    let mut requirements = estimate_resource_requirements(&memory_config.memory_weights);
+    let mut storage_usage = estimated_storage_usage_percent(&memory_config.memory_weights);
+
+    let mut retries = 0;
+    while (requirements.estimated_memory_mb > resource_constraints.max_memory_usage_mb
+        || requirements.estimated_cpu_percent > resource_constraints.max_cpu_usage_percent
+        || requirements.estimated_response_time_ms > resource_constraints.max_response_time_ms
+        || storage_usage > resource_constraints.storage_quota_percent)
+        && retries < 12
+    {
+        memory_config.memory_weights.ltm *= 0.85;
+        memory_config.memory_weights.kg *= 0.85;
+        memory_config.memory_weights.mm *= 0.80;
+        retries += 1;
+        requirements = estimate_resource_requirements(&memory_config.memory_weights);
+        storage_usage = estimated_storage_usage_percent(&memory_config.memory_weights);
+    }
+
+    if requirements.estimated_memory_mb > resource_constraints.max_memory_usage_mb
+        || requirements.estimated_cpu_percent > resource_constraints.max_cpu_usage_percent
+        || requirements.estimated_response_time_ms > resource_constraints.max_response_time_ms
+        || storage_usage > resource_constraints.storage_quota_percent
+    {
+        return Err(crate::AppError::BadRequest(
+            "Unable to satisfy resource constraints with current memory policy".to_string(),
+        ));
+    }
+
+    if retries > 0 {
+        append_reason(
+            &mut reasons.stm,
+            "Resource constraints applied: reduced secondary memory weights",
+        );
+        append_reason(&mut reasons.ltm, "Reduced by resource constraints");
+        append_reason(&mut reasons.kg, "Reduced by resource constraints");
+        append_reason(&mut reasons.mm, "Reduced by resource constraints");
+    }
+
+    if memory_config.memory_weights.ltm <= 0.01 {
+        memory_config.memory_weights.ltm = 0.0;
+        remove_secondary(memory_config, MemoryType::Ltm);
+    }
+    if memory_config.memory_weights.kg <= 0.01 {
+        memory_config.memory_weights.kg = 0.0;
+        remove_secondary(memory_config, MemoryType::Kg);
+    }
+    if memory_config.memory_weights.mm <= 0.01 {
+        memory_config.memory_weights.mm = 0.0;
+        memory_config.enable_multimodal = false;
+        remove_secondary(memory_config, MemoryType::Mm);
+    }
+
+    Ok(requirements)
+}
+
+fn merge_adjustment_reasons(
+    target: &mut crate::models::AdjustmentReasons,
+    source: &crate::models::AdjustmentReasons,
+) {
+    append_reason(&mut target.stm, &source.stm);
+    append_reason(&mut target.ltm, &source.ltm);
+    append_reason(&mut target.kg, &source.kg);
+    append_reason(&mut target.mm, &source.mm);
 }
 
 impl MemoryAgent for AdaptiveMemoryScheduler {
@@ -592,5 +758,83 @@ mod tests {
         assert!(!preferences.prioritize_coherence);
         assert!(preferences.enable_multimodal);
         assert!(preferences.enable_reasoning);
+    }
+
+    #[test]
+    fn test_apply_preferences_disables_mm_and_kg() {
+        let mut config = MemoryConfig {
+            primary_memory: MemoryType::Stm,
+            secondary_memory: vec![MemoryType::Ltm, MemoryType::Kg, MemoryType::Mm],
+            memory_weights: MemoryWeights {
+                stm: 1.0,
+                ltm: 0.8,
+                kg: 0.7,
+                mm: 0.6,
+            },
+            reasoning_depth: "deep".to_string(),
+            enable_multimodal: true,
+        };
+        let prefs = TaskPreferences {
+            prioritize_efficiency: true,
+            prioritize_coherence: false,
+            enable_multimodal: false,
+            enable_reasoning: false,
+        };
+        let mut reasons = crate::models::AdjustmentReasons {
+            stm: String::new(),
+            ltm: String::new(),
+            kg: String::new(),
+            mm: String::new(),
+        };
+
+        apply_preferences(&mut config, &prefs, &mut reasons);
+
+        assert_eq!(config.memory_weights.mm, 0.0);
+        assert_eq!(config.memory_weights.kg, 0.0);
+        assert!(!config.enable_multimodal);
+        assert!(!config
+            .secondary_memory
+            .iter()
+            .any(|m| matches!(m, MemoryType::Mm)));
+        assert!(!config
+            .secondary_memory
+            .iter()
+            .any(|m| matches!(m, MemoryType::Kg)));
+    }
+
+    #[test]
+    fn test_enforce_resource_constraints_reduces_secondary_weights() {
+        let mut config = MemoryConfig {
+            primary_memory: MemoryType::Stm,
+            secondary_memory: vec![MemoryType::Ltm, MemoryType::Kg, MemoryType::Mm],
+            memory_weights: MemoryWeights {
+                stm: 1.0,
+                ltm: 1.0,
+                kg: 1.0,
+                mm: 1.0,
+            },
+            reasoning_depth: "deep".to_string(),
+            enable_multimodal: true,
+        };
+        let constraints = ResourceConstraints {
+            max_memory_usage_mb: 700,
+            max_cpu_usage_percent: 50,
+            max_response_time_ms: 1000,
+            storage_quota_percent: 55,
+        };
+        let mut reasons = crate::models::AdjustmentReasons {
+            stm: String::new(),
+            ltm: String::new(),
+            kg: String::new(),
+            mm: String::new(),
+        };
+
+        let req = enforce_resource_constraints(&mut config, &constraints, &mut reasons)
+            .expect("constraints should be satisfiable");
+
+        assert!(req.estimated_memory_mb <= constraints.max_memory_usage_mb);
+        assert!(req.estimated_cpu_percent <= constraints.max_cpu_usage_percent);
+        assert!(req.estimated_response_time_ms <= constraints.max_response_time_ms);
+        assert!(config.memory_weights.ltm < 1.0 || config.memory_weights.kg < 1.0);
     }
 }

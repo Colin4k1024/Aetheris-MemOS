@@ -6,7 +6,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 
 ## Base Information
 
-- **Base URL**: `https://api.agent-memory.com/v1`
+- **Base URL**: `https://api.agent-memory.com/api/v1`
 - **Authentication**: Bearer Token
 - **Data Format**: JSON
 - **Character Encoding**: UTF-8
@@ -20,6 +20,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Select optimal memory configuration based on task context and resource constraints
 
 **Request Parameters**:
+
 ```json
 {
   "task_context": {
@@ -49,6 +50,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -67,7 +69,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
     },
     "performance_prediction": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "cost_benefit_ratio": 1.85
     },
@@ -88,6 +90,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Get current memory system operational status
 
 **Request Parameters**:
+
 ```json
 {
   "session_id": "string",
@@ -96,6 +99,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -136,6 +140,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Analyze task characteristics to determine memory requirements
 
 **Request Parameters**:
+
 ```json
 {
   "task_context": {
@@ -158,6 +163,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -187,6 +193,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Batch analyze characteristics of multiple tasks
 
 **Request Parameters**:
+
 ```json
 {
   "tasks": [
@@ -202,6 +209,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -243,6 +251,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Predict performance for a specific memory configuration
 
 **Request Parameters**:
+
 ```json
 {
   "task_profile": {
@@ -265,13 +274,14 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
   "data": {
     "predicted_performance": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "confidence_score": 0.88
     },
@@ -294,6 +304,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Get performance baseline data for each memory layer
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -311,7 +322,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
       },
       "kg": {
         "efficiency_gain": 0.4273,
-        "coherence_gain": 1.5970,
+        "coherence_gain": 1.597,
         "resource_cost": 0.6
       },
       "mm": {
@@ -322,7 +333,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -338,6 +349,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Get current system resource usage status
 
 **Request Parameters**:
+
 ```json
 {
   "include_history": false,
@@ -346,6 +358,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -376,11 +389,12 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Calculate cost-benefit ratio for a specific configuration
 
 **Request Parameters**:
+
 ```json
 {
   "performance_prediction": {
     "efficiency": 0.4273,
-    "coherence": 1.5970
+    "coherence": 1.597
   },
   "resource_status": {
     "memory_usage_percent": 50,
@@ -391,6 +405,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -414,6 +429,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Get resource optimization suggestions
 
 **Request Parameters**:
+
 ```json
 {
   "current_config": {
@@ -433,6 +449,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -477,6 +494,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Dynamically adjust memory layer weights
 
 **Request Parameters**:
+
 ```json
 {
   "task_profile": {
@@ -496,6 +514,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -524,6 +543,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Get weight adjustment history records
 
 **Request Parameters**:
+
 ```json
 {
   "session_id": "string",
@@ -533,6 +553,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 ```
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -575,6 +596,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Check memory system health status
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -604,6 +626,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 **Description**: Get system configuration information
 
 **Response Parameters**:
+
 ```json
 {
   "success": true,
@@ -615,14 +638,14 @@ Based on the core design of the adaptive memory management algorithm, this docum
       "storage_quota": 0.9
     },
     "performance_baselines": {
-      "stm": {"efficiency_gain": 0.2473, "coherence_gain": 0.5447},
-      "ltm": {"efficiency_gain": 0.3698, "coherence_gain": 1.3751},
-      "kg": {"efficiency_gain": 0.4273, "coherence_gain": 1.5970},
-      "mm": {"efficiency_gain": 0.4314, "coherence_gain": 1.9312}
+      "stm": { "efficiency_gain": 0.2473, "coherence_gain": 0.5447 },
+      "ltm": { "efficiency_gain": 0.3698, "coherence_gain": 1.3751 },
+      "kg": { "efficiency_gain": 0.4273, "coherence_gain": 1.597 },
+      "mm": { "efficiency_gain": 0.4314, "coherence_gain": 1.9312 }
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -631,16 +654,16 @@ Based on the core design of the adaptive memory management algorithm, this docum
 
 ## Error Codes
 
-| Error Code | HTTP Status | Description |
-|-----------|------------|-------------|
-| 1000 | 200 | Success |
-| 1001 | 400 | Invalid request parameters |
-| 1002 | 401 | Authentication failed |
-| 1003 | 403 | Insufficient permissions |
-| 1004 | 404 | Resource not found |
-| 1005 | 429 | Rate limit exceeded |
-| 1006 | 500 | Internal server error |
-| 1007 | 503 | Service unavailable |
+| Error Code | HTTP Status | Description                |
+| ---------- | ----------- | -------------------------- |
+| 1000       | 200         | Success                    |
+| 1001       | 400         | Invalid request parameters |
+| 1002       | 401         | Authentication failed      |
+| 1003       | 403         | Insufficient permissions   |
+| 1004       | 404         | Resource not found         |
+| 1005       | 429         | Rate limit exceeded        |
+| 1006       | 500         | Internal server error      |
+| 1007       | 503         | Service unavailable        |
 
 ## Usage Examples
 
@@ -648,7 +671,7 @@ Based on the core design of the adaptive memory management algorithm, this docum
 
 ```bash
 # 1. Analyze task characteristics
-curl -X POST "https://api.agent-memory.com/v1/memory/analyzer/task-characteristics" \
+curl -X POST "https://api.agent-memory.com/api/v1/memory/analyzer/task-characteristics" \
   -H "Authorization: Bearer your-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -660,7 +683,7 @@ curl -X POST "https://api.agent-memory.com/v1/memory/analyzer/task-characteristi
   }'
 
 # 2. Select optimal memory configuration
-curl -X POST "https://api.agent-memory.com/v1/memory/adaptive/select" \
+curl -X POST "https://api.agent-memory.com/api/v1/memory/adaptive/select" \
   -H "Authorization: Bearer your-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -677,7 +700,7 @@ curl -X POST "https://api.agent-memory.com/v1/memory/adaptive/select" \
   }'
 
 # 3. Monitor system status
-curl -X GET "https://api.agent-memory.com/v1/memory/monitor/resources" \
+curl -X GET "https://api.agent-memory.com/api/v1/memory/monitor/resources" \
   -H "Authorization: Bearer your-token"
 ```
 

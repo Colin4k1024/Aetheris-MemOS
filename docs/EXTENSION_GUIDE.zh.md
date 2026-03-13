@@ -75,7 +75,7 @@ impl WeightStrategy for MyCustomStrategy {
 无需持久化即可检查决策管道：
 
 - **端点**: `POST /api/v1/memory/adaptive/trace`
-- **请求体**: 与 `POST /api/v1/memory/adaptive` 相同（`task_context`、`resource_constraints`、`preferences`）。
+- **请求体**: 与 `POST /api/v1/memory/adaptive/select` 相同（`task_context`、`resource_constraints`、`preferences`）。
 - **响应**: 完整追踪 — `task_id`、`analyzer`（特征、记忆策略、置信度）、`resource_status`、`initial_memory_config`、`predictor`（预测、协同、衰减、分解）、`cost_benefit_ratio`、`weight_adjustment`（adjusted_weights、adjustment_reasons）、`final_result`。
 
 使用此 API 调试或可视化为什么选择给定的记忆配置。前端**记忆决策追踪**页面（路由：`/memory-decision-trace`）调用此 API 并逐步显示管道。

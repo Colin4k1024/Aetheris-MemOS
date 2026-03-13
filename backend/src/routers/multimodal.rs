@@ -3,7 +3,6 @@
 use axum::extract::{Path, Query};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use tracing::error;
 use utoipa::ToSchema;
 use validator::Validate;
 
@@ -190,38 +189,25 @@ pub async fn list_mm(Query(query): Query<ListMMQuery>) -> JsonResult<MMEntryList
     let limit = query.limit.unwrap_or(20) as i32;
     let offset = query.offset.unwrap_or(0) as i32;
 
-    // 查询数据库获取列表
-    match MMRepository::list_entries(None, Some(limit), Some(offset)).await {
-        Ok(result) => {
-            let infos: Vec<MMEntryInfo> = result
-                .entries
-                .into_iter()
-                .map(|e| MMEntryInfo {
-                    entry_id: e.entry_id,
-                    session_id: e.session_id,
-                    source_id: e.source_id,
-                    modality_type: e.modality_type,
-                    title: e.title,
-                    description: e.description,
-                })
-                .collect();
-            json_ok(MMEntryListResponse {
-                entries: infos,
-                total: result.total,
-                limit,
-                offset,
-            })
-        }
-        Err(e) => {
-            error!("Failed to list multimodal entries: {}", e);
-            json_ok(MMEntryListResponse {
-                entries: vec![],
-                total: 0,
-                limit,
-                offset,
-            })
-        }
-    }
+    let result = MMRepository::list_entries(None, Some(limit), Some(offset)).await?;
+    let infos: Vec<MMEntryInfo> = result
+        .entries
+        .into_iter()
+        .map(|e| MMEntryInfo {
+            entry_id: e.entry_id,
+            session_id: e.session_id,
+            source_id: e.source_id,
+            modality_type: e.modality_type,
+            title: e.title,
+            description: e.description,
+        })
+        .collect();
+    json_ok(MMEntryListResponse {
+        entries: infos,
+        total: result.total,
+        limit,
+        offset,
+    })
 }
 
 #[derive(Debug, Deserialize, Default)]

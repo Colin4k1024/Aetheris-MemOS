@@ -2,7 +2,9 @@ use anyhow::Result;
 use tracing::{error, info, instrument, warn};
 
 use crate::db::{ltm::LTMRepository, stm::STMRepository};
-use crate::services::{embedding::get_embedding_service, llm::get_llm_service, qdrant::get_qdrant_client};
+use crate::services::{
+    embedding::get_embedding_service, llm::get_llm_service, qdrant::get_qdrant_client,
+};
 use crate::AppError;
 
 /// 记忆存储服务
@@ -45,7 +47,10 @@ impl MemoryStorageService {
         )
         .await?;
 
-        info!("STM stored successfully: session_id={}, message_id={}", session_id, message_id);
+        info!(
+            "STM stored successfully: session_id={}, message_id={}",
+            session_id, message_id
+        );
         Ok((session_id, message_id))
     }
 
@@ -62,15 +67,21 @@ impl MemoryStorageService {
         let normalized_source_type = match source_type {
             "document" | "api" | "database" | "web" | "user_input" => source_type,
             "test" | "testing" => {
-                warn!("source_type '{}' is not allowed, mapping to 'user_input'", source_type);
+                warn!(
+                    "source_type '{}' is not allowed, mapping to 'user_input'",
+                    source_type
+                );
                 "user_input"
             }
             _ => {
-                warn!("Unknown source_type '{}', mapping to 'user_input'", source_type);
+                warn!(
+                    "Unknown source_type '{}', mapping to 'user_input'",
+                    source_type
+                );
                 "user_input"
             }
         };
-        
+
         info!(
             "Storing LTM: source_id={}, source_type={} (normalized from {}), content_length={}",
             source_id,
@@ -82,7 +93,7 @@ impl MemoryStorageService {
         // 1. 调用 LLM 进行总结和结构化提取
         let llm_service = get_llm_service()
             .map_err(|e| AppError::Internal(format!("Failed to get LLM service: {}", e)))?;
-        
+
         let extraction = llm_service
             .summarize_and_extract(content)
             .await
@@ -91,13 +102,16 @@ impl MemoryStorageService {
                 AppError::Internal(format!("LLM summarization failed: {}", e))
             })?;
 
-        info!("LLM extraction completed: entities={}, relations={}", 
-              extraction.entities.len(), extraction.relations.len());
+        info!(
+            "LLM extraction completed: entities={}, relations={}",
+            extraction.entities.len(),
+            extraction.relations.len()
+        );
 
         // 2. 生成向量嵌入
         let embedding_service = get_embedding_service()
             .map_err(|e| AppError::Internal(format!("Failed to get embedding service: {}", e)))?;
-        
+
         let embedding = embedding_service
             .generate_embedding(&extraction.summary)
             .await
@@ -111,7 +125,7 @@ impl MemoryStorageService {
         // 3. 存储到 Qdrant
         let qdrant_client = get_qdrant_client()
             .map_err(|e| AppError::Internal(format!("Failed to get Qdrant client: {}", e)))?;
-        
+
         let entry_id = ulid::Ulid::new().to_string();
         let metadata = serde_json::json!({
             "title": title,
@@ -135,9 +149,9 @@ impl MemoryStorageService {
                 AppError::Internal(format!("Failed to insert vector: {}", e))
             })?;
 
-        // 4. 存储到 SQLite（使用相同的 entry_id）
+        // 4. 存储到关系数据库（使用相同的 entry_id）
         let quality_score = Some(0.8); // 可以根据实际情况计算质量分数
-        LTMRepository::create_knowledge_entry_with_id(
+        if let Err(db_err) = LTMRepository::create_knowledge_entry_with_id(
             Some(entry_id.clone()),
             source_id,
             normalized_source_type,
@@ -149,7 +163,30 @@ impl MemoryStorageService {
             embedding_service.dimension() as i32,
             quality_score,
         )
-        .await?;
+        .await
+        {
+            error!(
+                "Failed to persist LTM metadata after vector insert, rolling back Qdrant point: entry_id={}, error={}",
+                entry_id, db_err
+            );
+
+            if let Err(rollback_err) = qdrant_client.delete_vectors(vec![entry_id.clone()]).await {
+                error!(
+                    "Rollback failed for Qdrant point: entry_id={}, rollback_error={}",
+                    entry_id, rollback_err
+                );
+                return Err(AppError::Internal(format!(
+                    "Failed to persist LTM metadata and rollback vector insert: db_error={}, rollback_error={}",
+                    db_err, rollback_err
+                )));
+            }
+
+            warn!(
+                "Rolled back Qdrant point after metadata persist failure: entry_id={}",
+                entry_id
+            );
+            return Err(db_err);
+        }
 
         info!("LTM stored successfully: entry_id={}", entry_id);
         Ok(entry_id)
@@ -165,10 +202,13 @@ impl MemoryStorageService {
 
         // 获取会话消息
         let messages = STMRepository::get_session_messages(session_id, Some(1000)).await?;
-        
+
         if messages.len() < message_count_threshold as usize {
-            info!("Message count ({}) below threshold ({}), skipping transfer", 
-                  messages.len(), message_count_threshold);
+            info!(
+                "Message count ({}) below threshold ({}), skipping transfer",
+                messages.len(),
+                message_count_threshold
+            );
             return Ok(Vec::new());
         }
 
@@ -205,14 +245,20 @@ impl MemoryStorageService {
             match Self::store_ltm(&source_id, &source_type, &content, title.as_deref()).await {
                 Ok(entry_id) => entry_ids.push(entry_id),
                 Err(e) => {
-                    error!("Failed to store LTM entry: source_id={}, error={}", source_id, e);
+                    error!(
+                        "Failed to store LTM entry: source_id={}, error={}",
+                        source_id, e
+                    );
                     // 继续处理其他条目
                 }
             }
         }
 
-        info!("Batch storage completed: success={}/{}", entry_ids.len(), total_count);
+        info!(
+            "Batch storage completed: success={}/{}",
+            entry_ids.len(),
+            total_count
+        );
         Ok(entry_ids)
     }
 }
-

@@ -1,4 +1,4 @@
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::middleware;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, put};
@@ -53,6 +53,10 @@ pub fn root() -> Router {
         .route_layer(auth_layer.clone());
 
     let memory_routes = Router::new()
+        // Canonical adaptive endpoints
+        .route("/adaptive/select", post(memory::select_memory_config))
+        .route("/adaptive/status", get(memory::get_memory_status))
+        // Backward-compatible aliases (to be deprecated in docs)
         .route(
             "/adaptive",
             post(memory::select_memory_config).get(memory::get_memory_status),
@@ -107,14 +111,8 @@ pub fn root() -> Router {
         .merge(memory_config_routes)
         .route_layer(memory_rate_limit);
 
-    let api_router = Router::new()
-        .route("/login", post(auth::post_login))
-        .route(
-            "/login/account",
-            post(auth::post_login_with_token).get(auth::get_login_with_token),
-        )
+    let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))
-        .route_layer(auth_layer)
         .merge(user_routes)
         .nest("/v1/memory", memory_routes)
         .nest(
@@ -146,7 +144,16 @@ pub fn root() -> Router {
                     get(multimodal::get_by_modality),
                 )
                 .route("/list", get(multimodal::list_mm)),
-        );
+        )
+        .route_layer(auth_layer);
+
+    let api_router = Router::new()
+        .route("/login", post(auth::post_login))
+        .route(
+            "/login/account",
+            post(auth::post_login_with_token).get(auth::get_login_with_token),
+        )
+        .merge(protected_api_router);
 
     Router::new()
         .route("/", get(demo::hello))

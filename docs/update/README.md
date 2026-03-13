@@ -21,13 +21,12 @@ Part of what these docs called “未达标” has **already been implemented** 
 
 - **Done:** Agent-oriented core (`MemoryAgent` in `backend/src/services/agent.rs`; analyzer, predictor, scheduler implement it).
 - **Done:** Strategy plugin system (`WeightStrategy` in `backend/src/services/weight_strategy.rs`; MarginalBenefit, LinearDecay, SynergyAware; weight_adjuster composes strategies).
-- **Done:** Decision Trace API + UI (`POST /api/v1/memory/adaptive/trace` and Memory Decision Trace page); no persistence yet.
-- **Done:** Storage adapter declaration (SQLite default; `db/adapters` and docs).
+- **Done:** Decision Trace API + UI (`POST /api/v1/memory/adaptive/trace` and Memory Decision Trace page) with persistence support.
+- **Done:** Storage baseline alignment (PostgreSQL + Qdrant; Neo4j optional).
 - **Done:** ARCHITECTURE, ROADMAP, USE_CASES, axum-migration-notes; CONTRIBUTING and EXTENSION_GUIDE.
 
 **Still open (from these docs):**
 
-- Decision Trace **persistence** (DB table + optional save).
 - **Observability**: trace_id, decision span, metrics correlation.
 - Router thinning (single service entrypoint), if desired.
 - Optional directory refactor (e.g. top-level `core/`, `agents/`, `strategies/`) — current layout under `services/` is already agent- and strategy-ready.

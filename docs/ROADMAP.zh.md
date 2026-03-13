@@ -8,7 +8,7 @@
 
 ## v0.2 — 稳定的基于规则的自适应记忆（已完成）
 
-- **后端**: 基于规则的调度器、分析器、预测器、监控器、权重调整器；SQLite（默认）；REST API。
+- **后端**: 基于规则的调度器、分析器、预测器、监控器、权重调整器；PostgreSQL + Qdrant 基线；REST API。
 - **前端**: 仪表盘、任务分析、记忆配置、性能、资源监控、权重历史。
 - **文档**: 算法设计、API 规范、系统可视化。
 
@@ -22,13 +22,12 @@
 
 - **面向智能体的核心** — `MemoryAgent` 特质（observe → decide → act）；分析器、预测器和调度器实现它。请参阅 [ARCHITECTURE.md](ARCHITECTURE.md)。
 - **策略插件系统** — `WeightStrategy` 特质；内置策略（MarginalBenefit、LinearDecay、SynergyAware）；权重调整器组合策略。请参阅 [EXTENSION_GUIDE.md](docs/EXTENSION_GUIDE.md)。
-- **决策追踪（API + UI）** — `POST /api/v1/memory/adaptive/trace` 和记忆决策追踪页面，用于逐步检查管道（分析器 → 预测器 → 权重调整 → 结果）。暂无持久化。
-- **存储适配器声明** — SQLite 作为默认；`db/adapters` 命名空间和文档说明 PostgreSQL/MySQL 在计划中。
+- **决策追踪（API + UI + 持久化）** — `POST /api/v1/memory/adaptive/trace` 和记忆决策追踪页面，用于逐步检查管道（分析器 → 预测器 → 权重调整 → 结果），并支持数据库持久化。
+- **存储基线对齐** — PostgreSQL 作为关系数据基线，Qdrant 用于向量检索，Neo4j 为可选图数据库。
 - **文档** — ARCHITECTURE、ROADMAP、USE_CASES、why-axum；CONTRIBUTING 和 EXTENSION_GUIDE。
 
 ### 计划中
 
-- **决策追踪持久化** — 追踪的数据库表和模型；在调用自适应或追踪端点时可选保存。
 - **可观测性** — trace_id、决策跨度、OpenTelemetry 兼容导出；指标关联。
 - **仓储适配器特质** — 将持久化抽象在特质后；运行时适配器选择（可选）。
 
@@ -138,8 +137,8 @@
 
 ## 数据库适配器
 
-- **SQLite** — 本地和演示的默认选项。
-- **Redis** — STM 层（计划 v0.5）
-- **Qdrant** — LTM 的向量搜索（计划 v0.5）
-- **Neo4j** — KG 的图数据库（计划 v0.5）
-- **PostgreSQL / MySQL** — 生产环境计划中
+- **PostgreSQL** — 当前关系数据基线（配置、指标、追踪和记忆元数据）。
+- **Qdrant** — 当前 LTM 向量检索后端。
+- **Neo4j** — 可选图数据库（高级 KG 场景）。
+- **Redis** — STM 缓存层（计划 v0.5）。
+- **MySQL** — 关系型替代适配器（计划中）。

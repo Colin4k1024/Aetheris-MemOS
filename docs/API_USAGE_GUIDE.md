@@ -26,9 +26,9 @@ Authorization: Bearer <your-access-token>
 
 ```json
 {
-  "success": true,  // 请求是否成功
-  "data": {},       // 响应数据
-  "message": ""     // 响应消息
+  "success": true, // 请求是否成功
+  "data": {}, // 响应数据
+  "message": "" // 响应消息
 }
 ```
 
@@ -41,6 +41,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 用户登录，获取认证Token
 
 **请求参数**:
+
 ```json
 {
   "username": "<your-username>",
@@ -49,6 +50,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -76,11 +78,13 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取当前登录用户的信息
 
 **请求头**:
+
 ```
 Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -100,11 +104,12 @@ Authorization: Bearer <your-access-token>
 
 ### 3.1 选择最优记忆配置
 
-**接口**: `POST /api/v1/memory/adaptive`
+**接口**: `POST /api/v1/memory/adaptive/select`
 
 **描述**: 根据任务上下文和资源约束，选择最优的记忆配置
 
 **请求参数**:
+
 ```json
 {
   "task_context": {
@@ -134,6 +139,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -152,7 +158,7 @@ Authorization: Bearer <your-access-token>
     },
     "performance_prediction": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "cost_benefit_ratio": 1.85
     },
@@ -168,11 +174,12 @@ Authorization: Bearer <your-access-token>
 
 ### 3.2 获取当前记忆状态
 
-**接口**: `GET /api/v1/memory/adaptive`
+**接口**: `GET /api/v1/memory/adaptive/status`
 
 **描述**: 获取当前记忆系统的运行状态
 
 **请求参数**:
+
 ```json
 {
   "session_id": "string",
@@ -181,6 +188,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -221,6 +229,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 分析任务特征，确定记忆需求
 
 **请求参数**:
+
 ```json
 {
   "task_context": {
@@ -243,6 +252,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -272,6 +282,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 批量分析多个任务的特征
 
 **请求参数**:
+
 ```json
 {
   "tasks": [
@@ -287,6 +298,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -328,6 +340,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 预测特定记忆配置的性能表现
 
 **请求参数**:
+
 ```json
 {
   "task_profile": {
@@ -350,13 +363,14 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
   "data": {
     "predicted_performance": {
       "efficiency_gain": 0.4273,
-      "coherence_gain": 1.5970,
+      "coherence_gain": 1.597,
       "resource_cost": 0.65,
       "confidence_score": 0.88
     },
@@ -379,6 +393,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取各记忆层的性能基准数据
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -396,7 +411,7 @@ Authorization: Bearer <your-access-token>
       },
       "kg": {
         "efficiency_gain": 0.4273,
-        "coherence_gain": 1.5970,
+        "coherence_gain": 1.597,
         "resource_cost": 0.6
       },
       "mm": {
@@ -407,7 +422,7 @@ Authorization: Bearer <your-access-token>
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -423,6 +438,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取当前系统资源使用状态
 
 **请求参数**:
+
 ```json
 {
   "include_history": false,
@@ -431,6 +447,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -461,11 +478,12 @@ Authorization: Bearer <your-access-token>
 **描述**: 计算特定配置的成本效益比
 
 **请求参数**:
+
 ```json
 {
   "performance_prediction": {
     "efficiency": 0.4273,
-    "coherence": 1.5970
+    "coherence": 1.597
   },
   "resource_status": {
     "memory_usage_percent": 50,
@@ -476,6 +494,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -499,6 +518,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取资源优化建议
 
 **请求参数**:
+
 ```json
 {
   "current_config": {
@@ -518,6 +538,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -562,6 +583,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 动态调整记忆层权重
 
 **请求参数**:
+
 ```json
 {
   "task_profile": {
@@ -581,6 +603,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -609,6 +632,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取权重调整历史记录
 
 **请求参数**:
+
 ```json
 {
   "session_id": "string",
@@ -618,6 +642,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -660,6 +685,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 存储短期记忆（会话历史）
 
 **请求参数**:
+
 ```json
 {
   "session_id": "string",
@@ -676,6 +702,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -694,6 +721,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取指定会话的消息历史
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -720,6 +748,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 存储长期记忆
 
 **请求参数**:
+
 ```json
 {
   "content": "string",
@@ -735,6 +764,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -753,6 +783,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 批量存储长期记忆
 
 **请求参数**:
+
 ```json
 {
   "entries": [
@@ -768,6 +799,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -788,6 +820,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 将短期记忆转移到长期记忆
 
 **请求参数**:
+
 ```json
 {
   "session_id": "string",
@@ -801,6 +834,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -822,6 +856,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取所有短期记忆会话列表
 
 **请求参数**:
+
 ```json
 {
   "limit": 20,
@@ -830,6 +865,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -857,6 +893,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取长期记忆条目列表
 
 **请求参数**:
+
 ```json
 {
   "limit": 20,
@@ -865,6 +902,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -895,6 +933,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取知识图谱实体列表
 
 **请求参数**:
+
 ```json
 {
   "limit": 20,
@@ -903,6 +942,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -929,6 +969,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取多模态记忆条目列表
 
 **请求参数**:
+
 ```json
 {
   "limit": 20,
@@ -937,6 +978,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -965,6 +1007,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 搜索短期记忆（会话历史）
 
 **请求参数**:
+
 ```json
 {
   "user_id": "string",
@@ -980,6 +1023,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1005,6 +1049,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 搜索长期记忆
 
 **请求参数**:
+
 ```json
 {
   "query": "string",
@@ -1021,6 +1066,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1046,6 +1092,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取指定ID的长期记忆条目
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1069,6 +1116,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 同时搜索短期记忆和长期记忆
 
 **请求参数**:
+
 ```json
 {
   "query": "string",
@@ -1088,6 +1136,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1114,6 +1163,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 基于实体搜索相关记忆
 
 **请求参数**:
+
 ```json
 {
   "entity_id": "string",
@@ -1125,6 +1175,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1151,6 +1202,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 检查记忆系统健康状态
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1180,6 +1232,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取系统配置信息
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1191,14 +1244,14 @@ Authorization: Bearer <your-access-token>
       "storage_quota": 0.9
     },
     "performance_baselines": {
-      "stm": {"efficiency_gain": 0.2473, "coherence_gain": 0.5447},
-      "ltm": {"efficiency_gain": 0.3698, "coherence_gain": 1.3751},
-      "kg": {"efficiency_gain": 0.4273, "coherence_gain": 1.5970},
-      "mm": {"efficiency_gain": 0.4314, "coherence_gain": 1.9312}
+      "stm": { "efficiency_gain": 0.2473, "coherence_gain": 0.5447 },
+      "ltm": { "efficiency_gain": 0.3698, "coherence_gain": 1.3751 },
+      "kg": { "efficiency_gain": 0.4273, "coherence_gain": 1.597 },
+      "mm": { "efficiency_gain": 0.4314, "coherence_gain": 1.9312 }
     },
     "marginal_decay_factors": {
       "stm_to_ltm": 0.495,
-      "ltm_to_kg": 0.470,
+      "ltm_to_kg": 0.47,
       "kg_to_mm": 0.071
     }
   }
@@ -1212,6 +1265,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 获取记忆配置列表
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1244,6 +1298,7 @@ Authorization: Bearer <your-access-token>
 **描述**: 创建新的记忆配置
 
 **请求参数**:
+
 ```json
 {
   "name": "string",
@@ -1259,6 +1314,7 @@ Authorization: Bearer <your-access-token>
 ```
 
 **响应参数**:
+
 ```json
 {
   "success": true,
@@ -1273,16 +1329,16 @@ Authorization: Bearer <your-access-token>
 
 ## 11. 错误码说明
 
-| 错误码 | HTTP状态码 | 描述 |
-|--------|------------|------|
-| 1000 | 200 | 成功 |
-| 1001 | 400 | 请求参数错误 |
-| 1002 | 401 | 认证失败 |
-| 1003 | 403 | 权限不足 |
-| 1004 | 404 | 资源不存在 |
-| 1005 | 429 | 请求频率过高 |
-| 1006 | 500 | 内部服务器错误 |
-| 1007 | 503 | 服务不可用 |
+| 错误码 | HTTP状态码 | 描述           |
+| ------ | ---------- | -------------- |
+| 1000   | 200        | 成功           |
+| 1001   | 400        | 请求参数错误   |
+| 1002   | 401        | 认证失败       |
+| 1003   | 403        | 权限不足       |
+| 1004   | 404        | 资源不存在     |
+| 1005   | 429        | 请求频率过高   |
+| 1006   | 500        | 内部服务器错误 |
+| 1007   | 503        | 服务不可用     |
 
 ## 12. 使用示例
 
@@ -1302,7 +1358,7 @@ curl -X POST "http://127.0.0.1:8008/api/v1/memory/analyzer/task-characteristics"
   -d '{"task_context": {"content": "分析这个复杂的多模态数据", "modality": ["text", "image"]}}'
 
 # 3. 选择最优记忆配置
-curl -X POST "http://127.0.0.1:8008/api/v1/memory/adaptive" \
+curl -X POST "http://127.0.0.1:8008/api/v1/memory/adaptive/select" \
   -H "Authorization: Bearer $token" \
   -H "Content-Type: application/json" \
   -d '{"task_context": {"task_id": "task_123", "complexity": 0.8, "modality_requirements": ["text", "image"], "reasoning_depth": "deep"}, "resource_constraints": {"max_memory_usage_mb": 1024, "max_response_time_ms": 2000}}'

@@ -8,7 +8,7 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 
 ## v0.2 — Stable Rule-Based Adaptive Memory (Completed)
 
-- **Backend**: Rule-based scheduler, analyzer, predictor, monitor, weight adjuster; SQLite (default); REST API.
+- **Backend**: Rule-based scheduler, analyzer, predictor, monitor, weight adjuster; PostgreSQL + Qdrant baseline; REST API.
 - **Frontend**: Dashboard, task analysis, memory config, performance, resource monitor, weight history.
 - **Docs**: Algorithm design, API spec, system visualization.
 
@@ -22,13 +22,12 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 
 - **Agent-oriented core** — `MemoryAgent` trait (observe → decide → act); Analyzer, Predictor, and Scheduler implement it. See [ARCHITECTURE.md](ARCHITECTURE.md).
 - **Strategy plugin system** — `WeightStrategy` trait; built-in strategies (MarginalBenefit, LinearDecay, SynergyAware); weight adjuster composes strategies. See [EXTENSION_GUIDE.md](EXTENSION_GUIDE.md).
-- **Decision trace (API + UI)** — `POST /api/v1/memory/adaptive/trace` and Memory Decision Trace page for step-by-step pipeline inspection (analyzer → predictor → weight adjustment → result). No persistence yet.
-- **Storage adapter declaration** — SQLite as default; `db/adapters` namespace and docs state PostgreSQL/MySQL as planned.
+- **Decision trace (API + UI + persistence)** — `POST /api/v1/memory/adaptive/trace` and Memory Decision Trace page for step-by-step pipeline inspection (analyzer → predictor → weight adjustment → result), with DB persistence support.
+- **Storage baseline alignment** — PostgreSQL as relational baseline, Qdrant for vectors, Neo4j optional for graph scenarios.
 - **Documentation** — ARCHITECTURE, ROADMAP, USE_CASES, why-axum; CONTRIBUTING and EXTENSION_GUIDE.
 
 ### Planned
 
-- **Decision trace persistence** — DB table and model for traces; optional save when calling adaptive or trace endpoint.
 - **Observability** — trace_id, decision span, OpenTelemetry-compatible export; metrics correlation.
 - **Repository adapter trait** — Abstract persistence behind traits; runtime adapter selection (optional).
 
@@ -138,8 +137,8 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 
 ## Database Adapters
 
-- **SQLite** — Default for local and demo.
-- **Redis** — STM layer (planned v0.5)
-- **Qdrant** — Vector search for LTM (planned v0.5)
-- **Neo4j** — Graph DB for KG (planned v0.5)
-- **PostgreSQL / MySQL** — Planned for production
+- **PostgreSQL** — Current relational baseline for configs/metrics/traces and memory metadata.
+- **Qdrant** — Current vector search backend for LTM.
+- **Neo4j** — Optional graph backend (advanced KG scenarios).
+- **Redis** — STM cache layer (planned v0.5).
+- **MySQL** — Alternative relational adapter (planned).

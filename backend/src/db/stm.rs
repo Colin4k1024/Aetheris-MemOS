@@ -3,8 +3,8 @@ use sqlx::FromRow;
 use tracing::{error, info};
 use ulid::Ulid;
 
-use crate::AppError;
 use crate::db::pool;
+use crate::AppError;
 
 /// 短期记忆会话仓库
 pub struct STMRepository;
@@ -211,41 +211,137 @@ impl STMRepository {
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
 
-        let mut query = String::from(
-            "SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
-             session_type, context_length, max_context_length, status, priority
-             FROM context_sessions WHERE 1=1"
-        );
+        let (sessions, total): (Vec<Session>, (i64,)) = match (user_id, status) {
+            (Some(uid), Some(s)) => {
+                let sessions = sqlx::query_as::<_, Session>(
+                    r#"
+                    SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                           session_type, context_length, max_context_length, status, priority
+                    FROM context_sessions
+                    WHERE user_id = $1 AND status = $2
+                    ORDER BY created_at DESC
+                    LIMIT $3 OFFSET $4
+                    "#,
+                )
+                .bind(uid)
+                .bind(s)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to list sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
 
-        let mut count_query = String::from("SELECT COUNT(*) FROM context_sessions WHERE 1=1");
+                let total = sqlx::query_as::<_, (i64,)>(
+                    "SELECT COUNT(*) FROM context_sessions WHERE user_id = $1 AND status = $2",
+                )
+                .bind(uid)
+                .bind(s)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
+                (sessions, total)
+            }
+            (Some(uid), None) => {
+                let sessions = sqlx::query_as::<_, Session>(
+                    r#"
+                    SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                           session_type, context_length, max_context_length, status, priority
+                    FROM context_sessions
+                    WHERE user_id = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2 OFFSET $3
+                    "#,
+                )
+                .bind(uid)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to list sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
 
-        if let Some(uid) = user_id {
-            query.push_str(&format!(" AND user_id = '{}'", uid));
-            count_query.push_str(&format!(" AND user_id = '{}'", uid));
-        }
+                let total = sqlx::query_as::<_, (i64,)>(
+                    "SELECT COUNT(*) FROM context_sessions WHERE user_id = $1",
+                )
+                .bind(uid)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
+                (sessions, total)
+            }
+            (None, Some(s)) => {
+                let sessions = sqlx::query_as::<_, Session>(
+                    r#"
+                    SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                           session_type, context_length, max_context_length, status, priority
+                    FROM context_sessions
+                    WHERE status = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2 OFFSET $3
+                    "#,
+                )
+                .bind(s)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to list sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
 
-        if let Some(s) = status {
-            query.push_str(&format!(" AND status = '{}'", s));
-            count_query.push_str(&format!(" AND status = '{}'", s));
-        }
+                let total = sqlx::query_as::<_, (i64,)>(
+                    "SELECT COUNT(*) FROM context_sessions WHERE status = $1",
+                )
+                .bind(s)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
+                (sessions, total)
+            }
+            (None, None) => {
+                let sessions = sqlx::query_as::<_, Session>(
+                    r#"
+                    SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                           session_type, context_length, max_context_length, status, priority
+                    FROM context_sessions
+                    ORDER BY created_at DESC
+                    LIMIT $1 OFFSET $2
+                    "#,
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to list sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
 
-        query.push_str(&format!(
-            " ORDER BY created_at DESC LIMIT {} OFFSET {}",
-            limit, offset
-        ));
-
-        let sessions: Vec<Session> = sqlx::query_as(&query).fetch_all(pool).await.map_err(|e| {
-            error!("Failed to list sessions: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
-        })?;
-
-        let total: (i64,) = sqlx::query_as(&count_query)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to count sessions: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })?;
+                let total = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM context_sessions")
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to count sessions: {}", e);
+                        AppError::Internal(format!("Database error: {}", e))
+                    })?;
+                (sessions, total)
+            }
+        };
 
         Ok(SessionListResponse {
             sessions,

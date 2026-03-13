@@ -5,8 +5,8 @@ use sqlx::FromRow;
 use tracing::{error, info};
 use ulid::Ulid;
 
-use crate::AppError;
 use crate::db::pool;
+use crate::AppError;
 
 /// 多模态记忆仓库
 pub struct MMRepository;
@@ -186,7 +186,10 @@ impl MMRepository {
     }
 
     /// 根据会话ID获取多模态记忆条目
-    pub async fn get_entries_by_session(session_id: &str, limit: Option<i32>) -> Result<Vec<MultimodalEntry>, AppError> {
+    pub async fn get_entries_by_session(
+        session_id: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<MultimodalEntry>, AppError> {
         let pool = pool();
 
         let entries = sqlx::query_as::<_, MultimodalEntry>(
@@ -213,12 +216,19 @@ impl MMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Retrieved {} multimodal entries for session: session_id={}", entries.len(), session_id);
+        info!(
+            "Retrieved {} multimodal entries for session: session_id={}",
+            entries.len(),
+            session_id
+        );
         Ok(entries)
     }
 
     /// 根据模态类型获取多模态记忆条目
-    pub async fn get_entries_by_modality(modality_type: &str, limit: Option<i32>) -> Result<Vec<MultimodalEntry>, AppError> {
+    pub async fn get_entries_by_modality(
+        modality_type: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<MultimodalEntry>, AppError> {
         let pool = pool();
 
         let entries = sqlx::query_as::<_, MultimodalEntry>(
@@ -245,7 +255,11 @@ impl MMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Retrieved {} multimodal entries for modality: modality_type={}", entries.len(), modality_type);
+        info!(
+            "Retrieved {} multimodal entries for modality: modality_type={}",
+            entries.len(),
+            modality_type
+        );
         Ok(entries)
     }
 
@@ -288,7 +302,10 @@ impl MMRepository {
     }
 
     /// 获取相关联的多模态记忆条目
-    pub async fn get_related_entries(entry_id: &str, limit: Option<i32>) -> Result<Vec<(MultimodalEntry, ModalityRelation)>, AppError> {
+    pub async fn get_related_entries(
+        entry_id: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<(MultimodalEntry, ModalityRelation)>, AppError> {
         let pool = pool();
 
         let relations = sqlx::query_as::<_, ModalityRelation>(
@@ -325,7 +342,11 @@ impl MMRepository {
             }
         }
 
-        info!("Retrieved {} related multimodal entries: entry_id={}", result.len(), entry_id);
+        info!(
+            "Retrieved {} related multimodal entries: entry_id={}",
+            result.len(),
+            entry_id
+        );
         Ok(result)
     }
 
@@ -352,28 +373,26 @@ impl MMRepository {
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
 
-        let mut query = String::from(
-            "SELECT entry_id, session_id, source_id, modality_type, modality_count,
-                    title, description, content_metadata, text_content, text_embedding,
-                    image_url, image_embedding, image_features,
-                    audio_url, audio_embedding, audio_transcript, audio_features,
-                    video_url, video_embedding, video_transcript, video_features,
-                    cross_modal_alignment, unified_embedding,
-                    created_at::text as created_at, updated_at::text as updated_at,
-                    quality_score, modality_consistency, access_count, success_count, status
-             FROM multimodal_entries WHERE status = 'active'"
-        );
-
-        let mut count_query = String::from("SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active'");
-
-        if let Some(mt) = modality_type {
-            query.push_str(&format!(" AND modality_type = '{}'", mt));
-            count_query.push_str(&format!(" AND modality_type = '{}'", mt));
-        }
-
-        query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
-
-        let entries: Vec<MultimodalEntry> = sqlx::query_as(&query)
+        let (entries, total): (Vec<MultimodalEntry>, (i64,)) = if let Some(mt) = modality_type {
+            let entries = sqlx::query_as::<_, MultimodalEntry>(
+                r#"
+                SELECT entry_id, session_id, source_id, modality_type, modality_count,
+                       title, description, content_metadata, text_content, text_embedding,
+                       image_url, image_embedding, image_features,
+                       audio_url, audio_embedding, audio_transcript, audio_features,
+                       video_url, video_embedding, video_transcript, video_features,
+                       cross_modal_alignment, unified_embedding,
+                       created_at::text as created_at, updated_at::text as updated_at,
+                       quality_score, modality_consistency, access_count, success_count, status
+                FROM multimodal_entries
+                WHERE status = 'active' AND modality_type = $1
+                ORDER BY created_at DESC
+                LIMIT $2 OFFSET $3
+                "#,
+            )
+            .bind(mt)
+            .bind(limit)
+            .bind(offset)
             .fetch_all(pool)
             .await
             .map_err(|e| {
@@ -381,13 +400,54 @@ impl MMRepository {
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-        let total: (i64,) = sqlx::query_as(&count_query)
+            let total = sqlx::query_as::<_, (i64,)>(
+                "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active' AND modality_type = $1",
+            )
+            .bind(mt)
             .fetch_one(pool)
             .await
             .map_err(|e| {
                 error!("Failed to count multimodal entries: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
+            (entries, total)
+        } else {
+            let entries = sqlx::query_as::<_, MultimodalEntry>(
+                r#"
+                SELECT entry_id, session_id, source_id, modality_type, modality_count,
+                       title, description, content_metadata, text_content, text_embedding,
+                       image_url, image_embedding, image_features,
+                       audio_url, audio_embedding, audio_transcript, audio_features,
+                       video_url, video_embedding, video_transcript, video_features,
+                       cross_modal_alignment, unified_embedding,
+                       created_at::text as created_at, updated_at::text as updated_at,
+                       quality_score, modality_consistency, access_count, success_count, status
+                FROM multimodal_entries
+                WHERE status = 'active'
+                ORDER BY created_at DESC
+                LIMIT $1 OFFSET $2
+                "#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to list multimodal entries: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+            let total = sqlx::query_as::<_, (i64,)>(
+                "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active'",
+            )
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count multimodal entries: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+            (entries, total)
+        };
 
         Ok(MultimodalEntryListResponse {
             entries,

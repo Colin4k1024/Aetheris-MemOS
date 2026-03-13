@@ -75,7 +75,7 @@ The existing **scheduler** composes the analyzer, predictor, monitor, and weight
 The decision pipeline can be inspected without persisting:
 
 - **Endpoint**: `POST /api/v1/memory/adaptive/trace`
-- **Body**: Same as `POST /api/v1/memory/adaptive` (`task_context`, `resource_constraints`, `preferences`).
+- **Body**: Same as `POST /api/v1/memory/adaptive/select` (`task_context`, `resource_constraints`, `preferences`).
 - **Response**: Full trace — `task_id`, `analyzer` (characteristics, memory_strategy, confidence), `resource_status`, `initial_memory_config`, `predictor` (prediction, synergy, decay, breakdown), `cost_benefit_ratio`, `weight_adjustment` (adjusted_weights, adjustment_reasons), `final_result`.
 
 Use this to debug or visualize why a given memory configuration was chosen. The frontend **Memory Decision Trace** page (route: `/memory-decision-trace`) calls this API and shows the pipeline step by step.
