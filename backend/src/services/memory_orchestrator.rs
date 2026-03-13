@@ -37,6 +37,7 @@ pub async fn select_memory(
     preferences: &TaskPreferences,
     options: SelectionOptions,
 ) -> Result<SelectionOutcome, AppError> {
+    // Explain and dry-run flows are trace-first by design.
     if options.dry_run || options.explain {
         let trace = scheduler
             .adaptive_memory_selection_trace(task_context, resource_constraints, preferences)
@@ -67,9 +68,19 @@ pub async fn select_memory(
         });
     }
 
+    // Keep the normal selection path behavior unchanged (including its persistence side-effects).
     let result = scheduler
         .adaptive_memory_selection(task_context, resource_constraints, preferences)
         .await?;
+
+    // When persist_trace=true (and not dry_run), also persist a decision trace even if explain=false.
+    // This aligns API semantics without forcing trace payload in response.
+    if options.persist_trace {
+        let trace = scheduler
+            .adaptive_memory_selection_trace(task_context, resource_constraints, preferences)
+            .await?;
+        persist_trace_record(&trace).await?;
+    }
 
     let what_if_result = if let Some(ref w) = options.what_if_constraints {
         scheduler
