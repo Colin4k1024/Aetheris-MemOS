@@ -1,5 +1,5 @@
-use axum::Json;
 use axum::extract::{Path, Query};
+use axum::Json;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use crate::db::{
 };
 use crate::models::*;
 use crate::services::*;
-use crate::{JsonResult, json_ok};
+use crate::{json_ok, JsonResult};
 
 static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> =
     Lazy::new(|| Arc::new(AdaptiveMemoryScheduler::new()));
