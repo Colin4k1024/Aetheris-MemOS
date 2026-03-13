@@ -1,7 +1,7 @@
 use crate::db::memory::MemoryConfigRepository;
 use crate::models::*;
-use crate::services::*;
 use crate::services::agent::{MemoryAgent, TaskContextBundle};
+use crate::services::*;
 use tracing::{debug, error, info, instrument, warn};
 
 pub struct AdaptiveMemoryScheduler {
@@ -227,7 +227,10 @@ Agent ID: {}",
                                     error = %error_msg,
                                     "存储长期记忆失败，尝试重试..."
                                 );
-                                tokio::time::sleep(tokio::time::Duration::from_secs(2u64.pow(attempt as u32))).await;
+                                tokio::time::sleep(tokio::time::Duration::from_secs(
+                                    2u64.pow(attempt as u32),
+                                ))
+                                .await;
                             }
                         }
                     }
@@ -299,7 +302,10 @@ Agent ID: {}",
                 .collect(),
             memory_weights: MemoryWeights {
                 stm: 1.0,
-                ltm: if memory_strategy.secondary_memory.contains(&"ltm".to_string()) {
+                ltm: if memory_strategy
+                    .secondary_memory
+                    .contains(&"ltm".to_string())
+                {
                     0.8
                 } else {
                     0.0
@@ -321,10 +327,9 @@ Agent ID: {}",
 
         let (performance_prediction, synergy_factor, decay_factor, performance_breakdown) =
             self.predictor.predict_memory_performance(&memory_config);
-        let cost_benefit_ratio = self.monitor.calculate_cost_benefit_ratio(
-            &performance_prediction,
-            &resource_status.current_status,
-        );
+        let cost_benefit_ratio = self
+            .monitor
+            .calculate_cost_benefit_ratio(&performance_prediction, &resource_status.current_status);
 
         let initial_memory_config = memory_config.clone();
         let (adjusted_weights, adjustment_reasons) = self
@@ -422,15 +427,24 @@ impl MemoryAgent for AdaptiveMemoryScheduler {
     type Decision = ();
     type Action = MemorySelectionResult;
 
-    fn observe(&self, _context: &Self::Context) -> impl std::future::Future<Output = Self::Observation> + Send {
+    fn observe(
+        &self,
+        _context: &Self::Context,
+    ) -> impl std::future::Future<Output = Self::Observation> + Send {
         std::future::ready(())
     }
 
-    fn decide(&self, _observation: &Self::Observation) -> impl std::future::Future<Output = Self::Decision> + Send {
+    fn decide(
+        &self,
+        _observation: &Self::Observation,
+    ) -> impl std::future::Future<Output = Self::Decision> + Send {
         std::future::ready(())
     }
 
-    fn act(&self, _decision: &Self::Decision) -> impl std::future::Future<Output = Result<Self::Action, crate::AppError>> + Send {
+    fn act(
+        &self,
+        _decision: &Self::Decision,
+    ) -> impl std::future::Future<Output = Result<Self::Action, crate::AppError>> + Send {
         // Scheduler runs the full pipeline in adaptive_memory_selection(); use that with TaskContextBundle.
         std::future::ready(Err(crate::AppError::Internal(
             "SchedulerAgent: use adaptive_memory_selection(task_context, resource_constraints, preferences) instead of act()".into(),
@@ -438,7 +452,7 @@ impl MemoryAgent for AdaptiveMemoryScheduler {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct MemorySelectionResult {
     #[serde(rename = "memory_config")]
     pub memory_config: MemoryConfig,
@@ -457,7 +471,7 @@ pub struct MemorySelectionResult {
 }
 
 /// Full decision pipeline trace (no DB persist or LTM store).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct DecisionTrace {
     #[serde(rename = "task_id")]
     pub task_id: String,
@@ -480,7 +494,7 @@ pub struct DecisionTrace {
     pub memory_contributions: Vec<MemoryTypeContribution>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct MemoryTypeContribution {
     #[serde(rename = "memory_type")]
     pub memory_type: String,
@@ -490,7 +504,7 @@ pub struct MemoryTypeContribution {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct AnalyzerTraceStep {
     #[serde(rename = "task_characteristics")]
     pub task_characteristics: TaskCharacteristics,
@@ -500,7 +514,7 @@ pub struct AnalyzerTraceStep {
     pub confidence_score: f64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct PredictorTraceStep {
     #[serde(rename = "performance_prediction")]
     pub performance_prediction: PerformancePrediction,
@@ -512,7 +526,7 @@ pub struct PredictorTraceStep {
     pub performance_breakdown: PerformanceBreakdown,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct WeightAdjustmentTraceStep {
     #[serde(rename = "adjusted_weights")]
     pub adjusted_weights: MemoryWeights,
@@ -523,11 +537,13 @@ pub struct WeightAdjustmentTraceStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{TaskContext, TaskType, TemporalScope, ReasoningDepth, ResourceConstraints, TaskPreferences};
+    use crate::models::{
+        ReasoningDepth, ResourceConstraints, TaskContext, TaskPreferences, TaskType, TemporalScope,
+    };
 
     #[tokio::test]
     async fn test_scheduler_creation() {
-        let scheduler = AdaptiveMemoryScheduler::new();
+        let _scheduler = AdaptiveMemoryScheduler::new();
         assert!(true);
     }
 

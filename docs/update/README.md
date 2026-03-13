@@ -4,16 +4,16 @@ This folder contains **v0.3 design and architecture review documents** produced 
 
 ## What’s in here
 
-| File | Role |
-|------|------|
-| **update.md** | Gap review: Agent trait, Strategy plugin, Decision Trace, Storage, Observability, Docs — with “未达标/半达标” and a short 必改 list. |
-| **all.md** | File-level alignment: Router/Service/Agent boundaries and “怎么改” suggestions. |
-| **artic.md** | Draft v0.3 ARCHITECTURE (layer diagram, layer responsibilities). |
-| **plan1.md** | Agent Runtime sketch (agents/, decision/, strategies/; Agent trait). |
-| **plan2.md** | Strategy plugin design (strategies/weight/, trait, registry idea). |
-| **plan3.md** | v0.3 checklist (core/, agents/, strategies/, Decision Trace table + API). |
-| **plan4.md** | Target backend directory layout. |
-| **v3_rodmap.md** | v0.3 Roadmap text (theme and bullets). |
+| File             | Role                                                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **update.md**    | Gap review: Agent trait, Strategy plugin, Decision Trace, Storage, Observability, Docs — with “未达标/半达标” and a short 必改 list. |
+| **all.md**       | File-level alignment: Router/Service/Agent boundaries and “怎么改” suggestions.                                                      |
+| **artic.md**     | Draft v0.3 ARCHITECTURE (layer diagram, layer responsibilities).                                                                     |
+| **plan1.md**     | Agent Runtime sketch (agents/, decision/, strategies/; Agent trait).                                                                 |
+| **plan2.md**     | Strategy plugin design (strategies/weight/, trait, registry idea).                                                                   |
+| **plan3.md**     | v0.3 checklist (core/, agents/, strategies/, Decision Trace table + API).                                                            |
+| **plan4.md**     | Target backend directory layout.                                                                                                     |
+| **v3_rodmap.md** | v0.3 Roadmap text (theme and bullets).                                                                                               |
 
 ## Status vs current codebase
 
@@ -23,7 +23,7 @@ Part of what these docs called “未达标” has **already been implemented** 
 - **Done:** Strategy plugin system (`WeightStrategy` in `backend/src/services/weight_strategy.rs`; MarginalBenefit, LinearDecay, SynergyAware; weight_adjuster composes strategies).
 - **Done:** Decision Trace API + UI (`POST /api/v1/memory/adaptive/trace` and Memory Decision Trace page); no persistence yet.
 - **Done:** Storage adapter declaration (SQLite default; `db/adapters` and docs).
-- **Done:** ARCHITECTURE, ROADMAP, USE_CASES, why-salvo-vs-axum; CONTRIBUTING and EXTENSION_GUIDE.
+- **Done:** ARCHITECTURE, ROADMAP, USE_CASES, axum-migration-notes; CONTRIBUTING and EXTENSION_GUIDE.
 
 **Still open (from these docs):**
 

@@ -32,7 +32,8 @@
       "Bash(python3 -m json.tool:*)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\([k for k in d[''''paths''''].keys\\(\\) if ''''ltm'''' in k]\\)\")",
       "Bash(python3 -c:*)",
-      "Bash(docker start:*)"
+      "Bash(docker start:*)",
+      "Bash(pgrep:*)"
     ]
   }
 }

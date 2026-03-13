@@ -1,13 +1,14 @@
 //! Knowledge Graph API Routes
 
-use salvo::oapi::extract::*;
-use salvo::prelude::*;
+use axum::Json;
+use axum::extract::{Path, Query};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::db::kg::KGRepository;
 use crate::db::pool;
-use crate::{json_ok, JsonResult};
+use crate::{JsonResult, json_ok};
 
 /// 创建实体请求
 #[derive(Deserialize, ToSchema, Validate)]
@@ -87,11 +88,13 @@ pub struct RelationInfo {
 }
 
 /// 创建实体
-#[endpoint]
 pub async fn create_entity(
-    body: JsonBody<CreateEntityRequest>,
+    Json(body): Json<CreateEntityRequest>,
 ) -> JsonResult<CreateEntityResponse> {
-    let aliases_refs: Option<Vec<&str>> = body.aliases.as_deref().map(|v| v.iter().map(|s| s.as_str()).collect());
+    let aliases_refs: Option<Vec<&str>> = body
+        .aliases
+        .as_deref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect());
     let entity_id = KGRepository::create_entity(
         &body.entity_name,
         &body.entity_type,
@@ -109,9 +112,8 @@ pub async fn create_entity(
 }
 
 /// 创建关系
-#[endpoint]
 pub async fn create_relation(
-    body: JsonBody<CreateRelationRequest>,
+    Json(body): Json<CreateRelationRequest>,
 ) -> JsonResult<CreateRelationResponse> {
     let relation_id = KGRepository::create_relation(
         &body.source_entity_id,
@@ -128,10 +130,7 @@ pub async fn create_relation(
 }
 
 /// 根据名称获取实体
-#[endpoint]
-pub async fn get_entity_by_name(
-    name: PathParam<String>,
-) -> JsonResult<Option<EntityInfo>> {
+pub async fn get_entity_by_name(Path(name): Path<String>) -> JsonResult<Option<EntityInfo>> {
     let entity = KGRepository::get_entity_by_name(&name, None)
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get entity: {}", e)))?;
@@ -147,12 +146,11 @@ pub async fn get_entity_by_name(
 }
 
 /// 获取实体的相关实体
-#[endpoint]
 pub async fn get_related_entities(
-    entity_id: PathParam<String>,
-    limit: QueryParam<usize, false>,
+    Path(entity_id): Path<String>,
+    Query(query): Query<RelatedEntitiesQuery>,
 ) -> JsonResult<Vec<RelationInfo>> {
-    let limit = limit.unwrap_or(10) as i32;
+    let limit = query.limit.unwrap_or(10) as i32;
 
     let relations = KGRepository::get_related_entities(&entity_id, None, Some(limit))
         .await
@@ -174,18 +172,13 @@ pub async fn get_related_entities(
 }
 
 /// 根据实体搜索知识
-#[endpoint]
 pub async fn search_by_entity(
-    body: JsonBody<SearchEntitiesRequest>,
+    Json(body): Json<SearchEntitiesRequest>,
 ) -> JsonResult<Vec<EntityInfo>> {
     let pool = pool();
-    let entities = KGRepository::search_knowledge_by_entity(
-        pool,
-        &body.query,
-        Some(body.limit),
-    )
-    .await
-    .map_err(|e| crate::AppError::Internal(format!("Failed to search: {}", e)))?;
+    let entities = KGRepository::search_knowledge_by_entity(pool, &body.query, Some(body.limit))
+        .await
+        .map_err(|e| crate::AppError::Internal(format!("Failed to search: {}", e)))?;
 
     let infos: Vec<EntityInfo> = entities
         .into_iter()
@@ -210,24 +203,19 @@ pub struct EntityListResponse {
 }
 
 /// 获取实体列表
-#[endpoint]
 pub async fn list_entities(
-    entity_type: QueryParam<String, false>,
-    limit: QueryParam<usize, false>,
-    offset: QueryParam<usize, false>,
+    Query(query): Query<ListEntitiesQuery>,
 ) -> JsonResult<EntityListResponse> {
-    let limit = limit.unwrap_or(20) as i32;
-    let offset = offset.unwrap_or(0) as i32;
+    let limit = query.limit.unwrap_or(20) as i32;
+    let offset = query.offset.unwrap_or(0) as i32;
 
-    let response = KGRepository::list_entities(
-        entity_type.as_deref(),
-        Some(limit),
-        Some(offset),
-    )
-    .await
-    .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
+    let response =
+        KGRepository::list_entities(query.entity_type.as_deref(), Some(limit), Some(offset))
+            .await
+            .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
 
-    let entities: Vec<EntityInfo> = response.entities
+    let entities: Vec<EntityInfo> = response
+        .entities
         .into_iter()
         .map(|e| EntityInfo {
             entity_id: e.entity_id,
@@ -243,4 +231,16 @@ pub async fn list_entities(
         limit,
         offset,
     })
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct RelatedEntitiesQuery {
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ListEntitiesQuery {
+    pub entity_type: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }

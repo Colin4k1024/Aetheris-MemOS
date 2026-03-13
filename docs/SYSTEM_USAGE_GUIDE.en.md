@@ -10,7 +10,7 @@ The Adaptive Memory System is an intelligent memory management system designed t
 
 The system uses a frontend-backend separated architecture:
 
-- **Backend**: Built with Rust + Salvo framework, providing RESTful API services
+- **Backend**: Built with Rust + Axum framework, providing RESTful API services
 - **Frontend**: Built with React + Ant Design Pro, providing visual operation interface
 - **Database**:
   - Primary Data: SQLite (extensible to PostgreSQL)
@@ -124,15 +124,15 @@ The frontend configuration file is located at `frontend/ant-design-pro-template/
 export default {
   // Development Environment API Address
   dev: {
-    baseURL: 'http://127.0.0.1:8008',
+    baseURL: "http://127.0.0.1:8008",
   },
   // Production Environment API Address
   test: {
-    baseURL: 'https://api.example.com',
+    baseURL: "https://api.example.com",
   },
   // Staging Environment API Address
   pre: {
-    baseURL: 'https://api.pre.example.com',
+    baseURL: "https://api.pre.example.com",
   },
 };
 ```
@@ -142,11 +142,13 @@ export default {
 ### 5.1 Backend Startup
 
 1. Navigate to the backend directory:
+
    ```bash
    cd backend
    ```
 
 2. Start the development server:
+
    ```bash
    cargo run
    ```
@@ -160,16 +162,19 @@ export default {
 ### 5.2 Frontend Startup
 
 1. Navigate to the frontend directory:
+
    ```bash
    cd frontend/ant-design-pro-template
    ```
 
 2. Install dependencies:
+
    ```bash
    npm install
    ```
 
 3. Start the development server:
+
    ```bash
    npm run dev
    ```

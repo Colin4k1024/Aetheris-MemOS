@@ -7,7 +7,7 @@
 
 **Adaptive Memory Management System for Agent & LLM Workloads**
 
-Built on adaptive memory management algorithm design, featuring a Rust (Salvo) backend API service and React (Ant Design Pro) frontend management interface. This project is open-sourced under MIT license. Contributions and forks are welcome.
+Built on adaptive memory management algorithm design, featuring a Rust (Axum) backend API service and React (Ant Design Pro) frontend management interface. This project is open-sourced under MIT license. Contributions and forks are welcome.
 
 - **License**: [LICENSE](LICENSE) (MIT)
 - **Security**: For vulnerability reporting, see [SECURITY.md](SECURITY.md)
@@ -31,7 +31,7 @@ Built on adaptive memory management algorithm design, featuring a Rust (Salvo) b
 
 ```
 adaptive-memory-system/
-├── backend/                         # Rust + Salvo backend service
+├── backend/                         # Rust + Axum backend service
 │   ├── src/
 │   │   ├── db/                    # Database operations
 │   │   │   ├── memory.rs           # Memory config repository
@@ -86,67 +86,75 @@ adaptive-memory-system/
 ## Tech Stack
 
 ### Backend
-| Component | Technology |
-|-----------|------------|
-| Framework | Salvo 0.84 |
-| Language | Rust 1.89+ |
-| Runtime | Tokio |
-| Database | PostgreSQL, Neo4j, Qdrant |
-| Serialization | Serde |
-| Logging | Tracing |
-| Authentication | JWT |
-| API Docs | OpenAPI |
+
+| Component      | Technology                |
+| -------------- | ------------------------- |
+| Framework      | Axum                      |
+| Language       | Rust 1.89+                |
+| Runtime        | Tokio                     |
+| Database       | PostgreSQL, Neo4j, Qdrant |
+| Serialization  | Serde                     |
+| Logging        | Tracing                   |
+| Authentication | JWT                       |
+| API Docs       | OpenAPI                   |
 
 ### Frontend
-| Component | Technology |
-|-----------|------------|
-| Framework | React 19+ |
+
+| Component  | Technology         |
+| ---------- | ------------------ |
+| Framework  | React 19+          |
 | UI Library | Ant Design Pro 6.0 |
-| Charts | @ant-design/charts |
-| Build Tool | Umi 4 |
-| State | Umi Max |
+| Charts     | @ant-design/charts |
+| Build Tool | Umi 4              |
+| State      | Umi Max            |
 
 ## Core Features
 
 ### 1. Four-Layer Memory Architecture
 
-| Layer | Description | Storage |
-|-------|-------------|---------|
-| **STM** | Short-Term Memory | In-Memory HashMap |
-| **LTM** | Long-Term Memory | PostgreSQL + Qdrant |
-| **KG** | Knowledge Graph | PostgreSQL / Neo4j |
-| **MM** | Multimodal Memory | PostgreSQL + Qdrant |
+| Layer   | Description       | Storage             |
+| ------- | ----------------- | ------------------- |
+| **STM** | Short-Term Memory | In-Memory HashMap   |
+| **LTM** | Long-Term Memory  | PostgreSQL + Qdrant |
+| **KG**  | Knowledge Graph   | PostgreSQL / Neo4j  |
+| **MM**  | Multimodal Memory | PostgreSQL + Qdrant |
 
 ### 2. Adaptive Memory Scheduling
+
 - Automatically selects optimal memory configuration based on task characteristics
 - 10-step decision process: Analysis → Prediction → Weight Adjustment → Selection
 - Dynamic weight adjustment mechanism
 - Decision trace for explainability
 
 ### 3. Task Characteristic Analysis
+
 - Complexity assessment
 - Modality requirement detection
 - Reasoning depth evaluation
 - Context dependency analysis
 
 ### 4. Performance Prediction
+
 - Research-based performance baselines
 - Diminishing marginal returns compensation
 - Synergy calculation between memory types
 - Resource cost estimation
 
 ### 5. Resource Monitoring
+
 - Real-time CPU, memory, storage monitoring
 - Cost-benefit analysis
 - Auto-generated alerts
 - Optimization suggestions
 
 ### 6. NER (Named Entity Recognition)
+
 - LLM-based entity extraction
 - Entity typing (PERSON, ORG, LOC, EVENT, etc.)
 - Relation extraction
 
 ### 7. Security
+
 - JWT authentication
 - Rate limiting (sliding window algorithm)
 - Input validation
@@ -160,7 +168,7 @@ adaptive-memory-system/
 └─────────────────────────┬───────────────────────────────────┘
                           │ HTTP/HTTPS
 ┌─────────────────────────▼───────────────────────────────────┐
-│                    Backend (Salvo)                           │
+│                    Backend (Axum)                            │
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
 │  │   Routers    │  │   Services   │  │   Kernel      │  │
 │  │  API Layer   │  │  Business    │  │  Traits       │  │
@@ -184,13 +192,13 @@ adaptive-memory-system/
 
 ### Environment Requirements
 
-| Component | Version |
-|----------|---------|
-| Rust | 1.89+ |
-| Node.js | 20+ |
-| PostgreSQL | 14+ (optional) |
-| Qdrant | 1.7+ (optional) |
-| Neo4j | 5.x (optional) |
+| Component  | Version         |
+| ---------- | --------------- |
+| Rust       | 1.89+           |
+| Node.js    | 20+             |
+| PostgreSQL | 14+ (optional)  |
+| Qdrant     | 1.7+ (optional) |
+| Neo4j      | 5.x (optional)  |
 
 ### Backend
 
@@ -237,6 +245,7 @@ docker build -t adaptive-memory-frontend ./frontend
 ## API Documentation
 
 ### Base URL
+
 ```
 http://127.0.0.1:8008
 ```
@@ -259,21 +268,21 @@ POST /api/login
 
 ### Core Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/memory/adaptive` | Adaptive memory selection |
-| GET | `/api/v1/memory/search/ltm` | List LTM entries |
-| POST | `/api/v1/memory/search/ltm` | Search LTM |
-| GET | `/api/kg/entities` | List KG entities |
-| GET | `/api/mm/list` | List MM entries |
-| GET | `/api/v1/memory/storage/sessions` | List STM sessions |
-| POST | `/api/v1/memory/analyzer/task-characteristics` | Task analysis |
-| POST | `/api/v1/memory/predictor/performance` | Performance prediction |
-| GET | `/api/v1/memory/monitor/resources` | Resource monitoring |
-| POST | `/api/v1/memory/storage/ltm` | Store LTM |
-| POST | `/api/v1/memory/search/hybrid` | Hybrid search |
-| POST | `/api/v1/memory/kg/entities` | Create entity |
-| POST | `/api/v1/memory/mm/store` | Store multimodal |
+| Method | Endpoint                                       | Description               |
+| ------ | ---------------------------------------------- | ------------------------- |
+| POST   | `/api/v1/memory/adaptive`                      | Adaptive memory selection |
+| GET    | `/api/v1/memory/search/ltm`                    | List LTM entries          |
+| POST   | `/api/v1/memory/search/ltm`                    | Search LTM                |
+| GET    | `/api/kg/entities`                             | List KG entities          |
+| GET    | `/api/mm/list`                                 | List MM entries           |
+| GET    | `/api/v1/memory/storage/sessions`              | List STM sessions         |
+| POST   | `/api/v1/memory/analyzer/task-characteristics` | Task analysis             |
+| POST   | `/api/v1/memory/predictor/performance`         | Performance prediction    |
+| GET    | `/api/v1/memory/monitor/resources`             | Resource monitoring       |
+| POST   | `/api/v1/memory/storage/ltm`                   | Store LTM                 |
+| POST   | `/api/v1/memory/search/hybrid`                 | Hybrid search             |
+| POST   | `/api/v1/memory/kg/entities`                   | Create entity             |
+| POST   | `/api/v1/memory/mm/store`                      | Store multimodal          |
 
 See [docs/API_ENDPOINTS.md](docs/API_ENDPOINTS.md) for complete API documentation.
 
@@ -332,14 +341,14 @@ docker-compose -f docker-compose.prod.yml up -d
 
 ### Backend Configuration
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `listen_addr` | Server address | `127.0.0.1:8008` |
-| `db.url` | Database URL | SQLite |
-| `jwt.secret` | JWT secret | - |
-| `jwt.expiry` | Token expiry (seconds) | 3600 |
-| `llm.base_url` | Ollama API URL | `http://localhost:11434` |
-| `llm.model` | LLM model | `llama3` |
+| Parameter      | Description            | Default                  |
+| -------------- | ---------------------- | ------------------------ |
+| `listen_addr`  | Server address         | `127.0.0.1:8008`         |
+| `db.url`       | Database URL           | SQLite                   |
+| `jwt.secret`   | JWT secret             | -                        |
+| `jwt.expiry`   | Token expiry (seconds) | 3600                     |
+| `llm.base_url` | Ollama API URL         | `http://localhost:11434` |
+| `llm.model`    | LLM model              | `llama3`                 |
 
 ### Rate Limiting
 
@@ -376,6 +385,7 @@ npm run lint
 ### CI/CD
 
 GitHub Actions workflows are in `.github/workflows/`:
+
 - `ci.yml` - Full CI pipeline
 - `backend-ci.yml` - Backend-specific CI
 - `frontend-ci.yml` - Frontend-specific CI

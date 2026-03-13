@@ -1,5 +1,5 @@
-use salvo::oapi::ToSchema;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ResourceStatus {
@@ -46,4 +46,3 @@ pub struct ResourceRequirements {
     #[serde(rename = "estimated_response_time_ms")]
     pub estimated_response_time_ms: u64,
 }
-

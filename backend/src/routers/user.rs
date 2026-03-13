@@ -1,13 +1,16 @@
+use crate::hoops::jwt;
+use axum::Json;
+use axum::extract::{Path, Query};
+use axum::response::{Html, IntoResponse, Redirect};
+use axum_extra::extract::cookie::CookieJar;
 use rinja::Template;
-use salvo::oapi::extract::*;
-use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
+use utoipa::ToSchema;
 use validator::Validate;
-use crate::hoops::jwt;
 
 use crate::models::SafeUser;
-use crate::{db, empty_ok, json_ok, utils, AppError, AppResult, EmptyResult, JsonResult};
+use crate::{AppError, AppResult, EmptyResult, JsonResult, db, empty_ok, json_ok, utils};
 
 #[derive(Template)]
 #[template(path = "user_list_page.html")]
@@ -17,13 +20,15 @@ pub struct UserListPageTemplate {}
 #[template(path = "user_list_frag.html")]
 pub struct UserListFragTemplate {}
 
-#[handler]
-pub async fn list_page(req: &mut Request, res: &mut Response) -> AppResult<()> {
-    let is_fragment = req.headers().get("X-Fragment-Header");
-    if let Some(cookie) = res.cookies().get("jwt_token") {
+pub async fn list_page(
+    headers: axum::http::HeaderMap,
+    jar: CookieJar,
+) -> AppResult<impl IntoResponse> {
+    let is_fragment = headers.get("X-Fragment-Header");
+    if let Some(cookie) = jar.get("jwt_token") {
         let token = cookie.value().to_string();
         if !jwt::decode_token(&token) {
-            res.render(Redirect::other("/login"));
+            return Ok(Redirect::to("/login").into_response());
         }
     }
     match is_fragment {
@@ -32,17 +37,16 @@ pub async fn list_page(req: &mut Request, res: &mut Response) -> AppResult<()> {
             let html = hello_tmpl
                 .render()
                 .map_err(|e| AppError::Internal(e.to_string()))?;
-            res.render(Text::Html(html));
+            Ok(Html(html).into_response())
         }
         None => {
             let hello_tmpl = UserListPageTemplate {};
             let html = hello_tmpl
                 .render()
                 .map_err(|e| AppError::Internal(e.to_string()))?;
-            res.render(Text::Html(html));
+            Ok(Html(html).into_response())
         }
     }
-    Ok(())
 }
 
 #[derive(Deserialize, Debug, Validate, ToSchema, Default)]
@@ -52,9 +56,8 @@ pub struct CreateInData {
     #[validate(length(min = 6, message = "password length must be greater than 5"))]
     pub password: String,
 }
-#[endpoint(tags("users"))]
-pub async fn create_user(idata: JsonBody<CreateInData>) -> JsonResult<SafeUser> {
-    let CreateInData { username, password } = idata.into_inner();
+pub async fn create_user(Json(idata): Json<CreateInData>) -> JsonResult<SafeUser> {
+    let CreateInData { username, password } = idata;
     let id = Ulid::new().to_string();
     let password = utils::hash_password(&password)?;
     let conn = db::pool();
@@ -69,19 +72,17 @@ pub async fn create_user(idata: JsonBody<CreateInData>) -> JsonResult<SafeUser> 
 }
 
 #[derive(Deserialize, Debug, Validate, ToSchema)]
-struct UpdateInData {
+pub struct UpdateInData {
     #[validate(length(min = 5, message = "username length must be greater than 5"))]
     username: String,
     #[validate(length(min = 6, message = "password length must be greater than 5"))]
     password: String,
 }
-#[endpoint(tags("users"), parameters(("user_id", description = "user id")))]
 pub async fn update_user(
-    user_id: PathParam<String>,
-    idata: JsonBody<UpdateInData>,
+    Path(user_id): Path<String>,
+    Json(idata): Json<UpdateInData>,
 ) -> JsonResult<SafeUser> {
-    let user_id = user_id.into_inner();
-    let UpdateInData { username, password } = idata.into_inner();
+    let UpdateInData { username, password } = idata;
     let conn = db::pool();
     sqlx::query("UPDATE users SET username = $1, password = $2 WHERE id = $3")
         .bind(&username)
@@ -95,9 +96,7 @@ pub async fn update_user(
     })
 }
 
-#[endpoint(tags("users"))]
-pub async fn delete_user(user_id: PathParam<String>) -> EmptyResult {
-    let user_id = user_id.into_inner();
+pub async fn delete_user(Path(user_id): Path<String>) -> EmptyResult {
     let conn = db::pool();
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&user_id)
@@ -106,8 +105,7 @@ pub async fn delete_user(user_id: PathParam<String>) -> EmptyResult {
     empty_ok()
 }
 
-#[derive(Debug, Deserialize, Validate, Extractible, ToSchema)]
-#[salvo(extract(default_source(from = "query")))]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UserListQuery {
     pub username: Option<String>,
     #[serde(default = "default_page")]
@@ -116,8 +114,12 @@ pub struct UserListQuery {
     pub page_size: i64,
 }
 
-fn default_page() -> i64 { 1 }
-fn default_page_size() -> i64 { 10 }
+fn default_page() -> i64 {
+    1
+}
+fn default_page_size() -> i64 {
+    10
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct UserListResponse {
@@ -127,18 +129,17 @@ pub struct UserListResponse {
     pub page_size: i64,
 }
 
-#[endpoint(tags("users"))]
-pub async fn list_users(query: &mut Request) -> JsonResult<UserListResponse> {
+pub async fn list_users(Query(query): Query<UserListQuery>) -> JsonResult<UserListResponse> {
     let conn = db::pool();
-    let query: UserListQuery = query.extract().await?;
     let username_filter = query.username.clone().unwrap_or_default();
     let like_pattern = format!("%{}%", username_filter);
     let offset = (query.current_page - 1) * query.page_size;
-    
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM users WHERE username LIKE $1")
-        .bind(&like_pattern)
-        .fetch_one(conn)
-        .await?;
+
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM users WHERE username LIKE $1")
+            .bind(&like_pattern)
+            .fetch_one(conn)
+            .await?;
 
     let users = sqlx::query_as::<_, SafeUser>(
         "SELECT id, username FROM users WHERE username LIKE $1 LIMIT $2 OFFSET $3",
@@ -148,7 +149,7 @@ pub async fn list_users(query: &mut Request) -> JsonResult<UserListResponse> {
     .bind(offset)
     .fetch_all(conn)
     .await?;
-    
+
     json_ok(UserListResponse {
         data: users,
         total,

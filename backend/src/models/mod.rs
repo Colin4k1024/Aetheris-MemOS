@@ -1,21 +1,19 @@
-use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::*;
+use utoipa::ToSchema;
 
-pub mod task;
 pub mod memory;
 pub mod performance;
 pub mod resource;
+pub mod task;
 
-pub use task::*;
 pub use memory::*;
 pub use performance::*;
 pub use resource::*;
+pub use task::*;
 
-#[derive(FromRow, Serialize, Deserialize, Extractible, Debug)]
-#[salvo(extract(default_source(from = "body", parse = "json")))]
+#[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct User {
-    #[salvo(extract(source(from = "param")))]
     pub id: String,
     pub username: String,
     pub password: String,

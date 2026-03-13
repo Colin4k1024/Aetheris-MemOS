@@ -1,12 +1,13 @@
-use salvo::oapi::extract::*;
-use salvo::prelude::*;
+use axum::Json;
+use axum::extract::Path;
 use serde::{Deserialize, Serialize};
-use tracing::{info, error};
+use tracing::{error, info};
+use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::services::memory_search::{MemorySearchService, SearchResult};
 use crate::db::SessionMessage;
-use crate::{json_ok, JsonResult};
+use crate::services::memory_search::{MemorySearchService, SearchResult};
+use crate::{JsonResult, json_ok};
 
 /// 搜索短期记忆请求
 #[derive(Deserialize, ToSchema, Validate)]
@@ -80,11 +81,7 @@ pub struct SearchByEntityResponse {
 }
 
 /// 搜索短期记忆
-#[endpoint(tags("memory-search"))]
-pub async fn search_stm(
-    body: JsonBody<SearchSTMRequest>,
-) -> JsonResult<SearchSTMResponse> {
-    let req = body.into_inner();
+pub async fn search_stm(Json(req): Json<SearchSTMRequest>) -> JsonResult<SearchSTMResponse> {
     req.validate()?;
 
     info!(
@@ -104,14 +101,14 @@ pub async fn search_stm(
 }
 
 /// 搜索长期记忆（向量搜索）
-#[endpoint(tags("memory-search"))]
-pub async fn search_ltm(
-    body: JsonBody<SearchLTMRequest>,
-) -> JsonResult<SearchLTMResponse> {
-    let req = body.into_inner();
+pub async fn search_ltm(Json(req): Json<SearchLTMRequest>) -> JsonResult<SearchLTMResponse> {
     req.validate()?;
 
-    info!("Searching LTM: query_length={}, top_k={:?}", req.query.len(), req.top_k);
+    info!(
+        "Searching LTM: query_length={}, top_k={:?}",
+        req.query.len(),
+        req.top_k
+    );
 
     let results = MemorySearchService::search_ltm(
         &req.query,
@@ -125,11 +122,9 @@ pub async fn search_ltm(
 }
 
 /// 混合搜索
-#[endpoint(tags("memory-search"))]
 pub async fn hybrid_search(
-    body: JsonBody<HybridSearchRequest>,
+    Json(req): Json<HybridSearchRequest>,
 ) -> JsonResult<HybridSearchResponse> {
-    let req = body.into_inner();
     req.validate()?;
 
     info!(
@@ -152,29 +147,23 @@ pub async fn hybrid_search(
 }
 
 /// 基于实体搜索
-#[endpoint(tags("memory-search"))]
 pub async fn search_by_entity(
-    body: JsonBody<SearchByEntityRequest>,
+    Json(req): Json<SearchByEntityRequest>,
 ) -> JsonResult<SearchByEntityResponse> {
-    let req = body.into_inner();
     req.validate()?;
 
-    info!("Searching by entity: entity={}, limit={:?}", req.entity, req.limit);
+    info!(
+        "Searching by entity: entity={}, limit={:?}",
+        req.entity, req.limit
+    );
 
-    let results = MemorySearchService::search_by_entity(
-        &req.entity,
-        req.limit,
-    )
-    .await?;
+    let results = MemorySearchService::search_by_entity(&req.entity, req.limit).await?;
 
     json_ok(SearchByEntityResponse { results })
 }
 
 /// 获取所有知识条目列表
-#[endpoint(tags("memory-search"))]
-pub async fn list_ltm_entries(
-    _req: &mut Request,
-) -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
+pub async fn list_ltm_entries() -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
     // 调用数据库
     match crate::db::ltm::LTMRepository::list_entries(None, None, Some(20), Some(0)).await {
         Ok(result) => {
@@ -194,12 +183,9 @@ pub async fn list_ltm_entries(
 }
 
 /// 获取知识条目详情
-#[endpoint(tags("memory-search"))]
 pub async fn get_ltm_entry(
-    req: &mut Request,
+    Path(entry_id): Path<String>,
 ) -> JsonResult<crate::db::ltm::KnowledgeEntry> {
-    let entry_id: String = req.param("entry_id")
-        .ok_or_else(|| crate::AppError::BadRequest("entry_id parameter is required".to_string()))?;
     info!("Getting LTM entry: entry_id={}", entry_id);
 
     let entry = crate::db::ltm::LTMRepository::get_entry_by_id(&entry_id)
@@ -208,4 +194,3 @@ pub async fn get_ltm_entry(
 
     json_ok(entry)
 }
-

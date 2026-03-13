@@ -4,7 +4,7 @@
 
 **Adaptive Memory Management System for Agent & LLM Workloads**
 
-基于自适应记忆管理算法设计文档，使用 Rust (Salvo) 实现后端 API 服务，使用 React (Ant Design Pro) 实现前端管理界面。本项目采用 MIT 许可证对外开源，欢迎参与贡献与二次开发。
+基于自适应记忆管理算法设计文档，使用 Rust (Axum) 实现后端 API 服务，使用 React (Ant Design Pro) 实现前端管理界面。本项目采用 MIT 许可证对外开源，欢迎参与贡献与二次开发。
 
 - **许可证**: [LICENSE](LICENSE)（MIT）
 - **安全**: 漏洞反馈请参见 [SECURITY.md](SECURITY.md)
@@ -14,7 +14,7 @@
 
 ```
 adaptive-memory-system/
-├── backend/                    # Rust + Salvo 后端服务
+├── backend/                    # Rust + Axum 后端服务
 │   ├── src/
 │   │   ├── agent/             # 智能体模块
 │   │   ├── config/            # 配置模块
@@ -93,7 +93,8 @@ adaptive-memory-system/
 ## 技术栈
 
 ### 后端
-- **框架**: Salvo 0.84
+
+- **框架**: Axum
 - **语言**: Rust 1.89+
 - **数据库**: PostgreSQL (使用 SQLx)
 - **异步运行时**: Tokio
@@ -103,12 +104,14 @@ adaptive-memory-system/
 - **配置**: Figment
 
 ### 外部服务
+
 - **向量数据库**: Qdrant (长期记忆向量存储)
 - **图数据库**: Neo4j (知识图谱存储)
 - **LLM 服务**: Ollama (本地 LLM)
 - **嵌入模型**: Ollama nomic-embed-text
 
 ### 前端
+
 - **框架**: React 18+
 - **UI库**: Ant Design Pro 6.0
 - **图表库**: @ant-design/charts
@@ -118,35 +121,41 @@ adaptive-memory-system/
 ## 核心功能
 
 ### 1. 自适应记忆调度
+
 - 根据任务特征和资源约束自动选择最优记忆配置
 - 支持短期记忆(STM)、长期记忆(LTM)、知识图谱(KG)、多模态记忆(MM)
 - 动态权重调整机制
 - 决策追踪 (Decision Trace) - 完整的决策链路可追溯
 
 ### 2. 任务特征分析
+
 - 复杂度评估
 - 模态需求检测
 - 推理深度评估
 - 上下文依赖度分析
 
 ### 3. 性能预测
+
 - 基于研究数据的性能基准
 - 边际效益递减补偿
 - 协同效应计算
 - 资源成本估算
 
 ### 4. 资源监控
+
 - 实时资源使用监控
 - 成本效益分析
 - 资源优化建议
 - 告警机制
 
 ### 5. 权重调整历史
+
 - 记录所有权重调整操作
 - 性能影响追踪
 - 趋势分析
 
 ### 6. 记忆搜索与存储
+
 - 语义搜索 (基于向量嵌入)
 - 关键词搜索
 - 混合搜索
@@ -154,6 +163,7 @@ adaptive-memory-system/
 - 知识图谱查询
 
 ### 7. 多模态支持
+
 - 文本、图像、音频、视频记忆存储
 - 跨模态检索
 - 多模态嵌入生成
@@ -264,38 +274,46 @@ curl -X GET "http://127.0.0.1:8008/api/v1/memory/weights/history"
 系统使用 PostgreSQL 数据库，主要表结构包括：
 
 ### 记忆配置表 (memory_configurations)
+
 - 存储用户和智能体的记忆配置
 - 支持多种配置类型（default, custom, optimized）
 - 记录各记忆层的启用状态和参数
 
 ### 性能指标表 (performance_metrics)
+
 - 记录系统性能指标
 - 支持按时间范围查询
 - 提供聚合统计功能
 
 ### 权重调整历史表 (weight_adjustment_history)
+
 - 记录所有权重调整操作
 - 包含调整前后的权重对比
 - 记录性能影响和调整原因
 
 ### 决策追踪表 (decision_traces)
+
 - 记录完整的决策链路
 - 包含分析器、预测器、调度器的决策过程
 - 支持决策回溯和解释
 
 ### 短期记忆表 (context_sessions / context_messages)
+
 - 会话管理
 - 消息历史存储
 
 ### 长期记忆表 (knowledge_entries)
+
 - 向量嵌入存储 (Qdrant)
 - 元数据和标签
 
 ### 知识图谱表 (entities / relations)
+
 - Neo4j 图数据库存储
 - 实体和关系管理
 
 ### 多模态记忆表 (multimodal_entries)
+
 - 跨模态记忆存储
 - 图像、音频、视频元数据
 
@@ -353,6 +371,7 @@ docker compose logs -f
 ### 手动部署
 
 1. **启动 PostgreSQL**
+
    ```bash
    docker run -d --name postgres \
      -e POSTGRES_USER=memory \
@@ -362,6 +381,7 @@ docker compose logs -f
    ```
 
 2. **启动 Qdrant**
+
    ```bash
    docker run -d --name qdrant \
      -p 6333:6333 \
@@ -394,27 +414,32 @@ docker compose logs -f
 ## 故障排查
 
 ### 数据库连接失败
+
 - 检查 PostgreSQL 服务是否运行: `docker ps`
 - 确认数据库连接配置正确
 - 查看日志中的详细错误信息
 
 ### Qdrant 连接失败
+
 - 检查 Qdrant 服务是否运行: `docker ps`
 - 确认端口 6334 (gRPC) 已开放
 - 验证向量维度配置是否匹配
 
 ### Neo4j 连接失败 (知识图谱)
+
 - 检查 Neo4j 服务是否运行
 - 确认用户名和密码正确
 - 验证数据库配置
 
 ### API 请求失败
+
 - 检查后端服务是否运行: `curl http://127.0.0.1:8008/api/v1/memory/health`
 - 确认 API 路径和端口正确
 - 查看浏览器控制台和网络请求
 - 检查 JWT 认证是否过期
 
 ### 前端构建错误
+
 - 清除 node_modules 和重新安装: `rm -rf node_modules && npm install`
 - 检查 Node.js 版本是否符合要求 (20+)
 - 查看构建日志中的详细错误
@@ -438,7 +463,7 @@ docker compose logs -f
 - [使用场景 (USE_CASES)](docs/USE_CASES.md) — LLM Agent、多模态、成本敏感推理等
 - [贡献指南 (CONTRIBUTING)](CONTRIBUTING.md) — 构建、测试、PR、扩展点
 - [扩展指南 (EXTENSION_GUIDE)](docs/EXTENSION_GUIDE.md) — 新增 WeightStrategy / MemoryAgent
-- [Salvo vs Axum 选型说明](docs/why-salvo-vs-axum.md)
+- [Axum 迁移说明](docs/why-axum.md)
 - [算法设计文档](docs/adaptive_memory_algorithm_design.md)
 - [API 规范文档](docs/adaptive_memory_api_specification.md)
 - [算法可视化](docs/adaptive_memory_algorithm_visualization.md)

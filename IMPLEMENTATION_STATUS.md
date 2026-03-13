@@ -6,20 +6,23 @@
 
 ## 已完成的工作
 
-### 后端 (Rust + Salvo)
+### 后端 (Rust + Axum)
 
 #### ✅ 项目结构
+
 - [x] 项目初始化和依赖配置
 - [x] 完整的目录结构创建
 - [x] Cargo.toml 配置所有必需依赖
 
 #### ✅ 数据模型
+
 - [x] 任务相关模型 (`models/task.rs`)
 - [x] 记忆配置模型 (`models/memory.rs`)
 - [x] 性能指标模型 (`models/performance.rs`)
 - [x] 资源状态模型 (`models/resource.rs`)
 
 #### ✅ 核心服务层
+
 - [x] 任务特征分析器 (`services/analyzer.rs`)
 - [x] 性能预测模型 (`services/predictor.rs`)
 - [x] 资源监控器 (`services/monitor.rs`)
@@ -27,6 +30,7 @@
 - [x] 自适应记忆调度器 (`services/scheduler.rs`)
 
 #### ✅ API 处理器
+
 - [x] 自适应调度 API (`handlers/adaptive.rs`)
 - [x] 任务分析 API (`handlers/analyzer.rs`)
 - [x] 性能预测 API (`handlers/predictor.rs`)
@@ -35,16 +39,19 @@
 - [x] 系统管理 API (`handlers/system.rs`)
 
 #### ✅ 工具模块
+
 - [x] 统一响应格式 (`utils/response.rs`)
 - [x] 错误处理 (`utils/error.rs`)
 - [x] 配置管理 (`config/settings.rs`)
 
 #### ✅ 中间件
+
 - [x] CORS 中间件
 - [x] 日志中间件
 - [x] 认证中间件（基础实现）
 
 #### ✅ 主程序
+
 - [x] 路由配置
 - [x] 服务器启动
 - [x] 日志初始化
@@ -52,11 +59,13 @@
 ### 前端 (React + Ant Design Pro)
 
 #### ✅ 项目结构
+
 - [x] 项目初始化和 package.json 配置
 - [x] TypeScript 配置
 - [x] Umi 配置文件
 
 #### ✅ 基础页面
+
 - [x] 仪表盘页面 (`pages/dashboard/index.tsx`)
 - [x] 任务分析页面 (`pages/task-analysis/index.tsx`)
 - [x] 记忆配置页面 (`pages/memory-config/index.tsx`)
@@ -65,10 +74,12 @@
 - [x] 权重历史页面 (`pages/weight-history/index.tsx`)
 
 #### ✅ API 服务
+
 - [x] API 基础配置 (`services/api.ts`)
 - [x] 自适应记忆服务 (`services/adaptive.ts`)
 
 #### ✅ 部署配置
+
 - [x] Docker 配置文件
 - [x] docker-compose.yml
 - [x] Nginx 配置
@@ -79,7 +90,7 @@
 
 1. **编译错误修复**
    - [ ] 修复 sysinfo API 兼容性问题
-   - [ ] 修复 Salvo 路由处理器的使用方式
+   - [ ] 完善 Axum 路由处理器和提取器的使用方式
    - [ ] 确保所有模块正确编译
 
 2. **功能完善**
@@ -163,4 +174,3 @@ npm start
 2. 完善前端功能实现
 3. 进行前后端联调
 4. 添加测试和文档
-

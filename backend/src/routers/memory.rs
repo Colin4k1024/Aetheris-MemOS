@@ -1,8 +1,9 @@
+use axum::Json;
+use axum::extract::{Path, Query};
 use once_cell::sync::Lazy;
-use salvo::oapi::extract::*;
-use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::ToSchema;
 
 use crate::db::{
     decision_trace::DecisionTraceRepository, memory::MemoryConfigRepository,
@@ -65,11 +66,9 @@ pub struct SelectMemoryResponse {
     pub what_if_result: Option<crate::services::scheduler::MemorySelectionResult>,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn select_memory_config(
-    body: JsonBody<SelectMemoryRequest>,
+    Json(request): Json<SelectMemoryRequest>,
 ) -> JsonResult<SelectMemoryResponse> {
-    let request = body.into_inner();
     let dry_run = request.dry_run == Some(true);
     let explain = request.explain == Some(true);
 
@@ -153,11 +152,9 @@ pub async fn select_memory_config(
     })
 }
 
-#[endpoint(tags("memory"))]
 pub async fn select_memory_config_trace(
-    body: JsonBody<SelectMemoryRequest>,
+    Json(request): Json<SelectMemoryRequest>,
 ) -> JsonResult<crate::services::scheduler::DecisionTrace> {
-    let request = body.into_inner();
     let trace = SCHEDULER
         .adaptive_memory_selection_trace(
             &request.task_context,
@@ -173,8 +170,7 @@ pub async fn select_memory_config_trace(
     json_ok(trace)
 }
 
-#[derive(Debug, Deserialize, Extractible, ToSchema)]
-#[salvo(extract(default_source(from = "query")))]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ListTracesQuery {
     pub task_id: Option<String>,
     pub limit: Option<i32>,
@@ -198,11 +194,9 @@ pub struct ListTracesResponse {
     pub traces: Vec<DecisionTraceItem>,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn get_decision_traces(
-    query: QueryParam<ListTracesQuery>,
+    Query(q): Query<ListTracesQuery>,
 ) -> JsonResult<ListTracesResponse> {
-    let q = query.into_inner();
     let rows = if let Some(ref task_id) = q.task_id {
         DecisionTraceRepository::get_by_task_id(task_id, q.limit).await?
     } else {
@@ -234,7 +228,6 @@ pub struct MemoryStatusResponse {
     pub resource_status: ResourceStatus,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn get_memory_status() -> JsonResult<MemoryStatusResponse> {
     // 尝试获取最新配置（使用默认用户和代理ID）
     let config_row = MemoryConfigRepository::get_latest("default_user", "default_agent")
@@ -316,11 +309,9 @@ pub struct AnalyzeTaskResponse {
     pub confidence_score: f64,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn analyze_task_characteristics(
-    body: JsonBody<AnalyzeTaskRequest>,
+    Json(request): Json<AnalyzeTaskRequest>,
 ) -> JsonResult<AnalyzeTaskResponse> {
-    let request = body.into_inner();
     let (characteristics, memory_strategy, confidence_score) =
         ANALYZER.analyze_task_characteristics(&request.task_context);
 
@@ -372,11 +363,9 @@ pub struct BatchAnalyzeResponse {
     pub batch_metrics: BatchMetrics,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn batch_analyze_characteristics(
-    body: JsonBody<BatchAnalyzeRequest>,
+    Json(request): Json<BatchAnalyzeRequest>,
 ) -> JsonResult<BatchAnalyzeResponse> {
-    let request = body.into_inner();
     let mut results = Vec::new();
     let mut total_complexity = 0.0;
 
@@ -431,11 +420,9 @@ pub struct PredictPerformanceResponse {
     pub performance_breakdown: PerformanceBreakdown,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn predict_performance(
-    body: JsonBody<PredictPerformanceRequest>,
+    Json(request): Json<PredictPerformanceRequest>,
 ) -> JsonResult<PredictPerformanceResponse> {
-    let request = body.into_inner();
     let (predicted_performance, synergy_factor, decay_factor, performance_breakdown) =
         PREDICTOR.predict_memory_performance(&request.memory_config);
 
@@ -455,7 +442,6 @@ pub struct BaselinesResponse {
     pub marginal_decay_factors: MarginalDecayFactors,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn get_baselines() -> JsonResult<BaselinesResponse> {
     json_ok(BaselinesResponse {
         performance_baselines: PREDICTOR.get_baselines().clone(),
@@ -465,7 +451,6 @@ pub async fn get_baselines() -> JsonResult<BaselinesResponse> {
 
 // ========== 资源监控与优化器 API ==========
 
-#[endpoint(tags("memory"))]
 pub async fn get_resources() -> JsonResult<CurrentResourceStatus> {
     json_ok(MONITOR.get_current_status().await)
 }
@@ -491,11 +476,9 @@ pub struct CostBenefitResponse {
     pub optimization_suggestions: Vec<String>,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn calculate_cost_benefit(
-    body: JsonBody<CostBenefitRequest>,
+    Json(request): Json<CostBenefitRequest>,
 ) -> JsonResult<CostBenefitResponse> {
-    let request = body.into_inner();
     let cost_benefit_ratio = MONITOR
         .calculate_cost_benefit_ratio(&request.performance_prediction, &request.resource_status);
 
@@ -537,9 +520,7 @@ pub struct OptimizeRequest {
     pub performance_goals: PerformanceGoals,
 }
 
-#[endpoint(tags("memory"))]
-pub async fn optimize(body: JsonBody<OptimizeRequest>) -> JsonResult<OptimizationResult> {
-    let request = body.into_inner();
+pub async fn optimize(Json(request): Json<OptimizeRequest>) -> JsonResult<OptimizationResult> {
     let result = MONITOR.optimize_config(&request.current_config, &request.performance_goals);
     json_ok(result)
 }
@@ -566,11 +547,9 @@ pub struct AdjustWeightsResponse {
     pub confidence_score: f64,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn adjust_weights(
-    body: JsonBody<AdjustWeightsRequest>,
+    Json(request): Json<AdjustWeightsRequest>,
 ) -> JsonResult<AdjustWeightsResponse> {
-    let request = body.into_inner();
     let (adjusted_weights, adjustment_reasons) = WEIGHT_ADJUSTER
         .adjust_memory_weights(
             &request.task_profile,
@@ -618,7 +597,6 @@ pub struct WeightHistoryResponse {
     pub summary: HistorySummary,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn get_weight_history() -> JsonResult<WeightHistoryResponse> {
     // 从数据库获取权重调整历史
     let history_rows = WeightHistoryRepository::get_by_time_range(None, None, Some(100))
@@ -689,7 +667,6 @@ pub struct HealthResponse {
     pub performance: SystemPerformance,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn health_check() -> JsonResult<HealthResponse> {
     use time::OffsetDateTime;
 
@@ -733,7 +710,6 @@ pub struct ConfigResponse {
     pub marginal_decay_factors: MarginalDecayFactors,
 }
 
-#[endpoint(tags("memory"))]
 pub async fn get_config() -> JsonResult<ConfigResponse> {
     json_ok(ConfigResponse {
         resource_limits: ResourceLimitsConfig {
@@ -861,14 +837,15 @@ pub struct UpdateMemoryConfigRequest {
     pub status: Option<String>,
 }
 
-#[endpoint(tags("memory"))]
-pub async fn list_memory_configs(req: &mut Request) -> JsonResult<ListMemoryConfigsResponse> {
-    let page: Option<u32> = req.query::<u32>("page");
-    let page_size: Option<u32> = req.query::<u32>("pageSize");
-    let user_id: Option<String> = req.query::<String>("userId");
-    let agent_id: Option<String> = req.query::<String>("agentId");
-    let status: Option<String> = req.query::<String>("status");
-    let config_type: Option<String> = req.query::<String>("configType");
+pub async fn list_memory_configs(
+    Query(query): Query<ListMemoryConfigsRequest>,
+) -> JsonResult<ListMemoryConfigsResponse> {
+    let page = query.page;
+    let page_size = query.page_size;
+    let user_id = query.user_id;
+    let agent_id = query.agent_id;
+    let status = query.status;
+    let config_type = query.config_type;
 
     let (rows, total) = MemoryConfigRepository::list(
         page,
@@ -888,14 +865,9 @@ pub async fn list_memory_configs(req: &mut Request) -> JsonResult<ListMemoryConf
     })
 }
 
-#[endpoint(tags("memory"))]
 pub async fn get_memory_config(
-    req: &mut Request,
+    Path(config_id): Path<String>,
 ) -> JsonResult<crate::db::memory::MemoryConfigRow> {
-    let config_id = req
-        .param::<String>("config_id")
-        .ok_or_else(|| crate::AppError::BadRequest("config_id is required".to_string()))?;
-
     let config = MemoryConfigRepository::get_by_id(&config_id)
         .await?
         .ok_or_else(|| crate::AppError::NotFound(format!("Config {} not found", config_id)))?;
@@ -903,11 +875,9 @@ pub async fn get_memory_config(
     json_ok(config)
 }
 
-#[endpoint(tags("memory"))]
 pub async fn create_memory_config(
-    body: JsonBody<CreateMemoryConfigRequest>,
+    Json(req): Json<CreateMemoryConfigRequest>,
 ) -> JsonResult<serde_json::Value> {
-    let req = body.into_inner();
     let config_id = ulid::Ulid::new().to_string();
 
     // 创建 MemoryConfigRow
@@ -995,17 +965,10 @@ pub async fn create_memory_config(
     json_ok(serde_json::json!({ "config_id": config_id }))
 }
 
-#[endpoint(tags("memory"))]
 pub async fn update_memory_config(
-    req: &mut Request,
-    body: JsonBody<UpdateMemoryConfigRequest>,
+    Path(config_id): Path<String>,
+    Json(update_req): Json<UpdateMemoryConfigRequest>,
 ) -> JsonResult<serde_json::Value> {
-    let config_id = req
-        .param::<String>("config_id")
-        .ok_or_else(|| crate::AppError::BadRequest("config_id is required".to_string()))?;
-
-    let update_req = body.into_inner();
-
     // 获取现有配置
     let mut existing = MemoryConfigRepository::get_by_id(&config_id)
         .await?
@@ -1078,12 +1041,7 @@ pub async fn update_memory_config(
     json_ok(serde_json::json!({ "success": true }))
 }
 
-#[endpoint(tags("memory"))]
-pub async fn delete_memory_config(req: &mut Request) -> JsonResult<serde_json::Value> {
-    let config_id = req
-        .param::<String>("config_id")
-        .ok_or_else(|| crate::AppError::BadRequest("config_id is required".to_string()))?;
-
+pub async fn delete_memory_config(Path(config_id): Path<String>) -> JsonResult<serde_json::Value> {
     MemoryConfigRepository::delete(&config_id).await?;
 
     json_ok(serde_json::json!({ "success": true }))

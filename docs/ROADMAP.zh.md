@@ -2,7 +2,7 @@
 
 本项目以**架构优先迭代**的方式演进。每个版本都专注于清晰度、可扩展性和智能体就绪性。
 
-关于 Web 框架选择，请参阅 [why-salvo-vs-axum.md](why-salvo-vs-axum.md)；关于设计，请参阅 [ARCHITECTURE.md](ARCHITECTURE.md)。
+关于 Web 框架迁移说明，请参阅 [why-axum.md](why-axum.md)；关于设计，请参阅 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ---
 
@@ -24,7 +24,7 @@
 - **策略插件系统** — `WeightStrategy` 特质；内置策略（MarginalBenefit、LinearDecay、SynergyAware）；权重调整器组合策略。请参阅 [EXTENSION_GUIDE.md](docs/EXTENSION_GUIDE.md)。
 - **决策追踪（API + UI）** — `POST /api/v1/memory/adaptive/trace` 和记忆决策追踪页面，用于逐步检查管道（分析器 → 预测器 → 权重调整 → 结果）。暂无持久化。
 - **存储适配器声明** — SQLite 作为默认；`db/adapters` 命名空间和文档说明 PostgreSQL/MySQL 在计划中。
-- **文档** — ARCHITECTURE、ROADMAP、USE_CASES、why-salvo-vs-axum；CONTRIBUTING 和 EXTENSION_GUIDE。
+- **文档** — ARCHITECTURE、ROADMAP、USE_CASES、why-axum；CONTRIBUTING 和 EXTENSION_GUIDE。
 
 ### 计划中
 
@@ -37,7 +37,7 @@
 ## v0.4（计划中）
 
 - **可选的 LLM 集成** — 在 `MemoryAgent` 后可插拔的 LLM 驱动的分析器或预测器。
-- **可选的 Axum 后端适配器** — Salvo 保持默认；Axum 作为替代方案（请参阅 [why-salvo-vs-axum.md](why-salvo-vs-axum.md)）。
+- **Axum 后端迁移完成** — 后端已切换为 Axum，并保持 API 兼容；后续继续进行生态对齐（请参阅 [why-axum.md](why-axum.md)）。
 
 ---
 
@@ -47,11 +47,11 @@
 
 ### 架构模块
 
-| 模块 | 位置 | 状态 |
-|------|------|------|
+| 模块     | 位置                                          | 状态   |
+| -------- | --------------------------------------------- | ------ |
 | 记忆内核 | `src/kernel/` (traits.rs, types.rs, error.rs) | 已实现 |
-| 记忆层 | `src/layers/` (stm, ltm, kg, mm) | 已实现 |
-| 策略引擎 | `src/policy/` (scheduler.rs, cost_model.rs) | 已实现 |
+| 记忆层   | `src/layers/` (stm, ltm, kg, mm)              | 已实现 |
+| 策略引擎 | `src/policy/` (scheduler.rs, cost_model.rs)   | 已实现 |
 
 ### 计划中
 
@@ -68,10 +68,10 @@
 
 ### 架构模块
 
-| 模块 | 位置 | 状态 |
-|------|------|------|
-| 记忆智能体 | `src/agent/` (compressor, merger, forgetter) | 已实现 |
-| 运行时适配器 | `src/runtime/` (openai, anthropic) | 已实现 |
+| 模块         | 位置                                         | 状态   |
+| ------------ | -------------------------------------------- | ------ |
+| 记忆智能体   | `src/agent/` (compressor, merger, forgetter) | 已实现 |
+| 运行时适配器 | `src/runtime/` (openai, anthropic)           | 已实现 |
 
 ### 计划中
 
@@ -88,9 +88,9 @@
 
 ### 架构模块
 
-| 模块 | 位置 | 状态 |
-|------|------|------|
-| 协议 | `src/protocol/` (grpc, websocket) | 已实现 |
+| 模块   | 位置                                      | 状态   |
+| ------ | ----------------------------------------- | ------ |
+| 协议   | `src/protocol/` (grpc, websocket)         | 已实现 |
 | 多租户 | `src/tenant/` (context, quota, isolation) | 已实现 |
 
 ### 计划中
@@ -108,8 +108,8 @@
 
 ### 架构模块
 
-| 模块 | 位置 | 状态 |
-|------|------|------|
+| 模块   | 位置                                                        | 状态   |
+| ------ | ----------------------------------------------------------- | ------ |
 | 分布式 | `src/distributed/` (node, replication, sharding, consensus) | 已实现 |
 
 ### 计划中
@@ -125,14 +125,14 @@
 
 **主题：** 生产级记忆操作系统
 
-| 功能 | 状态 |
-|------|------|
-| 记忆内核 | 生产就绪 |
+| 功能       | 状态                       |
+| ---------- | -------------------------- |
+| 记忆内核   | 生产就绪                   |
 | 智能体集成 | OpenAI/Anthropic/LangChain |
-| 协议 | gRPC/REST/WS + 认证 |
-| 多租户 | 完全租户隔离 |
-| 分布式 | 集群支持 |
-| 可观测性 | Prometheus + Tracing |
+| 协议       | gRPC/REST/WS + 认证        |
+| 多租户     | 完全租户隔离               |
+| 分布式     | 集群支持                   |
+| 可观测性   | Prometheus + Tracing       |
 
 ---
 

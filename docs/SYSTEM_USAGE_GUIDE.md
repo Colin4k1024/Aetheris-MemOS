@@ -10,7 +10,7 @@
 
 系统采用前后端分离架构：
 
-- **后端**：基于 Rust + Salvo 框架开发，提供 RESTful API 服务
+- **后端**：基于 Rust + Axum 框架开发，提供 RESTful API 服务
 - **前端**：基于 React + Ant Design Pro 开发，提供可视化操作界面
 - **数据库**：
   - 主要数据：PostgreSQL
@@ -131,15 +131,15 @@ database = "neo4j"
 export default {
   // 开发环境API地址
   dev: {
-    baseURL: 'http://127.0.0.1:8008',
+    baseURL: "http://127.0.0.1:8008",
   },
   // 生产环境API地址
   test: {
-    baseURL: 'https://api.example.com',
+    baseURL: "https://api.example.com",
   },
   // 测试环境API地址
   pre: {
-    baseURL: 'https://api.pre.example.com',
+    baseURL: "https://api.pre.example.com",
   },
 };
 ```
@@ -149,11 +149,13 @@ export default {
 ### 5.1 后端启动
 
 1. 进入后端目录：
+
    ```bash
    cd backend
    ```
 
 2. 启动开发服务器：
+
    ```bash
    cargo run
    ```
@@ -167,16 +169,19 @@ export default {
 ### 5.2 前端启动
 
 1. 进入前端目录：
+
    ```bash
    cd frontend/ant-design-pro-template
    ```
 
 2. 安装依赖：
+
    ```bash
    npm install
    ```
 
 3. 启动开发服务器：
+
    ```bash
    npm run dev
    ```

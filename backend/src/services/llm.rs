@@ -20,12 +20,12 @@ impl LLMService {
     pub fn new() -> Result<Self> {
         let config = config::get();
         let timeout = Duration::from_secs(config.llm.timeout_seconds);
-        
+
         let client = Client::builder()
             .timeout(timeout)
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
-        
+
         info!(
             "LLM service initialized: base_url={}, model={}",
             config.llm.base_url, config.llm.model
@@ -40,7 +40,7 @@ impl LLMService {
     }
 
     /// 总结并提取长期记忆内容的结构化信息
-    /// 
+    ///
     /// 从原始内容中提取：
     /// - 实体（entities）
     /// - 关系（relations）
@@ -48,7 +48,10 @@ impl LLMService {
     /// - 摘要（summary）
     #[instrument(skip(self))]
     pub async fn summarize_and_extract(&self, content: &str) -> Result<StructuredExtraction> {
-        info!("Starting LLM summarization and extraction, content_length={}", content.len());
+        info!(
+            "Starting LLM summarization and extraction, content_length={}",
+            content.len()
+        );
 
         let prompt = format!(
             r#"你是一个专业的知识提取助手。请从给定的内容中提取以下结构化信息：
@@ -91,16 +94,22 @@ impl LLMService {
         // 首先尝试直接解析，如果失败则尝试提取 JSON 部分
         let extraction: StructuredExtraction = serde_json::from_str(&response_text)
             .or_else(|e| {
-                warn!("Direct JSON parsing failed: {}, trying to extract JSON from text", e);
+                warn!(
+                    "Direct JSON parsing failed: {}, trying to extract JSON from text",
+                    e
+                );
                 // 如果直接解析失败，尝试提取 JSON 部分
                 extract_json_from_text(&response_text)
             })
             .map_err(|e| {
                 error!("Failed to parse LLM response as JSON: {}", e);
-                error!("Response text (first 500 chars): {}", &response_text.chars().take(500).collect::<String>());
+                error!(
+                    "Response text (first 500 chars): {}",
+                    &response_text.chars().take(500).collect::<String>()
+                );
                 anyhow::anyhow!("Failed to parse LLM response: {}", e)
             })?;
-        
+
         // 确保 summary 不为空（如果 LLM 没有提供，使用默认值）
         let extraction = StructuredExtraction {
             summary: if extraction.summary.is_empty() {
@@ -124,12 +133,12 @@ impl LLMService {
     /// 简单总结内容（不进行结构化提取）
     #[instrument(skip(self))]
     pub async fn summarize(&self, content: &str) -> Result<String> {
-        info!("Starting LLM summarization, content_length={}", content.len());
-
-        let prompt = format!(
-            "请总结以下内容，保留关键信息：\n\n{}",
-            content
+        info!(
+            "Starting LLM summarization, content_length={}",
+            content.len()
         );
+
+        let prompt = format!("请总结以下内容，保留关键信息：\n\n{}", content);
 
         let summary = self.call_llm(&prompt).await?;
         info!("Summarization completed, summary_length={}", summary.len());
@@ -140,7 +149,7 @@ impl LLMService {
     /// 调用 Ollama API
     async fn call_llm(&self, prompt: &str) -> Result<String> {
         let url = format!("{}/api/generate", self.base_url);
-        
+
         let request_body = json!({
             "model": self.model,
             "prompt": prompt,
@@ -161,17 +170,17 @@ impl LLMService {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            error!("Ollama API returned error: status={}, body={}", status, error_text);
+            error!(
+                "Ollama API returned error: status={}, body={}",
+                status, error_text
+            );
             return Err(anyhow::anyhow!("Ollama API error: status={}", status));
         }
 
-        let ollama_response: OllamaResponse = response
-            .json()
-            .await
-            .map_err(|e| {
-                error!("Failed to parse Ollama response: {}", e);
-                anyhow::anyhow!("Failed to parse response: {}", e)
-            })?;
+        let ollama_response: OllamaResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse Ollama response: {}", e);
+            anyhow::anyhow!("Failed to parse response: {}", e)
+        })?;
 
         Ok(ollama_response.response)
     }
@@ -238,7 +247,7 @@ pub struct TypedEntity {
 }
 
 /// 结构化提取结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StructuredExtraction {
     /// 提取的实体列表（带类型）
     #[serde(default)]
@@ -273,9 +282,9 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
     // 尝试找到 JSON 对象的开始和结束位置
     let start = text.find('{').unwrap_or(0);
     let end = text.rfind('}').map(|i| i + 1).unwrap_or(text.len());
-    
+
     let json_text = &text[start..end];
-    
+
     // 尝试解析，如果失败则记录 JSON 内容以便调试
     match serde_json::from_str::<StructuredExtraction>(json_text) {
         Ok(mut extraction) => {
@@ -285,13 +294,18 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                 extraction.summary = "No summary provided by LLM.".to_string();
             }
             // 过滤掉包含 null 值的 relations
-            extraction.relations.retain(|r| !r.from.is_empty() && !r.to.is_empty() && !r.relation_type.is_empty());
+            extraction
+                .relations
+                .retain(|r| !r.from.is_empty() && !r.to.is_empty() && !r.relation_type.is_empty());
             Ok(extraction)
-        },
+        }
         Err(e) => {
             warn!("Failed to parse extracted JSON: {}", e);
-            warn!("JSON text (first 500 chars): {}", json_text.chars().take(500).collect::<String>());
-            
+            warn!(
+                "JSON text (first 500 chars): {}",
+                json_text.chars().take(500).collect::<String>()
+            );
+
             // 尝试清理 JSON：将 null 值替换为默认值
             let cleaned_json = json_text
                 .replace("\"summary\": null", "\"summary\": \"\"")
@@ -309,7 +323,7 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                 .replace("\"to\":null", "\"to\":\"\"")
                 .replace("\"type\": null", "\"type\": \"\"")
                 .replace("\"type\":null", "\"type\":\"\"");
-            
+
             // 尝试解析清理后的 JSON
             match serde_json::from_str::<StructuredExtraction>(&cleaned_json) {
                 Ok(mut extraction) => {
@@ -319,12 +333,16 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                         extraction.summary = "No summary provided by LLM.".to_string();
                     }
                     // 过滤掉包含空值的 relations
-                    extraction.relations.retain(|r| !r.from.is_empty() && !r.to.is_empty() && !r.relation_type.is_empty());
+                    extraction.relations.retain(|r| {
+                        !r.from.is_empty() && !r.to.is_empty() && !r.relation_type.is_empty()
+                    });
                     Ok(extraction)
-                },
+                }
                 Err(e2) => {
                     // 如果仍然失败，尝试使用 serde_json::Value 手动解析并构建
-                    if let Ok(mut json_value) = serde_json::from_str::<serde_json::Value>(&cleaned_json) {
+                    if let Ok(mut json_value) =
+                        serde_json::from_str::<serde_json::Value>(&cleaned_json)
+                    {
                         // 确保所有字段都存在
                         if !json_value.is_object() {
                             return Err(e2);
@@ -333,39 +351,61 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                             Some(o) => o,
                             None => return Err(e2),
                         };
-                        
+
                         // 处理 summary
                         if let Some(summary) = obj.get("summary") {
-                            let is_empty = summary.is_string() && summary.as_str().map_or(true, |s| s.is_empty());
+                            let is_empty = summary.is_string()
+                                && summary.as_str().map_or(true, |s| s.is_empty());
                             if summary.is_null() || is_empty {
-                                obj.insert("summary".to_string(), serde_json::Value::String("No summary provided by LLM.".to_string()));
+                                obj.insert(
+                                    "summary".to_string(),
+                                    serde_json::Value::String(
+                                        "No summary provided by LLM.".to_string(),
+                                    ),
+                                );
                             }
                         } else {
-                            obj.insert("summary".to_string(), serde_json::Value::String("No summary provided by LLM.".to_string()));
+                            obj.insert(
+                                "summary".to_string(),
+                                serde_json::Value::String(
+                                    "No summary provided by LLM.".to_string(),
+                                ),
+                            );
                         }
-                        
+
                         // 处理 entities
                         let entities = obj.get("entities");
                         if entities.is_none() || entities.map_or(true, |e| e.is_null()) {
                             obj.insert("entities".to_string(), serde_json::Value::Array(vec![]));
                         }
-                        
+
                         // 处理 key_facts
                         let key_facts = obj.get("key_facts");
                         if key_facts.is_none() || key_facts.map_or(true, |k| k.is_null()) {
                             obj.insert("key_facts".to_string(), serde_json::Value::Array(vec![]));
                         }
-                        
+
                         // 处理 relations：过滤掉包含 null 或空值的 relation
                         if let Some(relations) = obj.get_mut("relations") {
                             if relations.is_array() {
                                 if let Some(relations_array) = relations.as_array_mut() {
                                     relations_array.retain(|r| {
                                         if let Some(rel_obj) = r.as_object() {
-                                            let from = rel_obj.get("from").and_then(|v| v.as_str()).unwrap_or("");
-                                            let to = rel_obj.get("to").and_then(|v| v.as_str()).unwrap_or("");
-                                            let rel_type = rel_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                                            !from.is_empty() && !to.is_empty() && !rel_type.is_empty()
+                                            let from = rel_obj
+                                                .get("from")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            let to = rel_obj
+                                                .get("to")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            let rel_type = rel_obj
+                                                .get("type")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            !from.is_empty()
+                                                && !to.is_empty()
+                                                && !rel_type.is_empty()
                                         } else {
                                             false
                                         }
@@ -377,7 +417,7 @@ fn extract_json_from_text(text: &str) -> Result<StructuredExtraction, serde_json
                         } else {
                             obj.insert("relations".to_string(), serde_json::Value::Array(vec![]));
                         }
-                        
+
                         // 再次尝试解析
                         serde_json::from_value(json_value.clone()).or(Err(e2))
                     } else {
@@ -394,7 +434,8 @@ static LLM_SERVICE: once_cell::sync::OnceCell<LLMService> = once_cell::sync::Onc
 
 /// 获取全局 LLM 服务实例
 pub fn get_llm_service() -> Result<&'static LLMService> {
-    LLM_SERVICE.get_or_try_init(|| LLMService::new())
+    LLM_SERVICE
+        .get_or_try_init(|| LLMService::new())
         .map_err(|e| anyhow::anyhow!("Failed to initialize LLM service: {}", e))
 }
 

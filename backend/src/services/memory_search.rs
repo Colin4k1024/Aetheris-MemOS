@@ -16,7 +16,7 @@ use crate::services::{
 pub struct MemorySearchService;
 
 /// 搜索结果
-#[derive(Debug, Clone, Serialize, Deserialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchResult {
     pub entry_id: String,
     pub score: f32,
@@ -421,7 +421,8 @@ impl MemorySearchService {
             )
             .await?;
             for entity in kg_results {
-                entry_ids_with_scores.push((entity.entity_id.clone(), entity.popularity_score as f64));
+                entry_ids_with_scores
+                    .push((entity.entity_id.clone(), entity.popularity_score as f64));
             }
 
             // 3. 获取相关实体，并搜索相关实体的知识条目
@@ -440,7 +441,10 @@ impl MemorySearchService {
                 .await?;
                 for entity in related_results {
                     // 相关实体的分数要乘以关系权重
-                    entry_ids_with_scores.push((entity.entity_id, (entity.popularity_score as f64) * relation.weight));
+                    entry_ids_with_scores.push((
+                        entity.entity_id,
+                        (entity.popularity_score as f64) * relation.weight,
+                    ));
                 }
             }
         } else {

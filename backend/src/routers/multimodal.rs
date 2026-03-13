@@ -1,14 +1,14 @@
 //! Multimodal Memory API Routes
 
-use salvo::oapi::extract::*;
-use salvo::prelude::*;
+use axum::Json;
+use axum::extract::{Path, Query};
 use serde::{Deserialize, Serialize};
 use tracing::error;
+use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::db::mm::MMRepository;
-use crate::db::pool;
-use crate::{json_ok, JsonResult};
+use crate::{JsonResult, json_ok};
 
 /// 存储多模态记忆请求
 #[derive(Deserialize, ToSchema, Validate)]
@@ -75,14 +75,15 @@ fn default_limit() -> i32 {
 }
 
 /// 存储多模态记忆
-#[endpoint]
-pub async fn store_mm(
-    body: JsonBody<StoreMMRequest>,
-) -> JsonResult<StoreMMResponse> {
+pub async fn store_mm(Json(body): Json<StoreMMRequest>) -> JsonResult<StoreMMResponse> {
     // 解析二进制内容
     let _binary_data = if let Some(content) = &body.content {
         use base64::Engine;
-        Some(base64::engine::general_purpose::STANDARD.decode(content).unwrap_or_default())
+        Some(
+            base64::engine::general_purpose::STANDARD
+                .decode(content)
+                .unwrap_or_default(),
+        )
     } else {
         None
     };
@@ -91,11 +92,11 @@ pub async fn store_mm(
         body.session_id.as_deref(),
         &body.source_id,
         &body.modality_type,
-        "{}",  // content_metadata
+        "{}", // content_metadata
         body.text_content.as_deref(),
         body.image_url.as_deref(),
         body.audio_url.as_deref(),
-        None,  // video_url
+        None, // video_url
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to store multimodal: {}", e)))?;
@@ -104,10 +105,7 @@ pub async fn store_mm(
 }
 
 /// 获取多模态记忆
-#[endpoint]
-pub async fn get_mm(
-    entry_id: PathParam<String>,
-) -> JsonResult<Option<MMEntryInfo>> {
+pub async fn get_mm(Path(entry_id): Path<String>) -> JsonResult<Option<MMEntryInfo>> {
     let entry = MMRepository::get_entry_by_id(&entry_id)
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get multimodal: {}", e)))?;
@@ -125,16 +123,17 @@ pub async fn get_mm(
 }
 
 /// 获取会话的多模态记忆
-#[endpoint]
 pub async fn get_session_mm(
-    session_id: PathParam<String>,
-    limit: QueryParam<usize, false>,
+    Path(session_id): Path<String>,
+    Query(query): Query<LimitQuery>,
 ) -> JsonResult<Vec<MMEntryInfo>> {
-    let limit = limit.unwrap_or(20) as i32;
+    let limit = query.limit.unwrap_or(20) as i32;
 
     let entries = MMRepository::get_entries_by_session(&session_id, Some(limit))
         .await
-        .map_err(|e| crate::AppError::Internal(format!("Failed to get session multimodal: {}", e)))?;
+        .map_err(|e| {
+            crate::AppError::Internal(format!("Failed to get session multimodal: {}", e))
+        })?;
 
     let infos: Vec<MMEntryInfo> = entries
         .into_iter()
@@ -152,12 +151,11 @@ pub async fn get_session_mm(
 }
 
 /// 获取指定模态的多模态记忆
-#[endpoint]
 pub async fn get_by_modality(
-    modality_type: PathParam<String>,
-    limit: QueryParam<usize, false>,
+    Path(modality_type): Path<String>,
+    Query(query): Query<LimitQuery>,
 ) -> JsonResult<Vec<MMEntryInfo>> {
-    let limit = limit.unwrap_or(20) as i32;
+    let limit = query.limit.unwrap_or(20) as i32;
 
     let entries = MMRepository::get_entries_by_modality(&modality_type, Some(limit))
         .await
@@ -188,19 +186,15 @@ pub struct MMEntryListResponse {
 }
 
 /// 获取多模态记忆列表
-#[endpoint]
-pub async fn list_mm(
-    _modality_type: QueryParam<String, false>,
-    limit: QueryParam<usize, false>,
-    offset: QueryParam<usize, false>,
-) -> JsonResult<MMEntryListResponse> {
-    let limit = limit.unwrap_or(20) as i32;
-    let offset = offset.unwrap_or(0) as i32;
+pub async fn list_mm(Query(query): Query<ListMMQuery>) -> JsonResult<MMEntryListResponse> {
+    let limit = query.limit.unwrap_or(20) as i32;
+    let offset = query.offset.unwrap_or(0) as i32;
 
     // 查询数据库获取列表
     match MMRepository::list_entries(None, Some(limit), Some(offset)).await {
         Ok(result) => {
-            let infos: Vec<MMEntryInfo> = result.entries
+            let infos: Vec<MMEntryInfo> = result
+                .entries
                 .into_iter()
                 .map(|e| MMEntryInfo {
                     entry_id: e.entry_id,
@@ -228,4 +222,16 @@ pub async fn list_mm(
             })
         }
     }
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct LimitQuery {
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ListMMQuery {
+    pub modality_type: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }

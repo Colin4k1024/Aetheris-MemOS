@@ -5,7 +5,7 @@
 
 ## 项目简介
 
-自适应记忆系统是一个基于 Rust 和 Salvo 框架开发的智能记忆管理系统，具有以下核心功能：
+自适应记忆系统是一个基于 Rust 和 Axum 框架开发的智能记忆管理系统，具有以下核心功能：
 
 - 多模态记忆存储和检索
 - 知识图谱构建和查询
@@ -17,7 +17,7 @@
 
 ## 技术栈
 
-- **Web 框架**: Salvo
+- **Web 框架**: Axum
 - **ORM**: SQLx
 - **数据库**: SQLite (支持扩展到其他数据库)
 - **向量存储**: Qdrant
@@ -134,27 +134,33 @@ cargo build --release
 ### 记忆 API
 
 #### 自适应记忆
+
 - `POST /api/v1/memory/adaptive`: 选择记忆配置
 - `GET /api/v1/memory/adaptive`: 获取记忆状态
 
 #### 任务特征分析
+
 - `POST /api/v1/memory/analyzer/task-characteristics`: 分析任务特征
 - `POST /api/v1/memory/analyzer/batch-characteristics`: 批量分析任务特征
 
 #### 性能预测
+
 - `POST /api/v1/memory/predictor/performance`: 预测性能
 - `GET /api/v1/memory/predictor/baselines`: 获取基线数据
 
 #### 资源监控
+
 - `GET /api/v1/memory/monitor/resources`: 获取资源状态
 - `POST /api/v1/memory/monitor/cost-benefit`: 计算成本效益比
 - `POST /api/v1/memory/monitor/optimize`: 优化资源使用
 
 #### 权重调整
+
 - `POST /api/v1/memory/weights/adjust`: 调整权重
 - `GET /api/v1/memory/weights/history`: 获取权重历史
 
 #### 记忆存储
+
 - `POST /api/v1/memory/storage/stm`: 存储短期记忆
 - `GET /api/v1/memory/storage/stm/{session_id}`: 获取会话消息
 - `POST /api/v1/memory/storage/ltm`: 存储长期记忆
@@ -162,6 +168,7 @@ cargo build --release
 - `POST /api/v1/memory/storage/batch-ltm`: 批量存储长期记忆
 
 #### 记忆搜索
+
 - `POST /api/v1/memory/search/stm`: 搜索短期记忆
 - `GET /api/v1/memory/search/ltm`: 获取长期记忆列表
 - `POST /api/v1/memory/search/ltm`: 搜索长期记忆
@@ -170,12 +177,14 @@ cargo build --release
 - `POST /api/v1/memory/search/entity`: 实体搜索
 
 #### 知识图谱 API
+
 - `GET /api/kg/entities`: 获取实体列表
 - `POST /api/kg/entities`: 创建实体
 - `GET /api/kg/entities/by-name/{name}`: 按名称获取实体
 - `GET /api/kg/entities/{entity_id}/related`: 获取相关实体
 
 #### 多模态记忆 API
+
 - `GET /api/mm/list`: 获取多模态记忆列表
 - `POST /api/mm/store`: 存储多模态记忆
 - `GET /api/mm/entry/{entry_id}`: 获取多模态记忆
@@ -207,9 +216,9 @@ sqlx migrate revert
 - 使用 `cargo fmt` 格式化代码
 - 使用 `cargo clippy` 检查代码质量
 
-## 关于 Salvo
+## 关于 Axum
 
-你可以在 https://salvo.rs/ 📖查看 Salvo 的文档以及更多例子，如果我们的工具帮到你，欢迎 star [salvo](https://github.com/salvo-rs/salvo) 和 [salvo-cli](https://github.com/salvo-rs/salvo-cli),这将给我们很大激励。❤️️
+你可以在 https://github.com/tokio-rs/axum 查看 Axum 文档和示例。
 
 ## 许可证
 

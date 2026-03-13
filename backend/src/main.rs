@@ -1,10 +1,8 @@
-use salvo::catcher::Catcher;
-use salvo::conn::rustls::{Keycert, RustlsConfig};
-use salvo::prelude::*;
-use salvo::server::ServerHandle;
+use axum::Json;
 use serde::Serialize;
 use tokio::signal;
 use tracing::info;
+use utoipa::ToSchema;
 
 mod config;
 mod db;
@@ -19,7 +17,7 @@ pub use error::AppError;
 
 pub type AppResult<T> = Result<T, AppError>;
 pub type JsonResult<T> = Result<Json<T>, AppError>;
-pub type EmptyResult = Result<Json<Empty>, AppError>;
+pub type EmptyResult = JsonResult<Empty>;
 
 pub fn json_ok<T>(data: T) -> JsonResult<T> {
     Ok(Json(data))
@@ -40,7 +38,7 @@ async fn main() {
 
     // 初始化Neo4j连接
     tracing::info!("Initializing Neo4j connection");
-    crate::db::init_neo4j(&config.neo4j).await;
+    let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");
 
     // 初始化Neo4j索引和约束
@@ -64,11 +62,9 @@ async fn main() {
     .expect("Failed to initialize memory transfer service");
     tracing::info!("Memory transfer service initialized successfully");
 
-    let service = Service::new(routers::root())
-        .catcher(Catcher::default().hoop(hoops::error_404))
-        .hoop(hoops::cors_hoop());
+    let app = routers::root().layer(hoops::cors_hoop());
     println!("🔄 在以下位置监听 {}", &config.listen_addr);
-    //Acme 支持，自动从 Let's Encrypt 获取 TLS 证书。例子请看 https://github.com/salvo-rs/salvo/blob/main/examples/acme-http01-quinn/src/main.rs
+
     if let Some(tls) = &config.tls {
         let listen_addr = &config.listen_addr;
         println!(
@@ -79,11 +75,18 @@ async fn main() {
             "🔑 Login Page: https://{}/login",
             listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
-        let config = RustlsConfig::new(Keycert::new().cert(tls.cert.clone()).key(tls.key.clone()));
-        let acceptor = TcpListener::new(listen_addr).rustls(config).bind().await;
-        let server = Server::new(acceptor);
-        tokio::spawn(shutdown_signal(server.handle()));
-        server.serve(service).await;
+        let addr: std::net::SocketAddr = listen_addr.parse().expect("invalid listen address");
+        let rustls_config =
+            axum_server::tls_rustls::RustlsConfig::from_pem_file(tls.cert.clone(), tls.key.clone())
+                .await
+                .expect("failed to load tls cert/key");
+        let handle = axum_server::Handle::new();
+        tokio::spawn(shutdown_signal_with_handle(handle.clone()));
+        axum_server::bind_rustls(addr, rustls_config)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await
+            .expect("axum tls server failed");
     } else {
         println!(
             "📖 Open API 页面: http://{}/scalar",
@@ -93,14 +96,17 @@ async fn main() {
             "🔑 Login Page: http://{}/login",
             config.listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
-        let acceptor = TcpListener::new(&config.listen_addr).bind().await;
-        let server = Server::new(acceptor);
-        tokio::spawn(shutdown_signal(server.handle()));
-        server.serve(service).await;
+        let listener = tokio::net::TcpListener::bind(&config.listen_addr)
+            .await
+            .expect("failed to bind listener");
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .expect("axum server failed");
     }
 }
 
-async fn shutdown_signal(handle: ServerHandle) {
+async fn wait_shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -122,13 +128,22 @@ async fn shutdown_signal(handle: ServerHandle) {
         _ = ctrl_c => info!("ctrl_c signal received"),
         _ = terminate => info!("terminate signal received"),
     }
-    handle.stop_graceful(std::time::Duration::from_secs(60));
+}
+
+async fn shutdown_signal() {
+    wait_shutdown_signal().await;
+}
+
+async fn shutdown_signal_with_handle(handle: axum_server::Handle) {
+    wait_shutdown_signal().await;
+    handle.graceful_shutdown(Some(std::time::Duration::from_secs(60)));
 }
 
 #[cfg(test)]
 mod tests {
-    use salvo::prelude::*;
-    use salvo::test::{ResponseExt, TestClient};
+    use axum::body::to_bytes;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
 
     use crate::config;
 
@@ -136,17 +151,22 @@ mod tests {
     async fn test_hello_world() {
         config::init();
 
-        let service = Service::new(crate::routers::root());
+        let app = crate::routers::root();
 
-        let content = TestClient::get(format!(
-            "http://{}",
-            config::get().listen_addr.replace("0.0.0.0", "127.0.0.1")
-        ))
-        .send(&service)
-        .await
-        .take_string()
-        .await
-        .expect("test response body");
-        assert_eq!(content, "Hello World from salvo");
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(axum::body::Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("request success");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        let content = String::from_utf8(body.to_vec()).expect("utf8 body");
+        assert_eq!(content, "Hello World from axum");
     }
 }

@@ -1,7 +1,7 @@
 //! Database layer: PostgreSQL for Docker/production.
 
-use sqlx::migrate::Migrator;
 use sqlx::PgPool;
+use sqlx::migrate::Migrator;
 use std::path::Path;
 use std::sync::OnceLock;
 use tracing::{error, info};
@@ -24,21 +24,29 @@ pub mod adapters;
 
 pub mod decision_trace;
 pub mod kg;
+#[allow(dead_code)]
 pub mod ltm;
 pub mod memory;
+#[allow(dead_code)]
 pub mod mm;
+#[allow(dead_code)]
 pub mod neo4j;
+#[allow(dead_code)]
 pub mod performance;
 pub mod stm;
+#[allow(dead_code)]
 pub mod weights;
 pub use kg::KGRepository;
 pub use neo4j::{init_neo4j, init_neo4j_indexes};
-pub use stm::{SessionMessage, SessionListResponse};
+pub use stm::{SessionListResponse, SessionMessage};
 
 pub static SQLX_POOL: OnceLock<PgPool> = OnceLock::new();
 
 pub async fn init(config: &DbConfig) -> Result<(), DbInitError> {
-    info!("Connecting to database: {} (redacted)", config.url.split('@').last().unwrap_or(""));
+    info!(
+        "Connecting to database: {} (redacted)",
+        config.url.split('@').last().unwrap_or("")
+    );
 
     let pool_options = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.pool_size)

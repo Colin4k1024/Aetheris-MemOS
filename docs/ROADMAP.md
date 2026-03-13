@@ -2,7 +2,7 @@
 
 This project evolves in **architecture-first iterations**. Each version focuses on clarity, extensibility, and agent-readiness.
 
-See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [ARCHITECTURE.md](ARCHITECTURE.md) for design.
+See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTURE.md](ARCHITECTURE.md) for design.
 
 ---
 
@@ -24,7 +24,7 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 - **Strategy plugin system** — `WeightStrategy` trait; built-in strategies (MarginalBenefit, LinearDecay, SynergyAware); weight adjuster composes strategies. See [EXTENSION_GUIDE.md](EXTENSION_GUIDE.md).
 - **Decision trace (API + UI)** — `POST /api/v1/memory/adaptive/trace` and Memory Decision Trace page for step-by-step pipeline inspection (analyzer → predictor → weight adjustment → result). No persistence yet.
 - **Storage adapter declaration** — SQLite as default; `db/adapters` namespace and docs state PostgreSQL/MySQL as planned.
-- **Documentation** — ARCHITECTURE, ROADMAP, USE_CASES, why-salvo-vs-axum; CONTRIBUTING and EXTENSION_GUIDE.
+- **Documentation** — ARCHITECTURE, ROADMAP, USE_CASES, why-axum; CONTRIBUTING and EXTENSION_GUIDE.
 
 ### Planned
 
@@ -37,7 +37,7 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 ## v0.4 (Planned)
 
 - **Optional LLM integration** — Pluggable LLM-driven analyzer or predictor behind `MemoryAgent`.
-- **Optional Axum backend adapter** — Salvo remains default; Axum as alternative (see [why-salvo-vs-axum.md](why-salvo-vs-axum.md)).
+- **Axum backend migration** — Backend now runs on Axum; keep API compatibility and continue ecosystem alignment (see [why-axum.md](why-axum.md)).
 
 ---
 
@@ -47,11 +47,11 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 
 ### Architecture Modules
 
-| Module | Location | Status |
-|--------|----------|--------|
+| Module        | Location                                      | Status      |
+| ------------- | --------------------------------------------- | ----------- |
 | Memory Kernel | `src/kernel/` (traits.rs, types.rs, error.rs) | Implemented |
-| Memory Layers | `src/layers/` (stm, ltm, kg, mm) | Implemented |
-| Policy Engine | `src/policy/` (scheduler.rs, cost_model.rs) | Implemented |
+| Memory Layers | `src/layers/` (stm, ltm, kg, mm)              | Implemented |
+| Policy Engine | `src/policy/` (scheduler.rs, cost_model.rs)   | Implemented |
 
 ### Planned
 
@@ -68,10 +68,10 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 
 ### Architecture Modules
 
-| Module | Location | Status |
-|--------|----------|--------|
-| Memory Agent | `src/agent/` (compressor, merger, forgetter) | Implemented |
-| Runtime Adapters | `src/runtime/` (openai, anthropic) | Implemented |
+| Module           | Location                                     | Status      |
+| ---------------- | -------------------------------------------- | ----------- |
+| Memory Agent     | `src/agent/` (compressor, merger, forgetter) | Implemented |
+| Runtime Adapters | `src/runtime/` (openai, anthropic)           | Implemented |
 
 ### Planned
 
@@ -88,9 +88,9 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 
 ### Architecture Modules
 
-| Module | Location | Status |
-|--------|----------|--------|
-| Protocol | `src/protocol/` (grpc, websocket) | Implemented |
+| Module       | Location                                  | Status      |
+| ------------ | ----------------------------------------- | ----------- |
+| Protocol     | `src/protocol/` (grpc, websocket)         | Implemented |
 | Multi-Tenant | `src/tenant/` (context, quota, isolation) | Implemented |
 
 ### Planned
@@ -108,8 +108,8 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 
 ### Architecture Modules
 
-| Module | Location | Status |
-|--------|----------|--------|
+| Module      | Location                                                    | Status      |
+| ----------- | ----------------------------------------------------------- | ----------- |
 | Distributed | `src/distributed/` (node, replication, sharding, consensus) | Implemented |
 
 ### Planned
@@ -125,14 +125,14 @@ See [why-salvo-vs-axum.md](why-salvo-vs-axum.md) for web framework choice and [A
 
 **Theme:** Production-Ready Memory Operating System
 
-| Feature | Status |
-|---------|--------|
-| Memory Kernel | Production-ready |
+| Feature           | Status                     |
+| ----------------- | -------------------------- |
+| Memory Kernel     | Production-ready           |
 | Agent Integration | OpenAI/Anthropic/LangChain |
-| Protocol | gRPC/REST/WS + Auth |
-| Multi-Tenant | Full tenant isolation |
-| Distributed | Cluster support |
-| Observability | Prometheus + Tracing |
+| Protocol          | gRPC/REST/WS + Auth        |
+| Multi-Tenant      | Full tenant isolation      |
+| Distributed       | Cluster support            |
+| Observability     | Prometheus + Tracing       |
 
 ---
 

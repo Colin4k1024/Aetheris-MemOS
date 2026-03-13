@@ -200,7 +200,7 @@ impl ResourceMonitor {
     }
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, utoipa::ToSchema)]
 pub struct PerformanceGoals {
     #[serde(rename = "target_efficiency")]
     pub target_efficiency: f64,
@@ -210,7 +210,7 @@ pub struct PerformanceGoals {
     pub max_resource_cost: f64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct OptimizationSuggestion {
     #[serde(rename = "type")]
     pub suggestion_type: String,
@@ -221,7 +221,7 @@ pub struct OptimizationSuggestion {
     pub risk_level: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct OptimizationResult {
     #[serde(rename = "optimization_suggestions")]
     pub optimization_suggestions: Vec<OptimizationSuggestion>,
@@ -260,12 +260,13 @@ mod tests {
             storage_usage_percent: 40,
         };
 
-        let result = monitor.calculate_cost_benefit_ratio(&performance_prediction, &resource_status);
+        let result =
+            monitor.calculate_cost_benefit_ratio(&performance_prediction, &resource_status);
         assert!(result > 0.0);
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct PredictedImprovement {
     #[serde(rename = "efficiency_gain")]
     pub efficiency_gain: f64,

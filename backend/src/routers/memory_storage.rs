@@ -1,11 +1,12 @@
-use salvo::oapi::extract::*;
-use salvo::prelude::*;
+use axum::Json;
+use axum::extract::{Path, Query};
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::services::memory_storage::MemoryStorageService;
-use crate::{json_ok, JsonResult};
+use crate::{JsonResult, json_ok};
 
 /// 存储短期记忆请求
 #[derive(Deserialize, ToSchema, Validate)]
@@ -91,11 +92,7 @@ pub struct BatchStoreLTMResponse {
 }
 
 /// 存储短期记忆
-#[endpoint(tags("memory-storage"))]
-pub async fn store_stm(
-    body: JsonBody<StoreSTMRequest>,
-) -> JsonResult<StoreSTMResponse> {
-    let req = body.into_inner();
+pub async fn store_stm(Json(req): Json<StoreSTMRequest>) -> JsonResult<StoreSTMResponse> {
     req.validate()?;
 
     info!(
@@ -121,11 +118,7 @@ pub async fn store_stm(
 }
 
 /// 存储长期记忆
-#[endpoint(tags("memory-storage"))]
-pub async fn store_ltm(
-    body: JsonBody<StoreLTMRequest>,
-) -> JsonResult<StoreLTMResponse> {
-    let req = body.into_inner();
+pub async fn store_ltm(Json(req): Json<StoreLTMRequest>) -> JsonResult<StoreLTMResponse> {
     req.validate()?;
 
     info!(
@@ -147,11 +140,7 @@ pub async fn store_ltm(
 }
 
 /// 手动触发 STM 到 LTM 转移
-#[endpoint(tags("memory-storage"))]
-pub async fn transfer_stm_to_ltm(
-    body: JsonBody<TransferRequest>,
-) -> JsonResult<TransferResponse> {
-    let req = body.into_inner();
+pub async fn transfer_stm_to_ltm(Json(req): Json<TransferRequest>) -> JsonResult<TransferResponse> {
     req.validate()?;
 
     info!("Manual transfer: session_id={}", req.session_id);
@@ -166,11 +155,9 @@ pub async fn transfer_stm_to_ltm(
 }
 
 /// 批量存储长期记忆
-#[endpoint(tags("memory-storage"))]
 pub async fn batch_store_ltm(
-    body: JsonBody<BatchStoreLTMRequest>,
+    Json(req): Json<BatchStoreLTMRequest>,
 ) -> JsonResult<BatchStoreLTMResponse> {
-    let req = body.into_inner();
     req.validate()?;
 
     info!("Batch storing LTM: count={}", req.entries.len());
@@ -187,20 +174,14 @@ pub async fn batch_store_ltm(
 }
 
 /// 获取所有会话列表
-#[endpoint(tags("memory-storage"))]
 pub async fn list_sessions(
-    req: &mut Request,
+    Query(params): Query<ListSessionsQuery>,
 ) -> JsonResult<crate::db::SessionListResponse> {
-    let user_id = req.query::<&str>("user_id");
-    let status = req.query::<&str>("status");
-    let limit: Option<i32> = req.query("limit");
-    let offset: Option<i32> = req.query("offset");
-
     let sessions = crate::db::stm::STMRepository::list_sessions(
-        user_id,
-        status,
-        limit,
-        offset,
+        params.user_id.as_deref(),
+        params.status.as_deref(),
+        params.limit,
+        params.offset,
     )
     .await?;
 
@@ -208,20 +189,25 @@ pub async fn list_sessions(
 }
 
 /// 获取会话消息
-#[endpoint(tags("memory-storage"))]
 pub async fn get_session_messages(
-    req: &mut Request,
+    Path(session_id): Path<String>,
+    Query(params): Query<GetSessionMessagesQuery>,
 ) -> JsonResult<Vec<crate::db::SessionMessage>> {
-    let session_id: String = req.param("session_id")
-        .ok_or_else(|| crate::AppError::BadRequest("session_id parameter is required".to_string()))?;
-    let limit: Option<i32> = req.query("limit");
-
-    let messages = crate::db::stm::STMRepository::get_session_messages(
-        &session_id,
-        limit,
-    )
-    .await?;
+    let messages =
+        crate::db::stm::STMRepository::get_session_messages(&session_id, params.limit).await?;
 
     json_ok(messages)
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ListSessionsQuery {
+    pub user_id: Option<String>,
+    pub status: Option<String>,
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct GetSessionMessagesQuery {
+    pub limit: Option<i32>,
+}

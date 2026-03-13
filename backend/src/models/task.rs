@@ -1,7 +1,7 @@
-use salvo::oapi::ToSchema;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskType {
     Conversation,
@@ -117,4 +117,3 @@ pub struct TaskCharacteristics {
     #[serde(rename = "context_dependency")]
     pub context_dependency: f64,
 }
-

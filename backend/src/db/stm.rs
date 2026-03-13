@@ -3,14 +3,14 @@ use sqlx::FromRow;
 use tracing::{error, info};
 use ulid::Ulid;
 
-use crate::db::pool;
 use crate::AppError;
+use crate::db::pool;
 
 /// 短期记忆会话仓库
 pub struct STMRepository;
 
 /// 会话信息
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct Session {
     pub session_id: String,
     pub user_id: String,
@@ -26,7 +26,7 @@ pub struct Session {
 }
 
 /// 会话列表响应
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct SessionListResponse {
     pub sessions: Vec<Session>,
     pub total: usize,
@@ -35,7 +35,7 @@ pub struct SessionListResponse {
 }
 
 /// 会话消息
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct SessionMessage {
     pub message_id: String,
     pub session_id: String,
@@ -59,10 +59,7 @@ impl STMRepository {
         let pool = pool();
 
         // 计算过期时间（用于日志，实际过期时间在SQL中计算）
-        let _expires_at = format!(
-            "datetime('now', '+{} hours')",
-            retention_hours
-        );
+        let _expires_at = format!("datetime('now', '+{} hours')", retention_hours);
 
         sqlx::query(
             r#"
@@ -232,15 +229,15 @@ impl STMRepository {
             count_query.push_str(&format!(" AND status = '{}'", s));
         }
 
-        query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
+        query.push_str(&format!(
+            " ORDER BY created_at DESC LIMIT {} OFFSET {}",
+            limit, offset
+        ));
 
-        let sessions: Vec<Session> = sqlx::query_as(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to list sessions: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })?;
+        let sessions: Vec<Session> = sqlx::query_as(&query).fetch_all(pool).await.map_err(|e| {
+            error!("Failed to list sessions: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         let total: (i64,) = sqlx::query_as(&count_query)
             .fetch_one(pool)
@@ -262,15 +259,14 @@ impl STMRepository {
     pub async fn get_active_user_ids() -> Result<Vec<String>, AppError> {
         let pool = pool();
 
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT user_id FROM context_sessions WHERE status = 'active'",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            error!("Failed to get active user IDs: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
-        })?;
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT user_id FROM context_sessions WHERE status = 'active'")
+                .fetch_all(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to get active user IDs: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
 
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
@@ -293,4 +289,3 @@ impl STMRepository {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 }
-

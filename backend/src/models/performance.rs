@@ -1,5 +1,5 @@
-use salvo::oapi::ToSchema;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PerformancePrediction {
@@ -68,4 +68,3 @@ pub struct PerformanceMetrics {
     #[serde(rename = "cpu_usage_percent")]
     pub cpu_usage_percent: u8,
 }
-

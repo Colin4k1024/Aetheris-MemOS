@@ -209,7 +209,7 @@ mod tests {
             enable_multimodal: false,
         };
 
-        let (prediction, synergy, decay, breakdown) = predictor.predict_memory_performance(&memory_config);
+        let (prediction, synergy, _decay, _breakdown) = predictor.predict_memory_performance(&memory_config);
         assert!(prediction.efficiency_gain > 0.0);
         assert!(prediction.coherence_gain > 0.0);
         assert!(synergy >= 1.0);

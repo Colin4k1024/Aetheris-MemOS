@@ -2,11 +2,14 @@
 //!
 //! A simple in-memory rate limiter using the sliding window algorithm.
 
+use axum::extract::{Request, State};
+use axum::http::{HeaderValue, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use salvo::prelude::*;
 
 /// Rate limiter configuration
 #[derive(Clone, Debug)]
@@ -91,44 +94,47 @@ impl RateLimiter {
     }
 }
 
-/// Create a rate limiting hoop
-pub fn rate_limit_hoop(max_requests: u32, window_seconds: u64) -> RateLimitHoop {
-    RateLimitHoop {
-        limiter: Arc::new(RateLimiter::new(RateLimitConfig::new(max_requests, window_seconds))),
-    }
+pub fn rate_limit_state(max_requests: u32, window_seconds: u64) -> Arc<RateLimiter> {
+    Arc::new(RateLimiter::new(RateLimitConfig::new(
+        max_requests,
+        window_seconds,
+    )))
 }
 
-/// Rate limit middleware handler
-#[derive(Clone)]
-pub struct RateLimitHoop {
-    limiter: Arc<RateLimiter>,
-}
+pub async fn rate_limit_middleware(
+    State(limiter): State<Arc<RateLimiter>>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let client_ip = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
 
-#[async_trait]
-impl Handler for RateLimitHoop {
-    async fn handle(&self, req: &mut Request, _depot: &mut Depot, res: &mut Response, _ctrl: &mut FlowCtrl) {
-        // Use client IP as the rate limit key
-        // In production, you might want to use API key or user ID
-        let addr = req.remote_addr();
-        let client_ip = match addr {
-            salvo::conn::SocketAddr::IPv4(addr) => addr.ip().to_string(),
-            salvo::conn::SocketAddr::IPv6(addr) => addr.ip().to_string(),
-            _ => "unknown".to_string(),
-        };
-
-        if self.limiter.check_and_record(&client_ip).await {
-            // Request allowed - add rate limit headers
-            let remaining = self.limiter.remaining(&client_ip).await;
-            res.headers_mut()
-                .insert("X-RateLimit-Limit", self.limiter.config.max_requests.to_string().parse().unwrap());
-            res.headers_mut()
-                .insert("X-RateLimit-Remaining", remaining.to_string().parse().unwrap());
-        } else {
-            // Rate limit exceeded
-            res.status_code(StatusCode::TOO_MANY_REQUESTS);
-            res.render(Text::Plain("Rate limit exceeded. Please try again later."));
-        }
+    if !limiter.check_and_record(&client_ip).await {
+        return Ok((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Rate limit exceeded. Please try again later.",
+        )
+            .into_response());
     }
+
+    let remaining = limiter.remaining(&client_ip).await;
+    let mut response = next.run(req).await;
+    response.headers_mut().insert(
+        "X-RateLimit-Limit",
+        HeaderValue::from_str(&limiter.config.max_requests.to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+    response.headers_mut().insert(
+        "X-RateLimit-Remaining",
+        HeaderValue::from_str(&remaining.to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -174,6 +180,8 @@ mod tests {
         let limiter = RateLimiter::new(config);
 
         // Different clients should have independent counts
+        assert!(limiter.check_and_record("client_a").await);
+        assert!(limiter.check_and_record("client_b").await);
         assert!(limiter.check_and_record("client_a").await);
         assert!(limiter.check_and_record("client_b").await);
         assert!(!limiter.check_and_record("client_a").await);

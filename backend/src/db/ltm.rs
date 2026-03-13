@@ -1,17 +1,16 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::Row;
 use tracing::{error, info};
 use ulid::Ulid;
 
-use crate::db::pool;
 use crate::AppError;
+use crate::db::pool;
 
 /// 长期记忆仓库
 pub struct LTMRepository;
 
 /// 知识条目列表响应
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct KnowledgeEntryListResponse {
     pub entries: Vec<KnowledgeEntry>,
     pub total: usize,
@@ -20,7 +19,7 @@ pub struct KnowledgeEntryListResponse {
 }
 
 /// 知识条目
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct KnowledgeEntry {
     pub entry_id: String,
     pub source_id: String,
@@ -67,7 +66,8 @@ impl LTMRepository {
             embedding_model,
             embedding_dimension,
             quality_score,
-        ).await
+        )
+        .await
     }
 
     /// 创建知识条目（使用指定的 entry_id）
@@ -94,11 +94,10 @@ impl LTMRepository {
         let content_hash = format!("{:x}", hasher.finish());
 
         // 将向量转换为 JSON 字符串
-        let embedding_json = serde_json::to_string(embedding_vector)
-            .map_err(|e| {
-                error!("Failed to serialize embedding vector: {}", e);
-                AppError::Internal(format!("Failed to serialize embedding: {}", e))
-            })?;
+        let embedding_json = serde_json::to_string(embedding_vector).map_err(|e| {
+            error!("Failed to serialize embedding vector: {}", e);
+            AppError::Internal(format!("Failed to serialize embedding: {}", e))
+        })?;
 
         sqlx::query(
             r#"
@@ -241,21 +240,18 @@ impl LTMRepository {
             .bind(limit)
         };
 
-        let entries = query
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to get entries by source: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })?;
+        let entries = query.fetch_all(pool).await.map_err(|e| {
+            error!("Failed to get entries by source: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         Ok(entries)
     }
 
     /// 获取所有知识条目列表
     pub async fn list_entries(
-        category: Option<&str>,
-        status: Option<&str>,
+        _category: Option<&str>,
+        _status: Option<&str>,
         limit: Option<i32>,
         offset: Option<i32>,
     ) -> Result<KnowledgeEntryListResponse, AppError> {
@@ -275,21 +271,20 @@ impl LTMRepository {
             limit, offset
         );
 
-        let entries: Vec<KnowledgeEntry> = sqlx::query_as(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
+        let entries: Vec<KnowledgeEntry> =
+            sqlx::query_as(&query).fetch_all(pool).await.map_err(|e| {
                 error!("Failed to list knowledge entries: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE status = 'active'")
-            .fetch_one(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to count knowledge entries: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })?;
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE status = 'active'")
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count knowledge entries: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
 
         Ok(KnowledgeEntryListResponse {
             entries,
@@ -312,4 +307,3 @@ impl LTMRepository {
         Ok(row.0)
     }
 }
-

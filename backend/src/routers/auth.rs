@@ -1,32 +1,30 @@
-use cookie::Cookie;
+use axum::Json;
+use axum::extract::{Extension, Query};
+use axum::response::{Html, IntoResponse, Redirect};
+use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use rinja::Template;
-use salvo::jwt_auth::JwtAuthState;
-use salvo::oapi::extract::*;
-use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::hoops::jwt;
 use crate::models::User;
 use crate::{AppError, AppResult, JsonResult, db, json_ok, utils};
 
-#[handler]
-pub async fn login_page(res: &mut Response) -> AppResult<()> {
+pub async fn login_page(jar: CookieJar) -> AppResult<impl IntoResponse> {
     #[derive(Template)]
     #[template(path = "login.html")]
     struct LoginTemplate {}
-    if let Some(cookie) = res.cookies().get("jwt_token") {
+    if let Some(cookie) = jar.get("jwt_token") {
         let token = cookie.value().to_string();
         if jwt::decode_token(&token) {
-            res.render(Redirect::other("/users"));
-            return Ok(());
+            return Ok(Redirect::to("/users").into_response());
         }
     }
     let hello_tmpl = LoginTemplate {};
     let html = hello_tmpl
         .render()
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    res.render(Text::Html(html));
-    Ok(())
+    Ok(Html(html).into_response())
 }
 
 #[derive(Deserialize, ToSchema, Default, Debug)]
@@ -50,25 +48,18 @@ pub struct LoginOutData {
 }
 
 /// Register a new user (public endpoint)
-#[endpoint(tags("auth"))]
-pub async fn register(
-    idata: JsonBody<RegisterInData>,
-) -> JsonResult<LoginOutData> {
-    let idata = idata.into_inner();
+pub async fn register(Json(idata): Json<RegisterInData>) -> JsonResult<LoginOutData> {
     let conn = db::pool();
 
     // Check if user already exists
-    let existing = sqlx::query_as::<_, User>(
-        "SELECT id, username, password FROM users WHERE username = $1",
-    )
-    .bind(&idata.username)
-    .fetch_optional(conn)
-    .await?;
+    let existing =
+        sqlx::query_as::<_, User>("SELECT id, username, password FROM users WHERE username = $1")
+            .bind(&idata.username)
+            .fetch_optional(conn)
+            .await?;
 
     if existing.is_some() {
-        return Err(StatusError::bad_request()
-            .brief("Username already exists")
-            .into());
+        return Err(AppError::BadRequest("Username already exists".to_string()));
     }
 
     // Create new user
@@ -91,33 +82,28 @@ pub async fn register(
     };
     json_ok(odata)
 }
-#[endpoint(tags("auth"))]
+
 pub async fn post_login(
-    idata: JsonBody<LoginInData>,
-    res: &mut Response,
-) -> JsonResult<LoginOutData> {
-    let idata = idata.into_inner();
+    jar: CookieJar,
+    Json(idata): Json<LoginInData>,
+) -> AppResult<(CookieJar, Json<LoginOutData>)> {
     let conn = db::pool();
     let Some(User {
         id,
         username,
         password,
-    }) = sqlx::query_as::<_, User>(
-        "SELECT id, username, password FROM users WHERE username = $1",
-    )
-    .bind(&idata.username)
-    .fetch_optional(conn)
-    .await?
+    }) = sqlx::query_as::<_, User>("SELECT id, username, password FROM users WHERE username = $1")
+        .bind(&idata.username)
+        .fetch_optional(conn)
+        .await?
     else {
-        return Err(StatusError::unauthorized()
-            .brief("User does not exist.")
-            .into());
+        return Err(AppError::Unauthorized("User does not exist.".to_string()));
     };
 
     if utils::verify_password(&idata.password, &password).is_err() {
-        return Err(StatusError::unauthorized()
-            .brief("Account not exist or password is incorrect.")
-            .into());
+        return Err(AppError::Unauthorized(
+            "Account not exist or password is incorrect.".to_string(),
+        ));
     }
 
     let (token, exp) = jwt::get_token(&id)?;
@@ -130,74 +116,68 @@ pub async fn post_login(
     let cookie = Cookie::build(("jwt_token", odata.token.clone()))
         .path("/")
         .http_only(true)
-        .same_site(cookie::SameSite::None)
+        .same_site(SameSite::None)
         .build();
-    res.add_cookie(cookie);
-    json_ok(odata)
+    Ok((jar.add(cookie), Json(odata)))
 }
 
-#[endpoint(tags("auth"))]
-pub async fn post_login_with_token(
-    req: &mut Request,
-    res: &mut Response,
-) -> JsonResult<LoginOutData> {
-    // 首先检查是否有查询参数 token
-    if let Some(token) = req.query::<&str>("token") {
-        if !token.is_empty() {
-            // 如果有 token，验证 token
-            let valid = jwt::decode_token(token);
-            if !valid {
-                return Err(StatusError::unauthorized()
-                    .brief("Token is invalid or expired.")
-                    .into());
-            }
+#[derive(Deserialize, Debug, Default)]
+pub struct TokenQuery {
+    pub token: Option<String>,
+}
 
-            // Token 有效，设置 cookie 并返回成功
-            // 注意：这里无法从 token 中提取用户信息，所以返回一个简化的响应
-            // 如果需要完整的用户信息，需要解码 token
+pub async fn post_login_with_token(
+    jar: CookieJar,
+    Query(query): Query<TokenQuery>,
+    body: Option<Json<LoginInData>>,
+) -> AppResult<(CookieJar, Json<LoginOutData>)> {
+    if let Some(token) = query.token.as_deref() {
+        if !token.is_empty() {
+            if !jwt::decode_token(token) {
+                return Err(AppError::Unauthorized(
+                    "Token is invalid or expired.".to_string(),
+                ));
+            }
             let cookie = Cookie::build(("jwt_token", token.to_string()))
                 .path("/")
                 .http_only(true)
-                .same_site(cookie::SameSite::None)
+                .same_site(SameSite::None)
                 .build();
-            res.add_cookie(cookie);
-
-            // 返回一个简化的登录响应
-            // 实际应用中应该从 token 中解析用户信息
-            return json_ok(LoginOutData {
-                id: "".to_string(),
-                username: "".to_string(),
-                token: token.to_string(),
-                exp: 0,
-            });
+            return Ok((
+                jar.add(cookie),
+                Json(LoginOutData {
+                    id: "".to_string(),
+                    username: "".to_string(),
+                    token: token.to_string(),
+                    exp: 0,
+                }),
+            ));
         }
     }
 
-    // 如果没有 token 查询参数，尝试从 JSON body 获取用户名和密码
-    let idata: LoginInData = req.parse_json().await
-        .map_err(|_| StatusError::bad_request().brief("Invalid request body. Expected JSON with username and password, or provide token as query parameter."))?;
+    let Json(idata) = body.ok_or_else(|| {
+        AppError::BadRequest(
+            "Invalid request body. Expected JSON with username and password, or provide token as query parameter.".to_string(),
+        )
+    })?;
 
     let conn = db::pool();
     let Some(User {
         id,
         username,
         password,
-    }) = sqlx::query_as::<_, User>(
-        "SELECT id, username, password FROM users WHERE username = $1",
-    )
-    .bind(&idata.username)
-    .fetch_optional(conn)
-    .await?
+    }) = sqlx::query_as::<_, User>("SELECT id, username, password FROM users WHERE username = $1")
+        .bind(&idata.username)
+        .fetch_optional(conn)
+        .await?
     else {
-        return Err(StatusError::unauthorized()
-            .brief("User does not exist.")
-            .into());
+        return Err(AppError::Unauthorized("User does not exist.".to_string()));
     };
 
     if utils::verify_password(&idata.password, &password).is_err() {
-        return Err(StatusError::unauthorized()
-            .brief("Account not exist or password is incorrect.")
-            .into());
+        return Err(AppError::Unauthorized(
+            "Account not exist or password is incorrect.".to_string(),
+        ));
     }
 
     let (token, exp) = jwt::get_token(&id)?;
@@ -210,10 +190,9 @@ pub async fn post_login_with_token(
     let cookie = Cookie::build(("jwt_token", odata.token.clone()))
         .path("/")
         .http_only(true)
-        .same_site(cookie::SameSite::None)
+        .same_site(SameSite::None)
         .build();
-    res.add_cookie(cookie);
-    json_ok(odata)
+    Ok((jar.add(cookie), Json(odata)))
 }
 
 #[derive(Serialize, ToSchema, Default, Debug)]
@@ -222,46 +201,46 @@ pub struct TokenVerifyResponse {
     pub message: String,
 }
 
-#[endpoint(tags("auth"))]
 pub async fn get_login_with_token(
-    req: &mut Request,
-    res: &mut Response,
-) -> JsonResult<TokenVerifyResponse> {
-    // 从查询参数获取 token
-    let token = req.query::<&str>("token").map(|s| s.to_string());
-
-    // 如果没有 token，返回错误
-    let token = match token {
+    jar: CookieJar,
+    Query(query): Query<TokenQuery>,
+) -> AppResult<(CookieJar, Json<TokenVerifyResponse>)> {
+    let token = match query.token {
         Some(t) if !t.is_empty() => t,
         _ => {
-            return json_ok(TokenVerifyResponse {
-                valid: false,
-                message: "Token parameter is required".to_string(),
-            });
+            return Ok((
+                jar,
+                Json(TokenVerifyResponse {
+                    valid: false,
+                    message: "Token parameter is required".to_string(),
+                }),
+            ));
         }
     };
 
-    // 验证 token
     let valid = jwt::decode_token(&token);
 
     if valid {
-        // 如果 token 有效，设置 cookie
         let cookie = Cookie::build(("jwt_token", token.clone()))
             .path("/")
             .http_only(true)
-            .same_site(cookie::SameSite::None)
+            .same_site(SameSite::None)
             .build();
-        res.add_cookie(cookie);
-
-        json_ok(TokenVerifyResponse {
-            valid: true,
-            message: "Token is valid".to_string(),
-        })
+        Ok((
+            jar.add(cookie),
+            Json(TokenVerifyResponse {
+                valid: true,
+                message: "Token is valid".to_string(),
+            }),
+        ))
     } else {
-        json_ok(TokenVerifyResponse {
-            valid: false,
-            message: "Token is invalid or expired".to_string(),
-        })
+        Ok((
+            jar,
+            Json(TokenVerifyResponse {
+                valid: false,
+                message: "Token is invalid or expired".to_string(),
+            }),
+        ))
     }
 }
 
@@ -302,50 +281,31 @@ pub struct Location {
     pub key: Option<String>,
 }
 
-#[endpoint(tags("auth"))]
-pub async fn get_current_user(depot: &mut Depot) -> JsonResult<CurrentUserResponse> {
-    // 检查认证状态
-    match depot.jwt_auth_state() {
-        JwtAuthState::Authorized => {
-            // 获取 JWT claims
-            let jwt_data = depot
-                .jwt_auth_data::<jwt::JwtClaims>()
-                .ok_or_else(|| StatusError::unauthorized().brief("Not authenticated"))?;
+pub async fn get_current_user(
+    Extension(claims): Extension<jwt::JwtClaims>,
+) -> JsonResult<CurrentUserResponse> {
+    let conn = db::pool();
+    let user = sqlx::query_as::<_, User>("SELECT id, username, password FROM users WHERE id = $1")
+        .bind(&claims.uid)
+        .fetch_optional(conn)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-            let user_id = &jwt_data.claims.uid;
-            let conn = db::pool();
-
-            // 从数据库查询用户信息
-            let user = sqlx::query_as::<_, User>(
-                "SELECT id, username, password FROM users WHERE id = $1",
-            )
-            .bind(&user_id)
-            .fetch_optional(conn)
-            .await?
-            .ok_or_else(|| StatusError::not_found().brief("User not found"))?;
-
-            // 构建返回数据
-            json_ok(CurrentUserResponse {
-                name: user.username.clone(),
-                avatar: None,
-                userid: user.id.clone(),
-                email: None,
-                signature: None,
-                title: None,
-                group: None,
-                tags: None,
-                notify_count: Some(0),
-                unread_count: Some(0),
-                country: None,
-                access: Some("admin".to_string()), // 默认设置为 admin
-                geographic: None,
-                address: None,
-                phone: None,
-            })
-        }
-        JwtAuthState::Unauthorized => Err(StatusError::unauthorized()
-            .brief("Not authenticated")
-            .into()),
-        JwtAuthState::Forbidden => Err(StatusError::forbidden().brief("Access forbidden").into()),
-    }
+    json_ok(CurrentUserResponse {
+        name: user.username.clone(),
+        avatar: None,
+        userid: user.id.clone(),
+        email: None,
+        signature: None,
+        title: None,
+        group: None,
+        tags: None,
+        notify_count: Some(0),
+        unread_count: Some(0),
+        country: None,
+        access: Some("admin".to_string()),
+        geographic: None,
+        address: None,
+        phone: None,
+    })
 }

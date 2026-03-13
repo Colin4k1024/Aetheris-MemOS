@@ -7,15 +7,21 @@ readme = "./README.md"
 
 [dependencies]
 anyhow = "1"
+axum = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 figment = { version = "0.10", features = ["env", "toml"] }
 jsonwebtoken = {version = "10", features = ["rust_crypto"]}
 rust-embed = "8"
-salvo = {version = "0.84", features = ["anyhow", "cookie", "cors", "jwt-auth", "oapi", "serve-static", "rustls", "logging", "test"]}
 serde = "1"
 thiserror = "2"
 time = "0.3"
 tokio = {version = "1", features = ["full"]}
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 tracing = "0.1"
+utoipa = "5"
+utoipa-scalar = { version = "0.3", features = ["axum"] }
 validator = {version = "0.20", features = ["derive"]}
 ulid = "1"
 argon2 = "0.5"

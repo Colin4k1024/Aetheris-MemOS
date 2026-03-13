@@ -1,9 +1,9 @@
 use tracing::{error, info};
 use ulid::Ulid;
 
+use crate::AppError;
 use crate::db::pool;
 use crate::models::*;
-use crate::AppError;
 
 pub struct MemoryConfigRepository;
 
@@ -21,9 +21,21 @@ impl MemoryConfigRepository {
 
         // 将 MemoryConfig 转换为数据库格式
         let stm_enabled = 1;
-        let ltm_enabled = if memory_config.memory_weights.ltm > 0.0 { 1 } else { 0 };
-        let kg_enabled = if memory_config.memory_weights.kg > 0.0 { 1 } else { 0 };
-        let mm_enabled = if memory_config.enable_multimodal { 1 } else { 0 };
+        let ltm_enabled = if memory_config.memory_weights.ltm > 0.0 {
+            1
+        } else {
+            0
+        };
+        let kg_enabled = if memory_config.memory_weights.kg > 0.0 {
+            1
+        } else {
+            0
+        };
+        let mm_enabled = if memory_config.enable_multimodal {
+            1
+        } else {
+            0
+        };
 
         let secondary_memory_str = memory_config
             .secondary_memory
@@ -166,7 +178,6 @@ impl MemoryConfigRepository {
         let page_size = page_size.unwrap_or(20);
         let offset = (page - 1) * page_size;
 
-
         // 简化实现：先获取所有数据，然后在内存中筛选（对于小数据集足够）
         // 对于大数据集，应该使用动态 SQL 构建
         let all_rows = sqlx::query_as::<_, MemoryConfigRow>(
@@ -223,7 +234,11 @@ impl MemoryConfigRepository {
         // 分页
         let start = offset as usize;
         let paginated: Vec<MemoryConfigRow> = if start < filtered.len() {
-            filtered.into_iter().skip(start).take(page_size as usize).collect()
+            filtered
+                .into_iter()
+                .skip(start)
+                .take(page_size as usize)
+                .collect()
         } else {
             Vec::new()
         };
@@ -232,10 +247,7 @@ impl MemoryConfigRepository {
     }
 
     /// 更新配置的所有字段
-    pub async fn update(
-        config_id: &str,
-        row: &MemoryConfigRow,
-    ) -> Result<(), AppError> {
+    pub async fn update(config_id: &str, row: &MemoryConfigRow) -> Result<(), AppError> {
         let pool = pool();
 
         sqlx::query(
@@ -299,10 +311,7 @@ impl MemoryConfigRepository {
     }
 
     /// 更新配置状态
-    pub async fn update_status(
-        config_id: &str,
-        status: &str,
-    ) -> Result<(), AppError> {
+    pub async fn update_status(config_id: &str, status: &str) -> Result<(), AppError> {
         let pool = pool();
 
         sqlx::query(
@@ -321,7 +330,10 @@ impl MemoryConfigRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Updated memory configuration status: {} -> {}", config_id, status);
+        info!(
+            "Updated memory configuration status: {} -> {}",
+            config_id, status
+        );
         Ok(())
     }
 
@@ -368,7 +380,7 @@ impl MemoryConfigRepository {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, salvo::oapi::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct MemoryConfigRow {
     pub config_id: String,
     pub user_id: String,

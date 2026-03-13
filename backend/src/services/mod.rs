@@ -1,24 +1,34 @@
+#[allow(dead_code)]
 pub mod agent;
 pub mod analyzer;
-pub mod predictor;
-pub mod monitor;
-pub mod memory_type;
-pub mod weight_adjuster;
-pub mod weight_strategy;
-pub mod scheduler;
-pub mod llm;
+#[allow(dead_code)]
 pub mod embedding;
-pub mod qdrant;
-pub mod memory_storage;
+#[allow(dead_code)]
+pub mod llm;
 pub mod memory_search;
+pub mod memory_storage;
+#[allow(dead_code)]
 pub mod memory_transfer;
-pub mod rerank;
+#[allow(dead_code)]
+pub mod memory_type;
+#[allow(dead_code)]
+pub mod monitor;
+#[allow(dead_code)]
 pub mod multimodal_memory;
+pub mod predictor;
+#[allow(dead_code)]
+pub mod qdrant;
+#[allow(dead_code)]
+pub mod rerank;
+pub mod scheduler;
+#[allow(dead_code)]
+pub mod weight_adjuster;
+#[allow(dead_code)]
+pub mod weight_strategy;
 
 pub use analyzer::*;
-pub use predictor::*;
-pub use monitor::*;
-pub use weight_adjuster::*;
-pub use scheduler::*;
 pub use memory_storage::*;
-
+pub use monitor::*;
+pub use predictor::*;
+pub use scheduler::*;
+pub use weight_adjuster::*;

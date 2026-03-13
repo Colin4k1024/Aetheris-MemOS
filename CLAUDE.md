@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Adaptive Memory Management System for AI Agent & LLM workloads. Uses Rust (Salvo) backend with React (Ant Design Pro) frontend.
+Adaptive Memory Management System for AI Agent & LLM workloads. Uses Rust (Axum) backend with React (Ant Design Pro) frontend.
 
 ## Commands
 
 ### Backend (Rust)
+
 ```bash
 cd backend
 cargo build              # Build the project
@@ -18,6 +19,7 @@ cargo test <test_name>   # Run a specific test
 ```
 
 ### Frontend (React)
+
 ```bash
 cd frontend/ant-design-pro-template
 npm install              # Install dependencies
@@ -32,6 +34,7 @@ npm run lint             # Lint code
 This is a **monorepo** with two main components:
 
 ### Backend (`backend/src/`)
+
 - **routers/** — API endpoint handlers (memory, auth, user, knowledge_graph, memory_search, memory_storage, multimodal)
 - **services/** — Core business logic
   - `scheduler.rs` — Adaptive memory scheduler (selects optimal memory config)
@@ -63,6 +66,7 @@ This is a **monorepo** with two main components:
 - **hoops/** — Middleware (CORS, JWT auth)
 
 ### Frontend (`frontend/ant-design-pro-template/`)
+
 - Uses Umi 4 + Ant Design Pro 6.0
 - Pages in `src/pages/`:
   - `Dashboard/` - Dashboard overview
@@ -78,15 +82,17 @@ This is a **monorepo** with two main components:
 ## API Endpoints
 
 ### Memory Search Endpoints
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/memory/search/ltm` | List LTM entries |
-| POST | `/api/v1/memory/search/ltm` | Search LTM by query |
-| GET | `/api/kg/entities` | List KG entities |
-| GET | `/api/mm/list` | List MM entries |
-| GET | `/api/v1/memory/storage/sessions` | List STM sessions |
+
+| Method | Endpoint                          | Description         |
+| ------ | --------------------------------- | ------------------- |
+| GET    | `/api/v1/memory/search/ltm`       | List LTM entries    |
+| POST   | `/api/v1/memory/search/ltm`       | Search LTM by query |
+| GET    | `/api/kg/entities`                | List KG entities    |
+| GET    | `/api/mm/list`                    | List MM entries     |
+| GET    | `/api/v1/memory/storage/sessions` | List STM sessions   |
 
 ### Frontend Service Files
+
 - `src/services/memory/storageApi.ts` - STM/LTM storage APIs
 - `src/services/memory/knowledgeGraphApi.ts` - KG APIs
 - `src/services/memory/multimodalApi.ts` - MM APIs
@@ -94,24 +100,30 @@ This is a **monorepo** with two main components:
 ## Key Patterns
 
 ### Adding New API Endpoints
+
 1. Add handler in `backend/src/routers/memory.rs`
-2. Use `#[handler]` macro
+2. Implement Axum handlers with typed extractors (`Json`, `Query`, `Path`, `Extension`)
 3. Register route in `backend/src/routers/mod.rs`
 
 ### Adding New Weight Strategies
+
 Implement `WeightStrategy` trait and add to the adjuster chain. See `backend/src/services/weight_strategy.rs`.
 
 ### Adding New Memory Agents
+
 Implement `MemoryAgent` trait for custom analyzer/predictor/scheduler behavior. See `backend/src/services/agent.rs`.
 
 ### Database Operations
+
 Use SQLx with compile-time checks:
+
 ```rust
 sqlx::query!("SELECT * FROM table WHERE id = $1", id)
 sqlx::query_as!(Model, "SELECT * FROM table")
 ```
 
 ### Error Handling
+
 Use `AppError` from `backend/src/error.rs` for structured error responses with proper HTTP status codes.
 
 ## Environment Requirements

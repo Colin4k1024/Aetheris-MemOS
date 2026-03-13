@@ -1,20 +1,26 @@
+use axum::extract::Query;
+use axum::response::Html;
 use rinja::Template;
-use salvo::prelude::*;
+use serde::Deserialize;
 
 use crate::AppResult;
 
-#[handler]
-pub async fn hello(req: &mut Request) -> AppResult<Text<String>> {
+#[derive(Debug, Deserialize, Default)]
+pub struct HelloQuery {
+    pub name: Option<String>,
+}
+
+pub async fn hello(Query(query): Query<HelloQuery>) -> AppResult<Html<String>> {
     #[derive(Template)]
     #[template(path = "hello.html")]
     struct HelloTemplate<'a> {
         name: &'a str,
     }
     let hello_tmpl = HelloTemplate {
-        name: req.query::<&str>("name").unwrap_or("World"),
+        name: query.name.as_deref().unwrap_or("World"),
     };
     let html = hello_tmpl
         .render()
         .map_err(|e| crate::AppError::Internal(e.to_string()))?;
-    Ok(Text::Html(html))
+    Ok(Html(html))
 }
