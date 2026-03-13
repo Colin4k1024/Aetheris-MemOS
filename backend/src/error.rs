@@ -47,21 +47,17 @@ impl AppError {
 
 #[derive(Debug, Serialize)]
 struct ErrorBody {
+    code: i32,
+    message: String,
+    // Backward-compatible alias for existing clients.
     error: String,
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let status = match &self {
-            Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::BadRequest(_) | Self::Validation(_) => StatusCode::BAD_REQUEST,
-            Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
-            Self::Forbidden(_) => StatusCode::FORBIDDEN,
-            Self::DatabaseConnection(_) | Self::DatabaseQuery(_) | Self::DatabaseTransaction(_) => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
+        let status = self.status_code();
+        let code = self.api_code();
+        let message = self.api_message();
 
         match &self {
             Self::Internal(msg) => tracing::error!(msg = msg, "internal error"),
@@ -77,9 +73,58 @@ impl IntoResponse for AppError {
         (
             status,
             Json(ErrorBody {
-                error: self.to_string(),
+                code,
+                message: message.clone(),
+                error: message,
             }),
         )
             .into_response()
+    }
+}
+
+impl AppError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::BadRequest(_) | Self::Validation(_) => StatusCode::BAD_REQUEST,
+            Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
+            Self::DatabaseConnection(_) | Self::DatabaseQuery(_) | Self::DatabaseTransaction(_) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    fn api_code(&self) -> i32 {
+        match self {
+            Self::BadRequest(_) | Self::Validation(_) => 1001,
+            Self::Unauthorized(_) => 1002,
+            Self::Forbidden(_) => 1003,
+            Self::NotFound(_) => 1004,
+            Self::DatabaseConnection(_) | Self::DatabaseQuery(_) | Self::DatabaseTransaction(_) => {
+                1007
+            }
+            _ => 1006,
+        }
+    }
+
+    fn api_message(&self) -> String {
+        match self {
+            Self::Public(msg)
+            | Self::Internal(msg)
+            | Self::Unauthorized(msg)
+            | Self::Forbidden(msg)
+            | Self::DatabaseConnection(msg)
+            | Self::DatabaseQuery(msg)
+            | Self::DatabaseTransaction(msg)
+            | Self::NotFound(msg)
+            | Self::BadRequest(msg)
+            | Self::Serialization(msg)
+            | Self::Deserialization(msg) => msg.clone(),
+            Self::Anyhow(e) => e.to_string(),
+            Self::SqlxError(e) => e.to_string(),
+            Self::Validation(e) => e.to_string(),
+        }
     }
 }

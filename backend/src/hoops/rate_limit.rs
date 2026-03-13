@@ -6,6 +6,7 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -110,7 +111,11 @@ pub async fn rate_limit_middleware(
     if !limiter.check_and_record(&client_ip).await {
         return Ok((
             StatusCode::TOO_MANY_REQUESTS,
-            "Rate limit exceeded. Please try again later.",
+            Json(serde_json::json!({
+                "code": 1005,
+                "message": "Rate limit exceeded. Please try again later.",
+                "error": "Rate limit exceeded. Please try again later."
+            })),
         )
             .into_response());
     }

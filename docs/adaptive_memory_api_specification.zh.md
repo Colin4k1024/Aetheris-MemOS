@@ -665,6 +665,16 @@ Based on the core design of the adaptive memory management algorithm, this docum
 | 1006       | 500         | Internal server error      |
 | 1007       | 503         | Service unavailable        |
 
+Error response format:
+
+```json
+{
+  "code": 1001,
+  "message": "Invalid request parameters",
+  "error": "Invalid request parameters"
+}
+```
+
 ## Usage Examples
 
 ### Complete Workflow Example
