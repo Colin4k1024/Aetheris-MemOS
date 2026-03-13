@@ -52,11 +52,12 @@ pub async fn select_memory(
         }
 
         let what_if_result = if let Some(ref w) = options.what_if_constraints {
-            scheduler
-                .adaptive_memory_selection_trace(task_context, w, preferences)
-                .await
-                .ok()
-                .map(|t| t.final_result)
+            Some(
+                scheduler
+                    .adaptive_memory_selection_trace(task_context, w, preferences)
+                    .await?
+                    .final_result,
+            )
         } else {
             None
         };
@@ -83,11 +84,12 @@ pub async fn select_memory(
     }
 
     let what_if_result = if let Some(ref w) = options.what_if_constraints {
-        scheduler
-            .adaptive_memory_selection_trace(task_context, w, preferences)
-            .await
-            .ok()
-            .map(|t| t.final_result)
+        Some(
+            scheduler
+                .adaptive_memory_selection_trace(task_context, w, preferences)
+                .await?
+                .final_result,
+        )
     } else {
         None
     };
@@ -174,4 +176,71 @@ async fn persist_from_trace(
         tracing::warn!(task_id = %trace.task_id, error = %e, "failed to persist weight history");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{Modality, ReasoningDepth, TaskType, TemporalScope};
+
+    fn sample_task_context() -> TaskContext {
+        TaskContext {
+            task_id: "what-if-failure-test".to_string(),
+            task_type: TaskType::Task,
+            complexity: 0.7,
+            modality_requirements: vec![Modality::Text],
+            temporal_scope: TemporalScope::Medium,
+            reasoning_depth: ReasoningDepth::Medium,
+            context_dependency: 0.5,
+            user_id: "u_test".to_string(),
+            agent_id: "a_test".to_string(),
+        }
+    }
+
+    fn base_constraints() -> ResourceConstraints {
+        ResourceConstraints {
+            max_memory_usage_mb: 1024,
+            max_cpu_usage_percent: 80,
+            max_response_time_ms: 2000,
+            storage_quota_percent: 90,
+        }
+    }
+
+    fn impossible_constraints() -> ResourceConstraints {
+        ResourceConstraints {
+            max_memory_usage_mb: 64,
+            max_cpu_usage_percent: 10,
+            max_response_time_ms: 200,
+            storage_quota_percent: 5,
+        }
+    }
+
+    fn default_preferences() -> TaskPreferences {
+        TaskPreferences {
+            prioritize_efficiency: true,
+            prioritize_coherence: false,
+            enable_multimodal: true,
+            enable_reasoning: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_select_memory_returns_error_when_what_if_fails() {
+        let scheduler = AdaptiveMemoryScheduler::new();
+        let result = select_memory(
+            &scheduler,
+            &sample_task_context(),
+            &base_constraints(),
+            &default_preferences(),
+            SelectionOptions {
+                explain: false,
+                dry_run: true,
+                persist_trace: false,
+                what_if_constraints: Some(impossible_constraints()),
+            },
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
 }
