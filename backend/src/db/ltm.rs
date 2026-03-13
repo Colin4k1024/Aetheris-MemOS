@@ -261,23 +261,28 @@ impl LTMRepository {
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
 
-        // 直接使用简单的查询，不使用参数绑定
-        let query = format!(
-            "SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
-                    embedding_vector, embedding_model, embedding_dimension,
-                    created_at::text as created_at, updated_at::text as updated_at,
-                    last_accessed_at::text as last_accessed_at,
-                    category, domain, quality_score, relevance_score, status,
-                    COALESCE(access_count, 0) as access_count
-             FROM knowledge_entries WHERE status = 'active' ORDER BY created_at DESC LIMIT {} OFFSET {}",
-            limit, offset
-        );
-
-        let entries: Vec<KnowledgeEntry> =
-            sqlx::query_as(&query).fetch_all(pool).await.map_err(|e| {
-                error!("Failed to list knowledge entries: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })?;
+        let entries: Vec<KnowledgeEntry> = sqlx::query_as(
+            r#"
+            SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
+                   embedding_vector, embedding_model, embedding_dimension,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   last_accessed_at::text as last_accessed_at,
+                   category, domain, quality_score, relevance_score, status,
+                   COALESCE(access_count, 0) as access_count
+            FROM knowledge_entries
+            WHERE status = 'active'
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to list knowledge entries: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         let total: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE status = 'active'")
