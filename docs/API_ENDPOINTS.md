@@ -158,8 +158,17 @@ Error responses:
 
 ```json
 {
-  "code": 500,
-  "message": "Error description"
+  "code": 1001,
+  "message": "Invalid request parameters",
+  "error": "Invalid request parameters"
+}
+```
+
+```json
+{
+  "code": 1005,
+  "message": "Rate limit exceeded. Please try again later.",
+  "error": "Rate limit exceeded. Please try again later."
 }
 ```
 
