@@ -48,7 +48,7 @@ The system uses a frontend-backend separated architecture:
 
 #### Frontend
 
-- Node.js 16+
+- Node.js 20+
 - npm or yarn
 - Modern browser
 
