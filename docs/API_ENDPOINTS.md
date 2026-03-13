@@ -102,7 +102,7 @@ http://127.0.0.1:8008
 | GET    | `/api/kg/entities`                | List entities        |
 | POST   | `/api/kg/entities`                | Create entity        |
 | GET    | `/api/kg/entities/by-name/{name}` | Get entity by name   |
-| GET    | `/api/kg/entities/{id}/related`   | Get related entities |
+| GET    | `/api/kg/entities/{entity_id}/related`   | Get related entities |
 | POST   | `/api/kg/relations`               | Create relation      |
 | POST   | `/api/kg/search`                  | Search by entity     |
 
