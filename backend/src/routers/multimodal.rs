@@ -188,8 +188,9 @@ pub struct MMEntryListResponse {
 pub async fn list_mm(Query(query): Query<ListMMQuery>) -> JsonResult<MMEntryListResponse> {
     let limit = query.limit.unwrap_or(20) as i32;
     let offset = query.offset.unwrap_or(0) as i32;
+    let modality_filter = normalized_modality_filter(query.modality_type.as_deref());
 
-    let result = MMRepository::list_entries(None, Some(limit), Some(offset)).await?;
+    let result = MMRepository::list_entries(modality_filter, Some(limit), Some(offset)).await?;
     let infos: Vec<MMEntryInfo> = result
         .entries
         .into_iter()
@@ -220,4 +221,32 @@ pub struct ListMMQuery {
     pub modality_type: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+}
+
+fn normalized_modality_filter(modality_type: Option<&str>) -> Option<&str> {
+    modality_type.and_then(|m| {
+        let trimmed = m.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_modality_filter;
+
+    #[test]
+    fn test_normalized_modality_filter_handles_none_and_empty() {
+        assert_eq!(normalized_modality_filter(None), None);
+        assert_eq!(normalized_modality_filter(Some("")), None);
+        assert_eq!(normalized_modality_filter(Some("   ")), None);
+    }
+
+    #[test]
+    fn test_normalized_modality_filter_keeps_valid_value() {
+        assert_eq!(normalized_modality_filter(Some("image")), Some("image"));
+    }
 }

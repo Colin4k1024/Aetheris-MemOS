@@ -859,6 +859,7 @@ Authorization: Bearer <your-access-token>
 
 ```json
 {
+  "modality_type": "image",
   "limit": 20,
   "offset": 0
 }

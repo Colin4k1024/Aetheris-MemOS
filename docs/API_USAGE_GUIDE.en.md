@@ -1060,6 +1060,16 @@ Authorization: Bearer <your-access-token>
 
 **Description**: List multimodal memory entries
 
+**Request Parameters**:
+
+```json
+{
+  "modality_type": "image",
+  "limit": 20,
+  "offset": 0
+}
+```
+
 ## 10. System Management API
 
 ### 10.1 Health Check
