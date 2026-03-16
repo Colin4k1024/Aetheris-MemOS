@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Path, Query},
-    routing::{get, post, put, delete},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
@@ -205,7 +205,7 @@ pub async fn list_capabilities(
 }
 
 pub async fn update_capability(
-    Path((agent_id, capability_id)): Path<(String, String)>,
+    Path((_agent_id, capability_id)): Path<(String, String)>,
     Json(payload): Json<UpdateAgentCapability>,
 ) -> Result<Json<AgentCapability>, AppError> {
     let pool = SQLX_POOL.get().ok_or_else(|| AppError::internal("Database not initialized"))?;
@@ -216,7 +216,7 @@ pub async fn update_capability(
 }
 
 pub async fn delete_capability(
-    Path((agent_id, capability_id)): Path<(String, String)>,
+    Path((_agent_id, capability_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let pool = SQLX_POOL.get().ok_or_else(|| AppError::internal("Database not initialized"))?;
     let service = AgentService::new(pool.clone());
@@ -255,7 +255,7 @@ pub async fn list_episodes(
 }
 
 pub async fn update_episode(
-    Path((agent_id, episode_id)): Path<(String, String)>,
+    Path((_agent_id, episode_id)): Path<(String, String)>,
     Json(payload): Json<UpdateAgentEpisode>,
 ) -> Result<Json<AgentEpisode>, AppError> {
     let pool = SQLX_POOL.get().ok_or_else(|| AppError::internal("Database not initialized"))?;

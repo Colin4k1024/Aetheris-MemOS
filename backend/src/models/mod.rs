@@ -8,7 +8,6 @@ pub mod performance;
 pub mod resource;
 pub mod task;
 
-pub use agent::*;
 pub use memory::*;
 pub use performance::*;
 pub use resource::*;
