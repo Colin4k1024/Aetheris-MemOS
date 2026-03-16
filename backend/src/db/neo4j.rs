@@ -278,6 +278,65 @@ impl Neo4jManager {
         while let Ok(Some(_)) = rows.next().await {}
         Ok(true)
     }
+
+    /// Count nodes by label
+    pub async fn count_nodes_by_label(&self, label: &str) -> Result<i64, AppError> {
+        let q = query("MATCH (n:$label) RETURN count(n) as count")
+            .param("label", label);
+
+        let mut rows = self.graph.execute(q).await
+            .map_err(|e| AppError::Internal(format!("Neo4j count nodes failed: {}", e)))?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            if let Ok(count) = row.get::<i64>("count") {
+                return Ok(count);
+            }
+        }
+        Ok(0)
+    }
+
+    /// Execute match query and return all nodes
+    pub async fn match_nodes(
+        &self,
+        label: &str,
+        properties: Option<std::collections::HashMap<String, serde_json::Value>>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Node>, AppError> {
+        let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
+        
+        let query_str = match &properties {
+            Some(props) if !props.is_empty() => {
+                let where_clauses: Vec<String> = props.keys()
+                    .map(|k| format!("n.{} = ${}", k, k))
+                    .collect();
+                format!(
+                    "MATCH (n:{}) WHERE {} RETURN n{}",
+                    label,
+                    where_clauses.join(" AND "),
+                    limit_clause
+                )
+            }
+            _ => format!("MATCH (n:{}) RETURN n{}", label, limit_clause),
+        };
+
+        let mut q = query(&query_str);
+        if let Some(props) = properties {
+            for (k, v) in props {
+                q = q.param(&k, json_to_bolt(v));
+            }
+        }
+
+        let mut rows = self.graph.execute(q).await
+            .map_err(|e| AppError::Internal(format!("Neo4j match nodes failed: {}", e)))?;
+
+        let mut nodes = Vec::new();
+        while let Ok(Some(row)) = rows.next().await {
+            if let Ok(node) = row.get::<Node>("n") {
+                nodes.push(node);
+            }
+        }
+        Ok(nodes)
+    }
 }
 
 /// Type alias for Neo4j manager wrapped in Arc and RwLock

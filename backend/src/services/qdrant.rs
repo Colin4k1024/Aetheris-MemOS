@@ -220,18 +220,37 @@ impl QdrantClient {
     /// 向量相似度搜索
     #[instrument(skip(self))]
     pub async fn search(&self, query_vector: Vec<f32>, top_k: usize) -> Result<Vec<SearchResult>> {
-        info!("Searching for similar vectors, top_k={}", top_k);
+        self.search_with_filter(query_vector, top_k, None).await
+    }
+
+    /// 向量相似度搜索（带过滤器）
+    #[instrument(skip(self))]
+    pub async fn search_with_filter(
+        &self,
+        query_vector: Vec<f32>,
+        top_k: usize,
+        filter: Option<qdrant_client::qdrant::Filter>,
+    ) -> Result<Vec<SearchResult>> {
+        info!("Searching for similar vectors, top_k={}, has_filter={}", top_k, filter.is_some());
+
+        // 构建搜索请求
+        let search_points = SearchPoints {
+            collection_name: self.collection_name.clone(),
+            vector: query_vector,
+            limit: top_k as u64,
+            with_payload: Some(true.into()),
+            with_vectors: Some(false.into()),
+            filter,
+            score_threshold: None,
+            params: None,
+            offset: None,
+            vector_name: None,
+            ..Default::default()
+        };
 
         let search_result = self
             .client
-            .search_points(SearchPoints {
-                collection_name: self.collection_name.clone(),
-                vector: query_vector,
-                limit: top_k as u64,
-                with_payload: Some(true.into()),
-                with_vectors: Some(false.into()),
-                ..Default::default()
-            })
+            .search_points(search_points)
             .await
             .map_err(|e| {
                 error!("Failed to search vectors: {}", e);
