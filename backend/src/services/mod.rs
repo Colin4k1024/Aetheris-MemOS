@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 pub mod agent;
+pub mod agent_identity;
 pub mod analyzer;
 #[allow(dead_code)]
 pub mod embedding;

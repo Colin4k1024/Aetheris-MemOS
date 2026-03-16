@@ -7,6 +7,7 @@ use rust_embed::RustEmbed;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
+mod agent;
 mod auth;
 mod demo;
 mod knowledge_graph;
@@ -111,9 +112,55 @@ pub fn root() -> Router {
         .merge(memory_config_routes)
         .route_layer(memory_rate_limit);
 
+    let agent_routes = Router::new()
+        // Agent Identity
+        .route("/agents", post(agent::create_agent).get(agent::list_agents))
+        .route(
+            "/agents/:agent_id",
+            get(agent::get_agent).put(agent::update_agent).delete(agent::delete_agent),
+        )
+        // Self-Model
+        .route(
+            "/agents/:agent_id/self-model",
+            get(agent::get_self_model).put(agent::update_self_model),
+        )
+        .route(
+            "/agents/:agent_id/self-model/reflect",
+            post(agent::trigger_reflection),
+        )
+        // Capabilities
+        .route(
+            "/agents/:agent_id/capabilities",
+            get(agent::list_capabilities).post(agent::add_capability),
+        )
+        .route(
+            "/agents/:agent_id/capabilities/:capability_id",
+            put(agent::update_capability).delete(agent::delete_capability),
+        )
+        // Episodes
+        .route(
+            "/agents/:agent_id/episodes",
+            get(agent::list_episodes).post(agent::record_episode),
+        )
+        .route(
+            "/agents/:agent_id/episodes/:episode_id",
+            put(agent::update_episode),
+        )
+        // Behavior Profiles
+        .route(
+            "/agents/:agent_id/behaviors",
+            get(agent::list_behaviors).post(agent::record_behavior),
+        )
+        // Complete agent info
+        .route(
+            "/agents/:agent_id/complete",
+            get(agent::get_agent_complete),
+        );
+
     let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))
         .merge(user_routes)
+        .nest("/v1", agent_routes)
         .nest("/v1/memory", memory_routes)
         .nest(
             "/kg",

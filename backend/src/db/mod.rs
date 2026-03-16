@@ -21,6 +21,7 @@ impl std::fmt::Display for DbInitError {
 impl std::error::Error for DbInitError {}
 
 pub mod adapters;
+pub mod agent;
 
 pub mod decision_trace;
 pub mod kg;
