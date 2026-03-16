@@ -10,8 +10,10 @@ mod error;
 mod hoops;
 mod models;
 mod routers;
+mod axum_routers;
 mod services;
 mod utils;
+mod web;
 
 pub use error::AppError;
 
@@ -61,7 +63,7 @@ async fn main() {
     .expect("Failed to initialize memory transfer service");
     tracing::info!("Memory transfer service initialized successfully");
 
-    let app = routers::root().layer(hoops::cors_hoop());
+    let app = axum_routers::create_router().layer(hoops::cors_hoop());
     println!("🔄 在以下位置监听 {}", &config.listen_addr);
 
     if let Some(tls) = &config.tls {

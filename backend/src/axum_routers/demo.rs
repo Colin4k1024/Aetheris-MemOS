@@ -6,8 +6,9 @@ use axum::{
 };
 
 /// Demo hello world handler
-async fn hello() -> &'static str {
-    "Hello World from salvo"
+#[utoipa::path(get, path = "/", tag = "Demo")]
+pub async fn hello() -> &'static str {
+    "Hello World from axum"
 }
 
 /// Create demo routes

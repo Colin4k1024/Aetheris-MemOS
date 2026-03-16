@@ -6,21 +6,25 @@ use axum::{
 };
 
 /// List users
+#[utoipa::path(get, path = "/users", tag = "User")]
 async fn list_users() -> &'static str {
     "[]"
 }
 
 /// Create user
+#[utoipa::path(post, path = "/users", tag = "User")]
 async fn create_user() -> &'static str {
     "{}"
 }
 
 /// Update user
+#[utoipa::path(put, path = "/users/{user_id}", tag = "User")]
 async fn update_user() -> &'static str {
     "{}"
 }
 
 /// Delete user
+#[utoipa::path(delete, path = "/users/{user_id}", tag = "User")]
 async fn delete_user() -> &'static str {
     "{}"
 }

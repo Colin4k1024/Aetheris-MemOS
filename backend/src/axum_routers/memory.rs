@@ -1,7 +1,7 @@
 //! Memory routes - with business logic
 
 use axum::{
-    extract::{Query, Json, Path},
+    extract::Json,
     response::IntoResponse,
     routing::{get, post, put, delete},
     Router,

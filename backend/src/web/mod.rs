@@ -2,6 +2,8 @@
 //!
 //! This module provides the web framework layer using Axum.
 
+#![allow(dead_code)]
+
 pub mod cors;
 pub mod jwt;
 pub mod rate_limit;
@@ -11,11 +13,11 @@ pub use jwt::auth_middleware;
 pub use rate_limit::rate_limit_middleware as rate_limit_layer;
 
 use axum::{
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use serde::Serialize;
-use hyper::http::StatusCode;
 
 /// JSON result type
 pub type JsonResult<T> = Result<Json<T>, AppError>;

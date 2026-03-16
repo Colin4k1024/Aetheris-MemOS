@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS agent_behavior_profiles (
 
     -- Pattern definition
     pattern_description TEXT NOT NULL,
-    pattern_embedding VECTOR(768),
+    pattern_embedding TEXT,
 
     -- Usage statistics
     times_applied INTEGER DEFAULT 0,

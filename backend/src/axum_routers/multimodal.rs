@@ -7,26 +7,31 @@ use axum::{
 };
 
 /// Store MM
+#[utoipa::path(post, path = "/api/mm/store", tag = "Multimodal")]
 async fn store_mm() -> impl axum::response::IntoResponse {
     "{}"
 }
 
 /// Get MM entry
+#[utoipa::path(get, path = "/api/mm/entry/{entry_id}", tag = "Multimodal")]
 async fn get_mm(Path(_entry_id): Path<String>) -> impl axum::response::IntoResponse {
     "{}"
 }
 
 /// Get session MM
+#[utoipa::path(get, path = "/api/mm/session/{session_id}", tag = "Multimodal")]
 async fn get_session_mm(Path(_session_id): Path<String>) -> impl axum::response::IntoResponse {
     "[]"
 }
 
 /// Get by modality
+#[utoipa::path(get, path = "/api/mm/modality/{modality_type}", tag = "Multimodal")]
 async fn get_by_modality(Path(_modality_type): Path<String>) -> impl axum::response::IntoResponse {
     "[]"
 }
 
 /// List MM entries
+#[utoipa::path(get, path = "/api/mm/list", tag = "Multimodal")]
 async fn list_mm() -> impl axum::response::IntoResponse {
     "[]"
 }

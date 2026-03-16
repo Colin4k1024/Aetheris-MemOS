@@ -25,5 +25,4 @@ pub fn cors_hoop() -> CorsLayer {
             HeaderName::from_static("cookie"),
             HeaderName::from_static("x-requested-with"),
         ])
-        .allow_credentials(true)
 }

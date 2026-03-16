@@ -98,6 +98,7 @@ impl From<sqlx::Error> for AuthError {
 }
 
 /// Register a new user
+#[utoipa::path(post, path = "/api/register", tag = "Auth")]
 async fn register(Json(idata): Json<RegisterInData>) -> Result<Json<LoginOutData>, AuthError> {
     let conn = db::pool();
 
@@ -135,6 +136,7 @@ async fn register(Json(idata): Json<RegisterInData>) -> Result<Json<LoginOutData
 }
 
 /// Login handler
+#[utoipa::path(post, path = "/api/login", tag = "Auth")]
 async fn post_login(Json(idata): Json<LoginInData>) -> Result<Response, AuthError> {
     let conn = db::pool();
     let user = sqlx::query_as::<_, crate::models::User>(
@@ -175,6 +177,7 @@ async fn post_login(Json(idata): Json<LoginInData>) -> Result<Response, AuthErro
 }
 
 /// Login with token (query param only for now)
+#[utoipa::path(post, path = "/api/login/account", tag = "Auth")]
 async fn post_login_with_token(
     Query(params): Query<LoginInData>,
 ) -> Result<Response, AuthError> {
@@ -200,6 +203,7 @@ async fn post_login_with_token(
 }
 
 /// Verify token and set cookie
+#[utoipa::path(get, path = "/api/login/account", tag = "Auth")]
 async fn get_login_with_token(Query(params): Query<LoginInData>) -> Result<Json<TokenVerifyResponse>, AuthError> {
     let token = params.username;
 
@@ -219,6 +223,7 @@ async fn get_login_with_token(Query(params): Query<LoginInData>) -> Result<Json<
 }
 
 /// Get current user (requires auth)
+#[utoipa::path(get, path = "/api/currentUser", tag = "Auth")]
 async fn get_current_user() -> Result<Json<CurrentUserResponse>, AuthError> {
     Ok(Json(CurrentUserResponse {
         name: "admin".to_string(),

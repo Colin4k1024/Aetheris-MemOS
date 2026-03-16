@@ -129,6 +129,7 @@ pub struct CreateAgentBehaviorProfile {
     pub effective_contexts: Option<serde_json::Value>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateAgentBehaviorProfile {
     pub pattern_description: Option<String>,
@@ -269,6 +270,7 @@ pub struct EpisodeListResponse {
     pub total: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BehaviorProfileListResponse {
     pub profiles: Vec<AgentBehaviorProfile>,
@@ -279,6 +281,7 @@ pub struct BehaviorProfileListResponse {
 // Agent Types
 // ============================================================================
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentType {
@@ -296,6 +299,7 @@ impl Default for AgentType {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CapabilityType {
@@ -313,6 +317,7 @@ impl Default for CapabilityType {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EpisodeType {
