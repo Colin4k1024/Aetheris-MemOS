@@ -1,4 +1,4 @@
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -180,4 +180,83 @@ pub async fn get_ltm_entry(
         .ok_or_else(|| crate::AppError::NotFound(format!("Entry {} not found", entry_id)))?;
 
     json_ok(entry)
+}
+
+// ============ Bi-temporal Tracking Endpoints ============
+
+/// 时间旅行查询请求
+#[derive(Deserialize, ToSchema, Validate)]
+pub struct TimeTravelQuery {
+    /// RFC3339 格式的时间戳，例如 "2024-01-01T00:00:00Z"
+    pub at: String,
+    pub limit: Option<i32>,
+}
+
+/// 时间旅行查询 - LTM
+pub async fn get_ltm_at_time(
+    Path(entry_id): Path<String>,
+    Query(query): Query<TimeTravelQuery>,
+) -> JsonResult<Option<crate::db::ltm::KnowledgeEntry>> {
+    info!(
+        "Time travel query LTM: entry_id={}, at={}",
+        entry_id, query.at
+    );
+
+    let entry = crate::db::ltm::LTMRepository::get_entry_at_time(&entry_id, &query.at).await?;
+
+    json_ok(entry)
+}
+
+/// 时间旅行搜索 - LTM
+pub async fn search_ltm_at_time(
+    Json(req): Json<TimeTravelQuery>,
+) -> JsonResult<Vec<crate::db::ltm::KnowledgeEntry>> {
+    info!("Time travel search LTM: at={}", req.at);
+
+    // 使用 "memory" 作为默认查询词
+    let results = crate::db::ltm::LTMRepository::search_entries_at_time(
+        "",
+        &req.at,
+        req.limit,
+    )
+    .await?;
+
+    json_ok(results)
+}
+
+/// 获取条目版本历史
+pub async fn get_ltm_history(
+    Path(entry_id): Path<String>,
+) -> JsonResult<Vec<crate::db::ltm::KnowledgeEntry>> {
+    info!("Getting LTM history: entry_id={}", entry_id);
+
+    let history = crate::db::ltm::LTMRepository::get_entry_history(&entry_id).await?;
+
+    json_ok(history)
+}
+
+/// 时间旅行查询 - KG Entity
+pub async fn get_kg_entity_at_time(
+    Path(entity_id): Path<String>,
+    Query(query): Query<TimeTravelQuery>,
+) -> JsonResult<Option<crate::db::kg::Entity>> {
+    info!(
+        "Time travel query KG: entity_id={}, at={}",
+        entity_id, query.at
+    );
+
+    let entity = crate::db::kg::KGRepository::get_entity_at_time(&entity_id, &query.at).await?;
+
+    json_ok(entity)
+}
+
+/// 获取实体版本历史
+pub async fn get_kg_entity_history(
+    Path(entity_id): Path<String>,
+) -> JsonResult<Vec<crate::db::kg::Entity>> {
+    info!("Getting KG entity history: entity_id={}", entity_id);
+
+    let history = crate::db::kg::KGRepository::get_entity_history(&entity_id).await?;
+
+    json_ok(history)
 }

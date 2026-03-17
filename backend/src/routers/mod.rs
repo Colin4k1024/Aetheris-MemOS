@@ -109,6 +109,12 @@ pub fn root() -> Router {
                     get(memory_search::list_ltm_entries).post(memory_search::search_ltm),
                 )
                 .route("/ltm/{entry_id}", get(memory_search::get_ltm_entry))
+                // Bi-temporal tracking endpoints
+                .route("/ltm/{entry_id}/at", get(memory_search::get_ltm_at_time))
+                .route("/ltm/{entry_id}/history", get(memory_search::get_ltm_history))
+                .route("/ltm/time-travel", post(memory_search::search_ltm_at_time))
+                .route("/kg/{entity_id}/at", get(memory_search::get_kg_entity_at_time))
+                .route("/kg/{entity_id}/history", get(memory_search::get_kg_entity_history))
                 .route("/hybrid", post(memory_search::hybrid_search))
                 .route("/entity", post(memory_search::search_by_entity)),
         )
