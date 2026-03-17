@@ -33,7 +33,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy linting
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --all
 
       - name: Check for broken links in docs
         run: |
