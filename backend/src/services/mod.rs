@@ -9,6 +9,8 @@ pub mod context_snapshot;
 #[allow(dead_code)]
 pub mod embedding;
 #[allow(dead_code)]
+pub mod enterprise;
+#[allow(dead_code)]
 pub mod importance_evaluator;
 #[allow(dead_code)]
 pub mod llm;

@@ -11,6 +11,7 @@ mod agent;
 mod auth;
 mod billing;
 mod demo;
+mod enterprise;
 mod knowledge_graph;
 mod mcp;
 #[allow(dead_code)]
@@ -160,6 +161,22 @@ pub fn root() -> Router {
                 .route("/usage/{tenant_id}", get(billing::get_current_usage))
                 .route("/quota/{tenant_id}", get(billing::get_quota_status))
                 .route("/record", post(billing::record_usage)),
+        )
+        // Enterprise routes
+        .nest(
+            "/enterprise",
+            Router::new()
+                // Cluster management
+                .route("/cluster/node", post(enterprise::register_node))
+                .route("/cluster/nodes", get(enterprise::get_cluster_nodes))
+                .route("/cluster/active", get(enterprise::get_active_nodes))
+                .route("/cluster/leader", get(enterprise::get_leader))
+                .route("/cluster/become-leader", post(enterprise::become_leader))
+                .route("/cluster/is-leader", get(enterprise::is_leader))
+                // Sharding
+                .route("/shards", post(enterprise::create_shard))
+                .route("/shards", get(enterprise::get_shards))
+                .route("/shards/{key}", get(enterprise::get_shard)),
         )
         .route_layer(memory_rate_limit);
 
