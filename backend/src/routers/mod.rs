@@ -18,6 +18,10 @@ mod memory_search;
 mod memory_storage;
 #[allow(dead_code)]
 mod multimodal;
+#[allow(dead_code)]
+mod snapshot;
+#[allow(dead_code)]
+mod tenant;
 mod user;
 
 use crate::{config, hoops};
@@ -119,6 +123,18 @@ pub fn root() -> Router {
                 .route("/entity", post(memory_search::search_by_entity)),
         )
         .merge(memory_config_routes)
+        // Snapshot routes (Oris Integration)
+        .nest(
+            "/snapshot",
+            Router::new()
+                .route("/task", post(snapshot::create_task))
+                .route("/task/{task_id}", get(snapshot::get_task))
+                .route("/create", post(snapshot::create_snapshot))
+                .route("/restore", post(snapshot::restore_snapshot))
+                .route("/checkpoint", post(snapshot::create_checkpoint))
+                .route("/rollback", post(snapshot::rollback_to_checkpoint))
+                .route("/checkpoints/{task_id}", get(snapshot::list_checkpoints)),
+        )
         .route_layer(memory_rate_limit);
 
     let agent_routes = Router::new()

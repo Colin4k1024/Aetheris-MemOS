@@ -8,11 +8,13 @@ mod config;
 mod db;
 mod error;
 mod hoops;
+mod integrations;
 mod kernel;
 mod models;
 mod protocol;
 mod routers;
 mod services;
+mod tenant;
 mod utils;
 
 pub use error::AppError;

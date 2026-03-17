@@ -5,6 +5,8 @@ pub mod analyzer;
 #[allow(dead_code)]
 pub mod consolidation;
 #[allow(dead_code)]
+pub mod context_snapshot;
+#[allow(dead_code)]
 pub mod embedding;
 #[allow(dead_code)]
 pub mod importance_evaluator;
@@ -24,6 +26,8 @@ pub mod multimodal_memory;
 pub mod predictor;
 #[allow(dead_code)]
 pub mod qdrant;
+#[allow(dead_code)]
+pub mod rbac;
 #[allow(dead_code)]
 pub mod rerank;
 pub mod scheduler;
