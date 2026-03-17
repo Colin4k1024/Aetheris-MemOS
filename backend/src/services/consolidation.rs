@@ -3,8 +3,8 @@
 //! Implements sleep-like memory consolidation for transforming short-term memories
 //! into structured long-term knowledge.
 
-use crate::kernel::types::*;
 use crate::kernel::error::MemoryResult;
+use crate::kernel::types::*;
 
 /// Consolidation trigger type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,7 +113,10 @@ impl ConsolidationService {
     }
 
     /// Run memory consolidation cycle
-    pub async fn consolidate(&mut self, stm_entries: &[MemoryEntry]) -> MemoryResult<ConsolidationResult> {
+    pub async fn consolidate(
+        &mut self,
+        stm_entries: &[MemoryEntry],
+    ) -> MemoryResult<ConsolidationResult> {
         use crate::services::memory_storage::MemoryStorageService;
 
         let now = chrono::Utc::now().timestamp();
@@ -150,19 +153,27 @@ impl ConsolidationService {
                         "consolidated",
                         &format!("Consolidated from STM: {}", truncated),
                         None,
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             result.consolidated_count += 1;
                         }
                         Err(e) => {
-                            result.summary.push(format!("Transfer failed for {}: {}", entry.id.as_str(), e));
+                            result.summary.push(format!(
+                                "Transfer failed for {}: {}",
+                                entry.id.as_str(),
+                                e
+                            ));
                         }
                     }
                 }
             } else if self.config.enable_compression && age_hours > 48.0 {
                 // Compress old low-importance memories
                 result.compressed_count += 1;
-                result.summary.push(format!("Compressed entry: {}", entry.id.as_str()));
+                result
+                    .summary
+                    .push(format!("Compressed entry: {}", entry.id.as_str()));
             }
         }
 
@@ -171,7 +182,9 @@ impl ConsolidationService {
             let conflicts = self.detect_conflicts(stm_entries).await;
             result.conflicts_resolved = conflicts.len();
             for conflict in conflicts {
-                result.summary.push(format!("Resolved conflict: {}", conflict));
+                result
+                    .summary
+                    .push(format!("Resolved conflict: {}", conflict));
             }
         }
 
@@ -179,7 +192,9 @@ impl ConsolidationService {
         self.last_consolidation = now;
 
         if result.consolidated_count == 0 && result.compressed_count == 0 {
-            result.summary.push("No memories met consolidation criteria".to_string());
+            result
+                .summary
+                .push("No memories met consolidation criteria".to_string());
         }
 
         Ok(result)
@@ -233,7 +248,10 @@ impl ConsolidationScheduler {
     }
 
     /// Run consolidation if triggered
-    pub async fn run_cycle(&mut self, stm_entries: &[MemoryEntry]) -> MemoryResult<ConsolidationResult> {
+    pub async fn run_cycle(
+        &mut self,
+        stm_entries: &[MemoryEntry],
+    ) -> MemoryResult<ConsolidationResult> {
         if self.service.should_consolidate(stm_entries.len()) {
             self.service.consolidate(stm_entries).await
         } else {
@@ -245,7 +263,10 @@ impl ConsolidationScheduler {
     }
 
     /// Force immediate consolidation
-    pub async fn force_consolidate(&mut self, stm_entries: &[MemoryEntry]) -> MemoryResult<ConsolidationResult> {
+    pub async fn force_consolidate(
+        &mut self,
+        stm_entries: &[MemoryEntry],
+    ) -> MemoryResult<ConsolidationResult> {
         self.service.consolidate(stm_entries).await
     }
 
