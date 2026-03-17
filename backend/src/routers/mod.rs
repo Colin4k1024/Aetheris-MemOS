@@ -14,6 +14,7 @@ mod knowledge_graph;
 mod mcp;
 #[allow(dead_code)]
 mod memory;
+mod memory_pool;
 mod memory_search;
 mod memory_storage;
 #[allow(dead_code)]
@@ -134,6 +135,20 @@ pub fn root() -> Router {
                 .route("/checkpoint", post(snapshot::create_checkpoint))
                 .route("/rollback", post(snapshot::rollback_to_checkpoint))
                 .route("/checkpoints/{task_id}", get(snapshot::list_checkpoints)),
+        )
+        // Memory pool routes (Multi-agent Collaborative)
+        .nest(
+            "/memory-pool",
+            Router::new()
+                .route("/register", post(memory_pool::register_agent))
+                .route("/unregister/{agent_id}", post(memory_pool::unregister_agent))
+                .route("/share/{owner_agent_id}", post(memory_pool::share_memory))
+                .route("/revoke/{owner_agent_id}/{memory_id}", post(memory_pool::revoke_memory))
+                .route("/visible/{agent_id}", get(memory_pool::get_visible_memories))
+                .route("/correlations", post(memory_pool::add_correlation))
+                .route("/correlations/{memory_id}", get(memory_pool::get_correlations))
+                .route("/network", get(memory_pool::get_network_status))
+                .route("/agents", get(memory_pool::list_agents)),
         )
         .route_layer(memory_rate_limit);
 

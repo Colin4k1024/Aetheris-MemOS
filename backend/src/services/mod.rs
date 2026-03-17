@@ -13,6 +13,7 @@ pub mod importance_evaluator;
 #[allow(dead_code)]
 pub mod llm;
 pub mod memory_orchestrator;
+pub mod memory_pool;
 pub mod memory_search;
 pub mod memory_storage;
 #[allow(dead_code)]
