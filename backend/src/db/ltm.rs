@@ -5,8 +5,8 @@ use sqlx::FromRow;
 use tracing::{error, info};
 use ulid::Ulid;
 
-use crate::AppError;
 use crate::db::pool;
+use crate::AppError;
 
 /// 长期记忆仓库
 pub struct LTMRepository;

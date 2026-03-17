@@ -2,7 +2,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, instrument, warn};
 
-use crate::AppError;
 use crate::config;
 use crate::db::{
     ltm::LTMRepository,
@@ -11,6 +10,7 @@ use crate::db::{
 use crate::services::{
     embedding::get_embedding_service, qdrant::get_qdrant_client, rerank::get_rerank_service,
 };
+use crate::AppError;
 
 /// 记忆搜索服务
 pub struct MemorySearchService;

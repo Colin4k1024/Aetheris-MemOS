@@ -21,4 +21,3 @@ fn default_llm_model() -> String {
 fn default_timeout() -> u64 {
     30
 }
-

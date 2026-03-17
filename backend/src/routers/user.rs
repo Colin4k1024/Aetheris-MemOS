@@ -1,7 +1,7 @@
 use crate::hoops::jwt;
-use axum::Json;
 use axum::extract::{Path, Query};
 use axum::response::{Html, IntoResponse, Redirect};
+use axum::Json;
 use axum_extra::extract::cookie::CookieJar;
 use rinja::Template;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::models::SafeUser;
-use crate::{AppError, AppResult, EmptyResult, JsonResult, db, empty_ok, json_ok, utils};
+use crate::{db, empty_ok, json_ok, utils, AppError, AppResult, EmptyResult, JsonResult};
 
 #[derive(Template)]
 #[template(path = "user_list_page.html")]

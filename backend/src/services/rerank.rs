@@ -29,12 +29,12 @@ impl RerankService {
     pub fn new() -> Result<Self> {
         let config = config::get();
         let timeout = Duration::from_secs(config.rerank.timeout_seconds);
-        
+
         let client = Client::builder()
             .timeout(timeout)
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
-        
+
         info!(
             "Rerank service initialized: base_url={}, model={}",
             config.rerank.base_url, config.rerank.model
@@ -49,11 +49,11 @@ impl RerankService {
     }
 
     /// 对搜索结果进行重新排序
-    /// 
+    ///
     /// # 参数
     /// - `query`: 查询文本
     /// - `candidates`: 候选结果列表，每个元素包含内容和原始分数
-    /// 
+    ///
     /// # 返回
     /// 返回重新排序后的结果，包含索引和新的相关性分数
     #[instrument(skip(self))]
@@ -66,7 +66,11 @@ impl RerankService {
             return Ok(Vec::new());
         }
 
-        info!("Reranking {} candidates for query: {}", candidates.len(), query);
+        info!(
+            "Reranking {} candidates for query: {}",
+            candidates.len(),
+            query
+        );
 
         // 由于 Ollama 可能不直接支持 rerank API，我们使用 LLM 进行相关性评分
         // 方案：为每个候选结果生成相关性评分
@@ -74,22 +78,29 @@ impl RerankService {
 
         // 批量处理以提高效率（可以并行处理）
         for (index, (content, _original_score)) in candidates.iter().enumerate() {
-            let score = self.score_relevance(query, content).await.unwrap_or_else(|e| {
-                warn!("Failed to score relevance for candidate {}: {}", index, e);
-                // 如果评分失败，使用原始分数（归一化到 0-1）
-                0.5
-            });
+            let score = self
+                .score_relevance(query, content)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!("Failed to score relevance for candidate {}: {}", index, e);
+                    // 如果评分失败，使用原始分数（归一化到 0-1）
+                    0.5
+                });
 
-            rerank_results.push(RerankResult {
-                index,
-                score,
-            });
+            rerank_results.push(RerankResult { index, score });
         }
 
         // 按分数降序排序
-        rerank_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        rerank_results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
-        info!("Reranking completed: processed {} candidates", rerank_results.len());
+        info!(
+            "Reranking completed: processed {} candidates",
+            rerank_results.len()
+        );
         Ok(rerank_results)
     }
 
@@ -103,12 +114,11 @@ impl RerankService {
 文档：{}
 
 请只返回一个浮点数（0.0 到 1.0 之间），不要包含任何其他文字。"#,
-            query,
-            document
+            query, document
         );
 
         let url = format!("{}/api/generate", self.base_url);
-        
+
         let request_body = json!({
             "model": self.model,
             "prompt": prompt,
@@ -132,17 +142,17 @@ impl RerankService {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            error!("Ollama API returned error: status={}, body={}", status, error_text);
+            error!(
+                "Ollama API returned error: status={}, body={}",
+                status, error_text
+            );
             return Err(anyhow::anyhow!("Ollama API error: status={}", status));
         }
 
-        let ollama_response: OllamaResponse = response
-            .json()
-            .await
-            .map_err(|e| {
-                error!("Failed to parse Ollama response: {}", e);
-                anyhow::anyhow!("Failed to parse response: {}", e)
-            })?;
+        let ollama_response: OllamaResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse Ollama response: {}", e);
+            anyhow::anyhow!("Failed to parse response: {}", e)
+        })?;
 
         // 从响应中提取分数
         let score_text = ollama_response.response.trim();
@@ -154,7 +164,7 @@ impl RerankService {
                     .split_whitespace()
                     .filter(|s| s.chars().any(|c| c.is_ascii_digit() || c == '.'))
                     .collect();
-                
+
                 if let Some(first_num) = numbers.first() {
                     first_num.parse::<f32>().unwrap_or(0.5)
                 } else {
@@ -178,7 +188,7 @@ static RERANK_SERVICE: once_cell::sync::OnceCell<RerankService> = once_cell::syn
 
 /// 获取全局 Rerank 服务实例
 pub fn get_rerank_service() -> Result<&'static RerankService> {
-    RERANK_SERVICE.get_or_try_init(|| RerankService::new())
+    RERANK_SERVICE
+        .get_or_try_init(|| RerankService::new())
         .map_err(|e| anyhow::anyhow!("Failed to initialize rerank service: {}", e))
 }
-

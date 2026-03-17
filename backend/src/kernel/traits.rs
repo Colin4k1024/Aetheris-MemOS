@@ -1,32 +1,48 @@
 //! Memory Kernel - Core Trait Definitions
 
-use std::collections::HashMap;
-use crate::kernel::types::*;
 use crate::kernel::error::{MemoryError, MemoryResult};
+use crate::kernel::types::*;
+use std::collections::HashMap;
 
 /// Core trait for Memory Kernel operations.
-/// 
+///
 /// This is the main entry point for all memory operations in the system.
 /// Implementations can delegate to different storage backends.
 pub trait MemoryKernel: Send + Sync {
     /// Store a new memory entry.
-    fn store(&self, entry: MemoryEntry) -> impl std::future::Future<Output = MemoryResult<MemoryId>> + Send;
-    
+    fn store(
+        &self,
+        entry: MemoryEntry,
+    ) -> impl std::future::Future<Output = MemoryResult<MemoryId>> + Send;
+
     /// Retrieve a memory entry by ID.
-    fn retrieve(&self, id: &MemoryId) -> impl std::future::Future<Output = MemoryResult<MemoryEntry>> + Send;
-    
+    fn retrieve(
+        &self,
+        id: &MemoryId,
+    ) -> impl std::future::Future<Output = MemoryResult<MemoryEntry>> + Send;
+
     /// Search memories based on query parameters.
-    fn search(&self, query: &MemoryQuery) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
-    
+    fn search(
+        &self,
+        query: &MemoryQuery,
+    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
+
     /// Update an existing memory entry.
-    fn update(&self, id: &MemoryId, entry: MemoryEntry) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
-    
+    fn update(
+        &self,
+        id: &MemoryId,
+        entry: MemoryEntry,
+    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+
     /// Delete a memory entry.
     fn delete(&self, id: &MemoryId) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
-    
+
     /// Evict memories based on policy.
-    fn evict(&self, policy: &EvictionPolicy) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryId>>> + Send;
-    
+    fn evict(
+        &self,
+        policy: &EvictionPolicy,
+    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryId>>> + Send;
+
     /// Get statistics about memory usage.
     fn stats(&self) -> impl std::future::Future<Output = MemoryResult<MemoryStats>> + Send;
 }
@@ -98,22 +114,35 @@ pub struct LayerStats {
 pub trait MemoryLayer: Send + Sync {
     /// Get the layer type.
     fn layer_type(&self) -> LayerType;
-    
+
     /// Store memory in this layer.
-    fn store(&self, entry: MemoryEntry) -> impl std::future::Future<Output = MemoryResult<MemoryId>> + Send;
-    
+    fn store(
+        &self,
+        entry: MemoryEntry,
+    ) -> impl std::future::Future<Output = MemoryResult<MemoryId>> + Send;
+
     /// Retrieve memory from this layer.
-    fn retrieve(&self, id: &MemoryId) -> impl std::future::Future<Output = MemoryResult<MemoryEntry>> + Send;
-    
+    fn retrieve(
+        &self,
+        id: &MemoryId,
+    ) -> impl std::future::Future<Output = MemoryResult<MemoryEntry>> + Send;
+
     /// Search within this layer.
-    fn search(&self, query: &MemoryQuery) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
-    
+    fn search(
+        &self,
+        query: &MemoryQuery,
+    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
+
     /// Update memory in this layer.
-    fn update(&self, id: &MemoryId, entry: MemoryEntry) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
-    
+    fn update(
+        &self,
+        id: &MemoryId,
+        entry: MemoryEntry,
+    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+
     /// Delete memory from this layer.
     fn delete(&self, id: &MemoryId) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
-    
+
     /// Get layer statistics.
     fn stats(&self) -> impl std::future::Future<Output = MemoryResult<LayerStats>> + Send;
 }
@@ -127,7 +156,7 @@ pub trait VectorSearch: Send + Sync {
         limit: usize,
         filters: &MemoryFilters,
     ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
-    
+
     /// Add vectors to the index.
     fn upsert_vectors(
         &self,
@@ -138,34 +167,56 @@ pub trait VectorSearch: Send + Sync {
 /// Trait for graph operations (Knowledge Graph).
 pub trait GraphMemory: Send + Sync {
     /// Add a node to the graph.
-    fn add_node(&self, node: GraphNode) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
-    
+    fn add_node(
+        &self,
+        node: GraphNode,
+    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+
     /// Add an edge to the graph.
-    fn add_edge(&self, edge: GraphEdge) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
-    
+    fn add_edge(
+        &self,
+        edge: GraphEdge,
+    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+
     /// Query nodes.
-    fn query_nodes(&self, labels: &[String], properties: &HashMap<String, serde_json::Value>) -> impl std::future::Future<Output = MemoryResult<Vec<GraphNode>>> + Send;
-    
+    fn query_nodes(
+        &self,
+        labels: &[String],
+        properties: &HashMap<String, serde_json::Value>,
+    ) -> impl std::future::Future<Output = MemoryResult<Vec<GraphNode>>> + Send;
+
     /// Query edges.
-    fn query_edges(&self, from: Option<&str>, to: Option<&str>, relation: Option<&str>) -> impl std::future::Future<Output = MemoryResult<Vec<GraphEdge>>> + Send;
-    
+    fn query_edges(
+        &self,
+        from: Option<&str>,
+        to: Option<&str>,
+        relation: Option<&str>,
+    ) -> impl std::future::Future<Output = MemoryResult<Vec<GraphEdge>>> + Send;
+
     /// Traverse the graph.
-    fn traverse(&self, start: &str, depth: usize) -> impl std::future::Future<Output = MemoryResult<Vec<GraphNode>>> + Send;
+    fn traverse(
+        &self,
+        start: &str,
+        depth: usize,
+    ) -> impl std::future::Future<Output = MemoryResult<Vec<GraphNode>>> + Send;
 }
 
 /// Trait for memory context management.
 pub trait MemoryContext: Send + Sync {
     /// Get the current session context.
     fn session(&self) -> &SessionContext;
-    
+
     /// Push a memory to the context.
     fn push(&self, memory: MemoryId) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
-    
+
     /// Pop the most recent memory.
     fn pop(&self) -> impl std::future::Future<Output = MemoryResult<Option<MemoryId>>> + Send;
-    
+
     /// Get recent memories.
-    fn recent(&self, count: usize) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryId>>> + Send;
+    fn recent(
+        &self,
+        count: usize,
+    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryId>>> + Send;
 }
 
 /// Session context for tracking memory operations.

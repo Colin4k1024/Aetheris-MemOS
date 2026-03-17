@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{error, info, instrument, warn};
 
-use crate::AppError;
 use crate::db::stm::{STMRepository, Session};
 use crate::services::memory_storage::MemoryStorageService;
+use crate::AppError;
 
 /// 记忆自动转移服务
 pub struct MemoryTransferService {
@@ -71,7 +71,9 @@ impl MemoryTransferService {
                 let mut last_error = None;
 
                 for attempt in 1..=max_retries {
-                    match Self::check_and_transfer(message_count_threshold, session_time_threshold).await {
+                    match Self::check_and_transfer(message_count_threshold, session_time_threshold)
+                        .await
+                    {
                         Ok(_) => {
                             break; // 成功，跳出重试循环
                         }

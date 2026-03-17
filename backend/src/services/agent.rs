@@ -50,7 +50,16 @@ pub trait MemoryAgent {
     type Decision;
     type Action;
 
-    fn observe(&self, context: &Self::Context) -> impl std::future::Future<Output = Self::Observation> + Send;
-    fn decide(&self, observation: &Self::Observation) -> impl std::future::Future<Output = Self::Decision> + Send;
-    fn act(&self, decision: &Self::Decision) -> impl std::future::Future<Output = Result<Self::Action, crate::AppError>> + Send;
+    fn observe(
+        &self,
+        context: &Self::Context,
+    ) -> impl std::future::Future<Output = Self::Observation> + Send;
+    fn decide(
+        &self,
+        observation: &Self::Observation,
+    ) -> impl std::future::Future<Output = Self::Decision> + Send;
+    fn act(
+        &self,
+        decision: &Self::Decision,
+    ) -> impl std::future::Future<Output = Result<Self::Action, crate::AppError>> + Send;
 }

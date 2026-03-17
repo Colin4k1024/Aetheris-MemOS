@@ -27,8 +27,13 @@ pub struct ServerCapabilities {
 impl Default for ServerCapabilities {
     fn default() -> Self {
         Self {
-            tools: Some(ToolCapability { list_changed: Some(true) }),
-            resources: Some(ResourceCapability { subscribe: Some(true), list_changed: Some(true) }),
+            tools: Some(ToolCapability {
+                list_changed: Some(true),
+            }),
+            resources: Some(ResourceCapability {
+                subscribe: Some(true),
+                list_changed: Some(true),
+            }),
             prompts: None,
         }
     }
@@ -188,7 +193,7 @@ pub enum ToolContent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageContent {
-    pub data: String,  // base64
+    pub data: String, // base64
     pub mime_type: String,
 }
 

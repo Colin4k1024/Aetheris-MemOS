@@ -20,7 +20,7 @@ fn default_neo4j_host() -> String {
 }
 
 fn default_neo4j_port() -> u16 {
-    7687  // Neo4j Bolt 协议默认端口
+    7687 // Neo4j Bolt 协议默认端口
 }
 
 fn default_neo4j_username() -> String {

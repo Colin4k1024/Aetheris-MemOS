@@ -1,14 +1,13 @@
 /// 记忆系统集成测试
-/// 
+///
 /// 本测试脚本用于验证记忆存储和搜索功能：
 /// 1. 写入10条不同主题的记忆数据
 /// 2. 使用不同的查询词进行搜索测试
 /// 3. 验证搜索结果是否正确
-/// 
+///
 /// 运行方式：
 ///   1. 确保服务已启动: cargo run
 ///   2. 运行测试: cargo run --example test_memory_search
-
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -79,37 +78,35 @@ struct SearchLTMResponse {
 async fn main() -> Result<()> {
     // 初始化日志
     tracing_subscriber::fmt::init();
-    
+
     info!("=== 记忆系统集成测试开始 ===");
-    
+
     // API 基础 URL
-    let base_url = std::env::var("API_BASE_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8008".to_string());
-    
+    let base_url =
+        std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8008".to_string());
+
     info!("API 基础 URL: {}", base_url);
-    
+
     // 创建 HTTP 客户端
-    let client = Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()?;
-    
+    let client = Client::builder().timeout(Duration::from_secs(60)).build()?;
+
     // 检查服务是否可用
     if !check_service_available(&client, &base_url).await {
         error!("服务不可用，请确保服务已启动: cargo run");
         return Err(anyhow::anyhow!("服务不可用"));
     }
-    
+
     // 检查依赖服务
     let deps_ok = check_dependencies().await;
     if !deps_ok {
         warn!("\n⚠ 警告：部分依赖服务不可用");
         warn!("测试可能会失败，但将继续尝试...\n");
     }
-    
+
     // 准备测试数据
     let test_memories = prepare_test_memories();
     info!("准备了 {} 条测试记忆数据", test_memories.len());
-    
+
     // 执行测试
     match run_tests(&client, &base_url, test_memories).await {
         Ok(()) => {
@@ -203,7 +200,7 @@ fn prepare_test_memories() -> Vec<TestMemory> {
 async fn check_service_available(client: &Client, base_url: &str) -> bool {
     info!("检查服务是否可用...");
     let url = format!("{}/api/v1/memory/health", base_url);
-    
+
     match client.get(&url).send().await {
         Ok(resp) => {
             if resp.status().is_success() {
@@ -225,7 +222,7 @@ async fn check_service_available(client: &Client, base_url: &str) -> bool {
 async fn check_dependencies() -> bool {
     info!("检查依赖服务...");
     let mut all_ok = true;
-    
+
     // 检查 Ollama (LLM 服务)
     let ollama_url = "http://localhost:11434";
     info!("检查 Ollama 服务 ({})...", ollama_url);
@@ -233,30 +230,28 @@ async fn check_dependencies() -> bool {
         .timeout(Duration::from_secs(3))
         .build()
     {
-        Ok(client) => {
-            match client.get(ollama_url).send().await {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        info!("  ✓ Ollama 服务可用");
-                    } else {
-                        warn!("  ⚠ Ollama 服务响应异常: {}", resp.status());
-                        all_ok = false;
-                    }
-                }
-                Err(e) => {
-                    error!("  ✗ Ollama 服务不可用: {}", e);
-                    error!("    请确保 Ollama 已安装并运行: https://ollama.ai/");
-                    error!("    启动命令: ollama serve");
+        Ok(client) => match client.get(ollama_url).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    info!("  ✓ Ollama 服务可用");
+                } else {
+                    warn!("  ⚠ Ollama 服务响应异常: {}", resp.status());
                     all_ok = false;
                 }
             }
-        }
+            Err(e) => {
+                error!("  ✗ Ollama 服务不可用: {}", e);
+                error!("    请确保 Ollama 已安装并运行: https://ollama.ai/");
+                error!("    启动命令: ollama serve");
+                all_ok = false;
+            }
+        },
         Err(e) => {
             error!("  ✗ 无法创建 HTTP 客户端: {}", e);
             all_ok = false;
         }
     }
-    
+
     // 检查 Ollama 模型是否可用
     if all_ok {
         info!("检查 Ollama 模型...");
@@ -268,10 +263,14 @@ async fn check_dependencies() -> bool {
                         if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
                             let model_names: Vec<String> = models
                                 .iter()
-                                .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                                .filter_map(|m| {
+                                    m.get("name")
+                                        .and_then(|n| n.as_str())
+                                        .map(|s| s.to_string())
+                                })
                                 .collect();
                             info!("  已安装的模型: {:?}", model_names);
-                            
+
                             // 检查需要的模型
                             let required_models = vec!["llama2", "nomic-embed-text"];
                             for model in required_models {
@@ -291,7 +290,7 @@ async fn check_dependencies() -> bool {
             }
         }
     }
-    
+
     // 检查 Qdrant 服务（HTTP REST API 在 6333，gRPC 在 6334）
     // qdrant-client 使用 gRPC，但我们检查 HTTP API 来确认服务是否运行
     let qdrant_http_url = "http://localhost:6333";
@@ -300,82 +299,74 @@ async fn check_dependencies() -> bool {
         .timeout(Duration::from_secs(3))
         .build()
     {
-        Ok(client) => {
-            match client.get(qdrant_http_url).send().await {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        info!("  ✓ Qdrant HTTP API 可用（gRPC 端口 6334 应该也可用）");
-                    } else {
-                        warn!("  ⚠ Qdrant 服务响应异常: {}", resp.status());
-                        all_ok = false;
-                    }
-                }
-                Err(e) => {
-                    error!("  ✗ Qdrant 服务不可用: {}", e);
-                    error!("    请确保 Qdrant 已安装并运行");
-                    error!("    启动命令: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant");
+        Ok(client) => match client.get(qdrant_http_url).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    info!("  ✓ Qdrant HTTP API 可用（gRPC 端口 6334 应该也可用）");
+                } else {
+                    warn!("  ⚠ Qdrant 服务响应异常: {}", resp.status());
                     all_ok = false;
                 }
             }
-        }
+            Err(e) => {
+                error!("  ✗ Qdrant 服务不可用: {}", e);
+                error!("    请确保 Qdrant 已安装并运行");
+                error!("    启动命令: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant");
+                all_ok = false;
+            }
+        },
         Err(e) => {
             error!("  ✗ 无法创建 HTTP 客户端: {}", e);
             all_ok = false;
         }
     }
-    
+
     if !all_ok {
         warn!("\n⚠ 部分依赖服务不可用，测试可能会失败");
         warn!("建议先启动所有依赖服务后再运行测试");
     }
-    
+
     all_ok
 }
 
 /// 运行测试
-async fn run_tests(
-    client: &Client,
-    base_url: &str,
-    test_memories: Vec<TestMemory>,
-) -> Result<()> {
+async fn run_tests(client: &Client, base_url: &str, test_memories: Vec<TestMemory>) -> Result<()> {
     // 阶段1：写入记忆数据
     info!("\n=== 阶段1：写入记忆数据 ===");
     let mut entry_ids = HashMap::new();
-    
+
     let store_url = format!("{}/api/v1/memory/storage/ltm", base_url);
-    
+
     for (index, memory) in test_memories.iter().enumerate() {
-        info!("写入记忆 {}/{}: {}", 
-              index + 1, 
-              test_memories.len(), 
-              memory.title.as_deref().unwrap_or("无标题"));
-        
+        info!(
+            "写入记忆 {}/{}: {}",
+            index + 1,
+            test_memories.len(),
+            memory.title.as_deref().unwrap_or("无标题")
+        );
+
         let request = StoreLTMRequest {
             source_id: memory.source_id.clone(),
             source_type: memory.source_type.clone(),
             content: memory.content.clone(),
             title: memory.title.clone(),
         };
-        
-        match client
-            .post(&store_url)
-            .json(&request)
-            .send()
-            .await
-        {
+
+        match client.post(&store_url).json(&request).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 let url = resp.url().clone();
                 // 在消耗 resp 之前先获取所有需要的信息
-                let content_type = resp.headers()
+                let content_type = resp
+                    .headers()
                     .get("content-type")
                     .and_then(|h| h.to_str().ok())
                     .unwrap_or("unknown")
                     .to_string();
-                
+
                 if status.is_success() {
                     info!("  响应Content-Type: {}", content_type);
-                    
+
                     // 使用 bytes() 先获取原始字节，然后转换为字符串
                     let response_text = match resp.bytes().await {
                         Ok(bytes) => {
@@ -401,9 +392,12 @@ async fn run_tests(
                             continue;
                         }
                     };
-                    
-                    info!("  响应内容 (前200字符): {}", response_text.chars().take(200).collect::<String>());
-                    
+
+                    info!(
+                        "  响应内容 (前200字符): {}",
+                        response_text.chars().take(200).collect::<String>()
+                    );
+
                     match serde_json::from_str::<StoreLTMResponse>(&response_text) {
                         Ok(data) => {
                             info!("  ✓ 成功写入，entry_id: {}", data.entry_id);
@@ -414,7 +408,10 @@ async fn run_tests(
                             error!("  状态码: {}", status);
                             error!("  Content-Type: {}", content_type);
                             if response_text.len() > 500 {
-                                error!("  响应前500字符: {}", response_text.chars().take(500).collect::<String>());
+                                error!(
+                                    "  响应前500字符: {}",
+                                    response_text.chars().take(500).collect::<String>()
+                                );
                             } else {
                                 error!("  完整响应: {}", response_text);
                             }
@@ -425,7 +422,7 @@ async fn run_tests(
                 } else {
                     let status = resp.status();
                     let error_text = resp.text().await.unwrap_or_default();
-                    
+
                     // 尝试提取 JSON 错误信息（如果有）
                     let error_msg = if error_text.starts_with('{') {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&error_text) {
@@ -445,20 +442,22 @@ async fn run_tests(
                             error_text.chars().take(200).collect()
                         }
                     };
-                    
+
                     error!("  ✗ 写入失败: {} - {}", status, error_msg);
                     warn!("  跳过此条记录，继续测试...");
-                    
+
                     // 如果是第一个请求失败，提供诊断建议
                     if index == 0 {
                         error!("\n诊断建议：");
                         error!("1. 检查 Ollama 服务是否运行: curl http://localhost:11434");
-                        error!("2. 检查 Qdrant 服务是否运行: curl http://localhost:6333 (HTTP API)");
+                        error!(
+                            "2. 检查 Qdrant 服务是否运行: curl http://localhost:6333 (HTTP API)"
+                        );
                         error!("   注意：qdrant-client 使用 gRPC 端口 6334，确保 Qdrant 同时暴露 6333 和 6334 端口");
                         error!("3. 查看后端服务日志获取详细错误信息");
                         error!("4. 确保所有依赖服务已正确配置");
                     }
-                    
+
                     continue; // 继续处理下一条记录，而不是退出
                 }
             }
@@ -468,33 +467,37 @@ async fn run_tests(
                 continue; // 继续处理下一条记录
             }
         }
-        
+
         // 添加短暂延迟，避免请求过快
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
-    
+
     let success_count = entry_ids.len();
     let total_count = test_memories.len();
-    
+
     if success_count == 0 {
         error!("所有写入都失败了，无法继续搜索测试");
         return Err(anyhow::anyhow!("所有写入都失败了"));
     }
-    
+
     if success_count < total_count {
-        warn!("成功写入 {} 条记忆数据（共 {} 条，{} 条失败）", 
-              success_count, total_count, total_count - success_count);
+        warn!(
+            "成功写入 {} 条记忆数据（共 {} 条，{} 条失败）",
+            success_count,
+            total_count,
+            total_count - success_count
+        );
     } else {
         info!("成功写入 {} 条记忆数据", success_count);
     }
-    
+
     // 等待一下，确保数据已完全处理（LLM 总结和向量化需要时间）
     info!("等待数据处理完成（LLM 总结和向量化）...");
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-    
+
     // 阶段2：搜索测试
     info!("\n=== 阶段2：搜索测试 ===");
-    
+
     // 测试不同的查询词
     let test_queries = vec![
         ("Rust", vec!["test_rust_1"]),
@@ -508,39 +511,35 @@ async fn run_tests(
         ("区块链", vec!["test_blockchain_1"]),
         ("微服务", vec!["test_microservices_1"]),
     ];
-    
+
     let search_url = format!("{}/api/v1/memory/search/ltm", base_url);
     let mut passed_tests = 0;
     let mut failed_tests = 0;
-    
+
     for (query, expected_source_ids) in test_queries {
         info!("\n测试查询: \"{}\"", query);
-        
+
         let search_request = SearchLTMRequest {
             query: query.to_string(),
             top_k: Some(10),
             enable_rerank: Some(false), // 禁用以加快测试
             min_score: None,
         };
-        
-        match client
-            .post(&search_url)
-            .json(&search_request)
-            .send()
-            .await
-        {
+
+        match client.post(&search_url).json(&search_request).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 let url = resp.url().clone();
-                let content_type = resp.headers()
+                let content_type = resp
+                    .headers()
                     .get("content-type")
                     .and_then(|h| h.to_str().ok())
                     .unwrap_or("unknown")
                     .to_string();
-                
+
                 if status.is_success() {
                     info!("  响应Content-Type: {}", content_type);
-                    
+
                     // 使用 bytes() 先获取原始字节，然后转换为字符串
                     let response_text = match resp.bytes().await {
                         Ok(bytes) => {
@@ -566,54 +565,63 @@ async fn run_tests(
                             continue;
                         }
                     };
-                    
-                    info!("  响应内容 (前200字符): {}", response_text.chars().take(200).collect::<String>());
-                    
+
+                    info!(
+                        "  响应内容 (前200字符): {}",
+                        response_text.chars().take(200).collect::<String>()
+                    );
+
                     match serde_json::from_str::<SearchLTMResponse>(&response_text) {
                         Ok(data) => {
                             let results = data.results;
                             info!("  找到 {} 条结果", results.len());
-                            
+
                             if results.is_empty() {
                                 warn!("  ✗ 未找到任何结果");
                                 failed_tests += 1;
                                 continue;
                             }
-                            
+
                             // 验证结果
                             let mut found_expected = false;
                             let expected_source_id = expected_source_ids[0].to_string();
                             for result in &results {
                                 // 检查是否包含预期的记忆
-                                if let Some(expected_entry_id) = entry_ids.get(&expected_source_id) {
+                                if let Some(expected_entry_id) = entry_ids.get(&expected_source_id)
+                                {
                                     if result.entry_id == *expected_entry_id {
                                         found_expected = true;
-                                        info!("  ✓ 找到预期结果: entry_id={}, score={:.4}", 
-                                              result.entry_id, result.score);
+                                        info!(
+                                            "  ✓ 找到预期结果: entry_id={}, score={:.4}",
+                                            result.entry_id, result.score
+                                        );
                                         break;
                                     }
                                 }
                             }
-                            
+
                             if found_expected {
                                 passed_tests += 1;
                                 info!("  ✓ 测试通过");
                             } else {
                                 warn!("  ✗ 未找到预期的记忆条目");
                                 info!("  预期 source_id: {:?}", expected_source_ids);
-                                info!("  实际找到的 entry_ids: {:?}", 
-                                      results.iter().map(|r| &r.entry_id).collect::<Vec<_>>());
+                                info!(
+                                    "  实际找到的 entry_ids: {:?}",
+                                    results.iter().map(|r| &r.entry_id).collect::<Vec<_>>()
+                                );
                                 failed_tests += 1;
                             }
-                            
+
                             // 显示前3个结果
                             for result in results.iter().take(3) {
-                                let title = result.title.as_ref()
+                                let title = result
+                                    .title
+                                    .as_ref()
                                     .map(|t| t.as_str())
                                     .unwrap_or("无标题");
                                 let preview: String = result.content.chars().take(50).collect();
-                                info!("    [{:.4}] {} - {}", 
-                                      result.score, title, preview);
+                                info!("    [{:.4}] {} - {}", result.score, title, preview);
                             }
                         }
                         Err(e) => {
@@ -621,7 +629,10 @@ async fn run_tests(
                             error!("  状态码: {}", status);
                             error!("  Content-Type: {}", content_type);
                             if response_text.len() > 500 {
-                                error!("  响应前500字符: {}", response_text.chars().take(500).collect::<String>());
+                                error!(
+                                    "  响应前500字符: {}",
+                                    response_text.chars().take(500).collect::<String>()
+                                );
                             } else {
                                 error!("  完整响应: {}", response_text);
                             }
@@ -641,14 +652,14 @@ async fn run_tests(
             }
         }
     }
-    
+
     // 测试总结
     let total_tests = passed_tests + failed_tests;
     info!("\n=== 测试总结 ===");
     info!("总测试数: {}", total_tests);
     info!("通过: {}", passed_tests);
     info!("失败: {}", failed_tests);
-    
+
     if failed_tests > 0 {
         Err(anyhow::anyhow!("有 {} 个测试失败", failed_tests))
     } else {

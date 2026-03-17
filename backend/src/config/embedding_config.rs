@@ -27,4 +27,3 @@ fn default_embedding_dimension() -> usize {
 fn default_timeout() -> u64 {
     30
 }
-

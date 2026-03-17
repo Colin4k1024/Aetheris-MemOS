@@ -1,6 +1,6 @@
 use argon2::{
+    password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHash,
-    password_hash::{SaltString, rand_core::OsRng},
 };
 use rand::Rng;
 use std::iter;
