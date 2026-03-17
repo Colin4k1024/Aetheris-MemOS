@@ -1,14 +1,14 @@
 //! Knowledge Graph API Routes
 
-use axum::Json;
 use axum::extract::{Path, Query};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::db::kg::KGRepository;
 use crate::db::pool;
-use crate::{JsonResult, json_ok};
+use crate::{json_ok, JsonResult};
 
 /// 创建实体请求
 #[derive(Deserialize, ToSchema, Validate)]

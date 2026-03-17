@@ -4,12 +4,12 @@
 
 #![allow(dead_code)]
 
-use std::sync::Arc;
-use neo4rs::{Graph, Node, Relation, Row, query};
-use tokio::sync::RwLock;
-use tracing::{info, error};
-use crate::AppError;
 use crate::config::Neo4jConfig;
+use crate::AppError;
+use neo4rs::{query, Graph, Node, Relation, Row};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{error, info};
 
 /// Neo4j connection manager
 pub struct Neo4jManager {
@@ -41,11 +41,10 @@ impl Neo4jManager {
     /// Execute a query and return results
     pub async fn execute(&self, query_str: &str) -> Result<Vec<Row>, AppError> {
         let q = query(query_str);
-        let mut rows = self.graph.execute(q).await
-            .map_err(|e| {
-                error!("Neo4j query failed: {}", e);
-                AppError::Internal(format!("Neo4j query failed: {}", e))
-            })?;
+        let mut rows = self.graph.execute(q).await.map_err(|e| {
+            error!("Neo4j query failed: {}", e);
+            AppError::Internal(format!("Neo4j query failed: {}", e))
+        })?;
 
         let mut results = Vec::new();
         while let Ok(Some(row)) = rows.next().await {
@@ -55,16 +54,12 @@ impl Neo4jManager {
     }
 
     /// Execute a query with parameters
-    pub async fn execute_with_params(
-        &self,
-        query_str: &str,
-    ) -> Result<Vec<Row>, AppError> {
+    pub async fn execute_with_params(&self, query_str: &str) -> Result<Vec<Row>, AppError> {
         let q = query(query_str);
-        let mut rows = self.graph.execute(q).await
-            .map_err(|e| {
-                error!("Neo4j query failed: {}", e);
-                AppError::Internal(format!("Neo4j query failed: {}", e))
-            })?;
+        let mut rows = self.graph.execute(q).await.map_err(|e| {
+            error!("Neo4j query failed: {}", e);
+            AppError::Internal(format!("Neo4j query failed: {}", e))
+        })?;
 
         let mut results = Vec::new();
         while let Ok(Some(row)) = rows.next().await {
@@ -80,14 +75,19 @@ impl Neo4jManager {
         properties: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<Node, AppError> {
         let props: Vec<(String, serde_json::Value)> = properties.into_iter().collect();
-        let set_clauses: Vec<String> = props.iter()
+        let set_clauses: Vec<String> = props
+            .iter()
             .map(|(k, _)| format!("n.{} = ${}", k, k))
             .collect();
 
         let query_str = if set_clauses.is_empty() {
             format!("CREATE (n:{}) RETURN n", label)
         } else {
-            format!("CREATE (n:{} {{ {} }}) RETURN n", label, set_clauses.join(", "))
+            format!(
+                "CREATE (n:{} {{ {} }}) RETURN n",
+                label,
+                set_clauses.join(", ")
+            )
         };
 
         let mut q = query(&query_str);
@@ -95,11 +95,15 @@ impl Neo4jManager {
             q = q.param(&k, json_to_bolt(v));
         }
 
-        let mut rows = self.graph.execute(q).await
+        let mut rows = self
+            .graph
+            .execute(q)
+            .await
             .map_err(|e| AppError::Internal(format!("Neo4j create node failed: {}", e)))?;
 
         match rows.next().await {
-            Ok(Some(row)) => row.get("n")
+            Ok(Some(row)) => row
+                .get("n")
                 .map_err(|e| AppError::Internal(format!("Failed to get node: {}", e))),
             Ok(None) => Err(AppError::Internal("No node returned".to_string())),
             Err(e) => Err(AppError::Internal(format!("Failed to create node: {}", e))),
@@ -108,19 +112,19 @@ impl Neo4jManager {
 
     /// Get a node by ID
     pub async fn get_node(&self, node_id: i64) -> Result<Option<Node>, AppError> {
-        let q = query("MATCH (n) WHERE id(n) = $id RETURN n")
-            .param("id", node_id);
+        let q = query("MATCH (n) WHERE id(n) = $id RETURN n").param("id", node_id);
 
-        let mut rows = self.graph.execute(q).await
+        let mut rows = self
+            .graph
+            .execute(q)
+            .await
             .map_err(|e| AppError::Internal(format!("Neo4j get node failed: {}", e)))?;
 
         match rows.next().await {
-            Ok(Some(row)) => {
-                match row.get::<Node>("n") {
-                    Ok(node) => Ok(Some(node)),
-                    Err(_) => Ok(None),
-                }
-            }
+            Ok(Some(row)) => match row.get::<Node>("n") {
+                Ok(node) => Ok(Some(node)),
+                Err(_) => Ok(None),
+            },
             Ok(None) => Ok(None),
             Err(e) => Err(AppError::Internal(format!("Failed to get node: {}", e))),
         }
@@ -133,14 +137,19 @@ impl Neo4jManager {
         properties: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<Vec<Node>, AppError> {
         let props: Vec<(String, serde_json::Value)> = properties.into_iter().collect();
-        let where_clauses: Vec<String> = props.iter()
+        let where_clauses: Vec<String> = props
+            .iter()
             .map(|(k, _)| format!("n.{} = ${}", k, k))
             .collect();
 
         let query_str = if where_clauses.is_empty() {
             format!("MATCH (n:{}) RETURN n", label)
         } else {
-            format!("MATCH (n:{}) WHERE {} RETURN n", label, where_clauses.join(" AND "))
+            format!(
+                "MATCH (n:{}) WHERE {} RETURN n",
+                label,
+                where_clauses.join(" AND ")
+            )
         };
 
         let mut q = query(&query_str);
@@ -148,7 +157,10 @@ impl Neo4jManager {
             q = q.param(&k, json_to_bolt(v));
         }
 
-        let mut rows = self.graph.execute(q).await
+        let mut rows = self
+            .graph
+            .execute(q)
+            .await
             .map_err(|e| AppError::Internal(format!("Neo4j find nodes failed: {}", e)))?;
 
         let mut results = Vec::new();
@@ -169,7 +181,8 @@ impl Neo4jManager {
         properties: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<Relation, AppError> {
         let props: Vec<(String, serde_json::Value)> = properties.into_iter().collect();
-        let set_clauses: Vec<String> = props.iter()
+        let set_clauses: Vec<String> = props
+            .iter()
             .map(|(k, _)| format!("r.{} = ${}", k, k))
             .collect();
 
@@ -193,14 +206,20 @@ impl Neo4jManager {
             q = q.param(&k, json_to_bolt(v));
         }
 
-        let mut rows = self.graph.execute(q).await
-            .map_err(|e| AppError::Internal(format!("Neo4j create relationship failed: {}", e)))?;
+        let mut rows =
+            self.graph.execute(q).await.map_err(|e| {
+                AppError::Internal(format!("Neo4j create relationship failed: {}", e))
+            })?;
 
         match rows.next().await {
-            Ok(Some(row)) => row.get("r")
+            Ok(Some(row)) => row
+                .get("r")
                 .map_err(|e| AppError::Internal(format!("Failed to get relation: {}", e))),
             Ok(None) => Err(AppError::Internal("No relationship returned".to_string())),
-            Err(e) => Err(AppError::Internal(format!("Failed to create relationship: {}", e))),
+            Err(e) => Err(AppError::Internal(format!(
+                "Failed to create relationship: {}",
+                e
+            ))),
         }
     }
 
@@ -242,8 +261,10 @@ impl Neo4jManager {
             q = q.param(k, v);
         }
 
-        let mut rows = self.graph.execute(q).await
-            .map_err(|e| AppError::Internal(format!("Neo4j find relationships failed: {}", e)))?;
+        let mut rows =
+            self.graph.execute(q).await.map_err(|e| {
+                AppError::Internal(format!("Neo4j find relationships failed: {}", e))
+            })?;
 
         let mut results = Vec::new();
         while let Ok(Some(row)) = rows.next().await {
@@ -256,10 +277,12 @@ impl Neo4jManager {
 
     /// Delete a node
     pub async fn delete_node(&self, node_id: i64) -> Result<bool, AppError> {
-        let q = query("MATCH (n) WHERE id(n) = $id DETACH DELETE n")
-            .param("id", node_id);
+        let q = query("MATCH (n) WHERE id(n) = $id DETACH DELETE n").param("id", node_id);
 
-        let mut rows = self.graph.execute(q).await
+        let mut rows = self
+            .graph
+            .execute(q)
+            .await
             .map_err(|e| AppError::Internal(format!("Neo4j delete node failed: {}", e)))?;
 
         // Just consume the result
@@ -269,11 +292,12 @@ impl Neo4jManager {
 
     /// Delete a relationship
     pub async fn delete_relationship(&self, rel_id: i64) -> Result<bool, AppError> {
-        let q = query("MATCH ()-[r]->() WHERE id(r) = $id DELETE r")
-            .param("id", rel_id);
+        let q = query("MATCH ()-[r]->() WHERE id(r) = $id DELETE r").param("id", rel_id);
 
-        let mut rows = self.graph.execute(q).await
-            .map_err(|e| AppError::Internal(format!("Neo4j delete relationship failed: {}", e)))?;
+        let mut rows =
+            self.graph.execute(q).await.map_err(|e| {
+                AppError::Internal(format!("Neo4j delete relationship failed: {}", e))
+            })?;
 
         while let Ok(Some(_)) = rows.next().await {}
         Ok(true)
@@ -281,10 +305,12 @@ impl Neo4jManager {
 
     /// Count nodes by label
     pub async fn count_nodes_by_label(&self, label: &str) -> Result<i64, AppError> {
-        let q = query("MATCH (n:$label) RETURN count(n) as count")
-            .param("label", label);
+        let q = query("MATCH (n:$label) RETURN count(n) as count").param("label", label);
 
-        let mut rows = self.graph.execute(q).await
+        let mut rows = self
+            .graph
+            .execute(q)
+            .await
             .map_err(|e| AppError::Internal(format!("Neo4j count nodes failed: {}", e)))?;
 
         if let Ok(Some(row)) = rows.next().await {
@@ -303,12 +329,11 @@ impl Neo4jManager {
         limit: Option<usize>,
     ) -> Result<Vec<Node>, AppError> {
         let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
-        
+
         let query_str = match &properties {
             Some(props) if !props.is_empty() => {
-                let where_clauses: Vec<String> = props.keys()
-                    .map(|k| format!("n.{} = ${}", k, k))
-                    .collect();
+                let where_clauses: Vec<String> =
+                    props.keys().map(|k| format!("n.{} = ${}", k, k)).collect();
                 format!(
                     "MATCH (n:{}) WHERE {} RETURN n{}",
                     label,
@@ -326,7 +351,10 @@ impl Neo4jManager {
             }
         }
 
-        let mut rows = self.graph.execute(q).await
+        let mut rows = self
+            .graph
+            .execute(q)
+            .await
             .map_err(|e| AppError::Internal(format!("Neo4j match nodes failed: {}", e)))?;
 
         let mut nodes = Vec::new();

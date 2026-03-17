@@ -11,6 +11,7 @@ mod agent;
 mod auth;
 mod demo;
 mod knowledge_graph;
+mod mcp;
 #[allow(dead_code)]
 mod memory;
 mod memory_search;
@@ -117,7 +118,9 @@ pub fn root() -> Router {
         .route("/agents", post(agent::create_agent).get(agent::list_agents))
         .route(
             "/agents/:agent_id",
-            get(agent::get_agent).put(agent::update_agent).delete(agent::delete_agent),
+            get(agent::get_agent)
+                .put(agent::update_agent)
+                .delete(agent::delete_agent),
         )
         // Self-Model
         .route(
@@ -152,10 +155,7 @@ pub fn root() -> Router {
             get(agent::list_behaviors).post(agent::record_behavior),
         )
         // Complete agent info
-        .route(
-            "/agents/:agent_id/complete",
-            get(agent::get_agent_complete),
-        );
+        .route("/agents/:agent_id/complete", get(agent::get_agent_complete));
 
     let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))
@@ -200,7 +200,8 @@ pub fn root() -> Router {
             "/login/account",
             post(auth::post_login_with_token).get(auth::get_login_with_token),
         )
-        .merge(protected_api_router);
+        .merge(protected_api_router)
+        .merge(mcp::router());
 
     Router::new()
         .route("/", get(demo::hello))

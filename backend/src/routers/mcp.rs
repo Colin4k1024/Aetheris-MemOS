@@ -1,0 +1,473 @@
+//! MCP (Model Context Protocol) Router
+//!
+//! This module provides HTTP endpoints for MCP protocol communication.
+
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
+use serde::Deserialize;
+use tracing::{error, info};
+
+use crate::db::ltm::{KnowledgeEntry, LTMRepository};
+use crate::db::stm::{STMRepository, Session, SessionListResponse};
+use crate::protocol::mcp::{
+    get_memory_resources, get_memory_tools, ResourceContent, ResourceContentResponse,
+    ServerCapabilities, ToolCallResponse, ToolsListResponse, TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST,
+    TOOL_MEMORY_RECALL, TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
+};
+use crate::services::{memory_search::MemorySearchService, memory_storage::MemoryStorageService};
+use crate::{json_ok, AppError, JsonResult};
+
+/// MCP Router State
+#[derive(Clone)]
+pub struct McpState {
+    pub server_name: String,
+    pub server_version: String,
+}
+
+impl Default for McpState {
+    fn default() -> Self {
+        Self {
+            server_name: "adaptive-memory-system".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+}
+
+/// Build MCP router
+pub fn router() -> Router {
+    let state = McpState::default();
+    Router::new()
+        .route("/mcp/tools", get(list_tools))
+        .route("/mcp/tools/call", post(call_tool))
+        .route("/mcp/resources", get(list_resources))
+        .route("/mcp/resources/read", post(read_resource))
+        .route("/mcp/initialize", post(initialize))
+        .with_state(state)
+}
+
+/// Initialize MCP server
+async fn initialize(State(state): State<McpState>) -> JsonResult<serde_json::Value> {
+    json_ok(serde_json::json!({
+        "protocolVersion": "2024-11-05",
+        "capabilities": ServerCapabilities::default(),
+        "serverInfo": {
+            "name": state.server_name,
+            "version": state.server_version
+        }
+    }))
+}
+
+/// List available MCP tools
+async fn list_tools() -> JsonResult<ToolsListResponse> {
+    let tools = get_memory_tools();
+    json_ok(ToolsListResponse { tools })
+}
+
+/// MCP tool call request
+#[derive(Debug, Deserialize)]
+pub struct ToolCallParams {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: Option<serde_json::Value>,
+}
+
+/// Call MCP tool
+async fn call_tool(Json(params): Json<ToolCallParams>) -> JsonResult<ToolCallResponse> {
+    info!("MCP tool call: {}", params.name);
+
+    let result = match params.name.as_str() {
+        TOOL_MEMORY_WRITE => handle_memory_write(params.arguments).await,
+        TOOL_MEMORY_SEARCH => handle_memory_search(params.arguments).await,
+        TOOL_MEMORY_RECALL => handle_memory_recall(params.arguments).await,
+        TOOL_MEMORY_FORGET => handle_memory_forget(params.arguments).await,
+        TOOL_MEMORY_LIST => handle_memory_list(params.arguments).await,
+        _ => {
+            return Err(AppError::BadRequest(format!(
+                "Unknown tool: {}",
+                params.name
+            )));
+        }
+    };
+
+    match result {
+        Ok(response) => json_ok(ToolCallResponse {
+            content: response,
+            is_error: Some(false),
+        }),
+        Err(e) => {
+            error!("MCP tool error: {}", e);
+            Err(AppError::Internal(e.to_string()))
+        }
+    }
+}
+
+/// Handle memory_write tool
+async fn handle_memory_write(
+    arguments: Option<serde_json::Value>,
+) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
+    let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
+
+    let content = args["content"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("Missing 'content' parameter".to_string()))?
+        .to_string();
+    let layer = args["layer"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("Missing 'layer' parameter".to_string()))?
+        .to_lowercase();
+
+    let user_id = args["user_id"].as_str().unwrap_or("default").to_string();
+    let session_id = args["session_id"].as_str().map(|s| s.to_string());
+    let agent_id = args["agent_id"].as_str().map(|s| s.to_string());
+
+    match layer.as_str() {
+        "stm" => {
+            let agent = agent_id.unwrap_or_else(|| "mcp_agent".to_string());
+
+            let (session_id, message_id) = MemoryStorageService::store_stm(
+                &user_id,
+                &agent,
+                "mcp_session",
+                "user",
+                &content,
+                4000,
+                24,
+            )
+            .await?;
+
+            Ok(vec![crate::protocol::mcp::ToolContent::Text(
+                serde_json::json!({
+                    "success": true,
+                    "layer": "stm",
+                    "sessionId": session_id,
+                    "messageId": message_id
+                })
+                .to_string(),
+            )])
+        }
+        "ltm" => {
+            let source_id = format!("mcp_{}", ulid::Ulid::new());
+            let entry_id =
+                MemoryStorageService::store_ltm(&source_id, "user_input", &content, None).await?;
+
+            Ok(vec![crate::protocol::mcp::ToolContent::Text(
+                serde_json::json!({
+                    "success": true,
+                    "layer": "ltm",
+                    "entryId": entry_id
+                })
+                .to_string(),
+            )])
+        }
+        "kg" | "mm" => {
+            // TODO: Implement KG and MM storage
+            Err(AppError::BadRequest(format!(
+                "Layer '{}' storage not yet implemented via MCP",
+                layer
+            )))
+        }
+        _ => Err(AppError::BadRequest(format!("Invalid layer: {}", layer))),
+    }
+}
+
+/// Handle memory_search tool
+async fn handle_memory_search(
+    arguments: Option<serde_json::Value>,
+) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
+    let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
+
+    let query = args["query"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("Missing 'query' parameter".to_string()))?
+        .to_string();
+    let layer = args["layer"].as_str().unwrap_or("ltm").to_lowercase();
+    let limit = args["limit"].as_u64().unwrap_or(10) as i32;
+    let user_id = args["user_id"].as_str();
+    let session_id = args["session_id"].as_str();
+
+    let (results, result_layer) = match layer.as_str() {
+        "stm" => {
+            // Search in STM sessions - returns SessionMessage
+            let user = user_id.unwrap_or("default");
+            let agent = "mcp_agent";
+            let messages = MemorySearchService::search_stm(user, agent, None, Some(limit)).await?;
+            // Convert to a unified format
+            let results: Vec<serde_json::Value> = messages
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "id": m.message_id,
+                        "score": 1.0,
+                        "content": m.content
+                    })
+                })
+                .collect();
+            (
+                serde_json::json!({ "type": "stm", "results": results }),
+                layer.clone(),
+            )
+        }
+        "ltm" => {
+            // Search in LTM - returns SearchResult
+            let results =
+                MemorySearchService::search_ltm(&query, limit as usize, None, None).await?;
+            let results_json: Vec<serde_json::Value> = results
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "id": m.entry_id,
+                        "score": m.score,
+                        "content": m.content
+                    })
+                })
+                .collect();
+            (
+                serde_json::json!({ "type": "ltm", "results": results_json }),
+                layer.clone(),
+            )
+        }
+        "kg" => {
+            // Search in knowledge graph - not supported via this interface
+            return Err(AppError::BadRequest(
+                "Use /kg/search endpoint for KG queries".to_string(),
+            ));
+        }
+        _ => {
+            return Err(AppError::BadRequest(format!("Invalid layer: {}", layer)));
+        }
+    };
+
+    let text = results.to_string();
+
+    Ok(vec![crate::protocol::mcp::ToolContent::Text(text)])
+}
+
+/// Handle memory_recall tool
+async fn handle_memory_recall(
+    arguments: Option<serde_json::Value>,
+) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
+    let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
+
+    let session_id = args["session_id"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("Missing 'session_id' parameter".to_string()))?
+        .to_string();
+    let limit = args["limit"].as_u64().unwrap_or(10) as i32;
+
+    // Recall memories from a session
+    let messages = STMRepository::get_session_messages(&session_id, Some(limit)).await?;
+
+    let text = serde_json::json!({
+        "success": true,
+        "sessionId": session_id,
+        "count": messages.len(),
+        "memories": messages.iter().map(|m| {
+            serde_json::json!({
+                "id": m.message_id,
+                "content": m.content,
+                "role": m.role,
+                "createdAt": m.created_at
+            })
+        }).collect::<Vec<_>>()
+    })
+    .to_string();
+
+    Ok(vec![crate::protocol::mcp::ToolContent::Text(text)])
+}
+
+/// Handle memory_forget tool
+async fn handle_memory_forget(
+    arguments: Option<serde_json::Value>,
+) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
+    let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
+
+    let _memory_id = args["memory_id"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("Missing 'memory_id' parameter".to_string()))?
+        .to_string();
+    let layer = args["layer"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("Missing 'layer' parameter".to_string()))?
+        .to_lowercase();
+
+    // TODO: Implement actual deletion based on layer
+    let text = serde_json::json!({
+        "success": true,
+        "message": format!("Memory layer {} forget operation acknowledged", layer),
+        "layer": layer
+    })
+    .to_string();
+
+    Ok(vec![crate::protocol::mcp::ToolContent::Text(text)])
+}
+
+/// Handle memory_list tool
+async fn handle_memory_list(
+    arguments: Option<serde_json::Value>,
+) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
+    let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
+
+    let layer = args["layer"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("Missing 'layer' parameter".to_string()))?
+        .to_lowercase();
+    let limit = args["limit"].as_u64().unwrap_or(20) as i32;
+    let offset = args["offset"].as_u64().unwrap_or(0) as i32;
+    let user_id = args["user_id"].as_str();
+
+    let entries = match layer.as_str() {
+        "stm" => {
+            // List STM sessions
+            let response =
+                STMRepository::list_sessions(user_id, None, Some(limit), Some(offset)).await?;
+
+            serde_json::json!({
+                "type": "stm_sessions",
+                "count": response.sessions.len(),
+                "sessions": response.sessions.iter().map(|s| {
+                    serde_json::json!({
+                        "sessionId": s.session_id,
+                        "userId": s.user_id,
+                        "agentId": s.agent_id,
+                        "sessionType": s.session_type,
+                        "status": s.status,
+                        "createdAt": s.created_at
+                    })
+                }).collect::<Vec<_>>()
+            })
+            .to_string()
+        }
+        "ltm" => {
+            // List LTM entries
+            let response =
+                LTMRepository::list_entries(None, None, Some(limit), Some(offset)).await?;
+
+            serde_json::json!({
+                "type": "ltm_entries",
+                "count": response.entries.len(),
+                "entries": response.entries.iter().map(|e| {
+                    serde_json::json!({
+                        "id": e.entry_id,
+                        "content": e.content,
+                        "title": e.title,
+                        "createdAt": e.created_at
+                    })
+                }).collect::<Vec<_>>()
+            })
+            .to_string()
+        }
+        _ => {
+            return Err(AppError::BadRequest(format!("Invalid layer: {}", layer)));
+        }
+    };
+
+    Ok(vec![crate::protocol::mcp::ToolContent::Text(entries)])
+}
+
+/// List available MCP resources
+async fn list_resources() -> JsonResult<serde_json::Value> {
+    let resources = get_memory_resources();
+    json_ok(serde_json::json!({
+        "resources": resources
+    }))
+}
+
+/// Read resource content request
+#[derive(Debug, Deserialize)]
+pub struct ResourceReadRequest {
+    pub uri: String,
+}
+
+/// Read resource content
+async fn read_resource(
+    Json(req): Json<ResourceReadRequest>,
+) -> JsonResult<ResourceContentResponse> {
+    info!("MCP resource read: {}", req.uri);
+
+    // Parse URI: memory://layer/id
+    let parts: Vec<&str> = req
+        .uri
+        .strip_prefix("memory://")
+        .unwrap_or(&req.uri)
+        .split('/')
+        .collect();
+
+    if parts.is_empty() {
+        return Err(AppError::BadRequest("Invalid resource URI".to_string()));
+    }
+
+    let layer = parts[0];
+    let id = parts.get(1).map(|s| s.to_string());
+
+    let content = match layer {
+        "stm" => {
+            if let Some(session_id) = id {
+                let messages = STMRepository::get_session_messages(&session_id, Some(50)).await?;
+
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "messages": messages
+                })
+                .to_string()
+            } else {
+                // List all sessions
+                let response = STMRepository::list_sessions(None, None, Some(20), Some(0)).await?;
+
+                serde_json::json!({
+                    "sessions": response.sessions
+                })
+                .to_string()
+            }
+        }
+        "ltm" => {
+            if let Some(entry_id) = id {
+                let entry = LTMRepository::get_entry_by_id(&entry_id).await?;
+
+                match entry {
+                    Some(e) => serde_json::json!({
+                        "entry": {
+                            "id": e.entry_id,
+                            "content": e.content,
+                            "title": e.title,
+                            "createdAt": e.created_at
+                        }
+                    })
+                    .to_string(),
+                    None => {
+                        return Err(AppError::NotFound(format!("Entry {} not found", entry_id)));
+                    }
+                }
+            } else {
+                let response = LTMRepository::list_entries(None, None, Some(20), Some(0)).await?;
+
+                serde_json::json!({
+                    "entries": response.entries
+                })
+                .to_string()
+            }
+        }
+        "kg" => {
+            // TODO: Implement KG resource
+            r#"{"message": "Knowledge graph resources not yet implemented"}"#.to_string()
+        }
+        "mm" => {
+            // TODO: Implement MM resource
+            r#"{"message": "Multimodal resources not yet implemented"}"#.to_string()
+        }
+        _ => {
+            return Err(AppError::NotFound(format!("Unknown layer: {}", layer)));
+        }
+    };
+
+    json_ok(ResourceContentResponse {
+        contents: vec![ResourceContent {
+            uri: req.uri,
+            mime_type: Some("application/json".to_string()),
+            text: Some(content),
+            data: None,
+        }],
+    })
+}

@@ -2,10 +2,10 @@
 //!
 //! This module provides WebSocket message types and connection management for real-time memory operations.
 
+use crate::kernel::types::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::{broadcast, RwLock};
-use serde::{Deserialize, Serialize};
-use crate::kernel::types::*;
 
 /// WebSocket message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,7 +229,10 @@ impl WsConnectionManager {
     }
 
     /// Create a new session and register connection.
-    pub async fn create_session(&self, user_id: Option<String>) -> (String, broadcast::Receiver<EventResponse>) {
+    pub async fn create_session(
+        &self,
+        user_id: Option<String>,
+    ) -> (String, broadcast::Receiver<EventResponse>) {
         let mut counter = self.session_counter.write().await;
         *counter += 1;
         let session_id = format!("ws_session_{}", *counter);
@@ -241,7 +244,10 @@ impl WsConnectionManager {
             connected_at: chrono::Utc::now().timestamp(),
         };
 
-        self.connections.write().await.insert(session_id.clone(), connection);
+        self.connections
+            .write()
+            .await
+            .insert(session_id.clone(), connection);
 
         // Subscribe to event broadcasts
         let rx = self.event_tx.subscribe();
@@ -361,7 +367,7 @@ impl WsMessageBuilder {
         self
     }
 
-    pub fn payload<T: Into<WsPayload>>(self, payload: T) -> Self {
+    pub fn payload<T: Into<WsPayload>>(mut self, payload: T) -> Self {
         self.payload = payload.into();
         self
     }

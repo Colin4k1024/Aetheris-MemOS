@@ -39,4 +39,3 @@ fn default_timeout() -> u64 {
 fn default_true() -> bool {
     true
 }
-

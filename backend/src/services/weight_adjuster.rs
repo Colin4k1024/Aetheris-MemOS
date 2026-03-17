@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use crate::models::*;
 use crate::db::weights::WeightHistoryRepository;
-use crate::services::weight_strategy::{WeightStrategy, WeightStrategyMetrics, WeightDelta};
-use crate::services::weight_strategy::{MarginalBenefitStrategy, LinearDecayStrategy};
+use crate::models::*;
+use crate::services::weight_strategy::{LinearDecayStrategy, MarginalBenefitStrategy};
+use crate::services::weight_strategy::{WeightDelta, WeightStrategy, WeightStrategyMetrics};
 use tracing::info;
 
 pub struct DynamicWeightAdjuster {
@@ -88,7 +88,10 @@ impl DynamicWeightAdjuster {
 /// Re-export for API and DB use.
 pub use crate::models::AdjustmentReasons;
 
-fn merge_reasons(acc: &mut crate::models::AdjustmentReasons, next: &crate::models::AdjustmentReasons) {
+fn merge_reasons(
+    acc: &mut crate::models::AdjustmentReasons,
+    next: &crate::models::AdjustmentReasons,
+) {
     if !next.ltm.is_empty() {
         if !acc.ltm.is_empty() {
             acc.ltm.push_str("; ");
@@ -108,4 +111,3 @@ fn merge_reasons(acc: &mut crate::models::AdjustmentReasons, next: &crate::model
         acc.mm.push_str(&next.mm);
     }
 }
-

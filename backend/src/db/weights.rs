@@ -3,10 +3,10 @@
 use tracing::{error, info};
 use ulid::Ulid;
 
-use crate::AppError;
 use crate::db::pool;
 use crate::models::*;
 use crate::services::weight_adjuster::AdjustmentReasons;
+use crate::AppError;
 
 pub struct WeightHistoryRepository;
 

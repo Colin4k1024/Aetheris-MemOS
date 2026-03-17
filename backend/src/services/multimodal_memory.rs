@@ -42,15 +42,20 @@ impl MultimodalMemoryService {
 
         // 如果有文本内容，生成嵌入
         if let Some(text) = text_content {
-            info!("Generating text embedding for multimodal entry: entry_id={}", entry_id);
-            
-            let embedding_service = get_embedding_service()
-                .map_err(|e| crate::AppError::Internal(format!("Failed to get embedding service: {}", e)))?;
-            
+            info!(
+                "Generating text embedding for multimodal entry: entry_id={}",
+                entry_id
+            );
+
+            let embedding_service = get_embedding_service().map_err(|e| {
+                crate::AppError::Internal(format!("Failed to get embedding service: {}", e))
+            })?;
+
             let text_embedding = embedding_service.generate_embedding(text).await?;
-            let text_embedding_json = serde_json::to_string(&text_embedding)
-                .map_err(|e| crate::AppError::Internal(format!("Failed to serialize embedding: {}", e)))?;
-            
+            let text_embedding_json = serde_json::to_string(&text_embedding).map_err(|e| {
+                crate::AppError::Internal(format!("Failed to serialize embedding: {}", e))
+            })?;
+
             // 更新多模态记忆条目，添加文本嵌入
             MMRepository::update_entry(
                 &entry_id,
@@ -65,7 +70,10 @@ impl MultimodalMemoryService {
             .await?;
         }
 
-        info!("Multimodal memory stored successfully: entry_id={}", entry_id);
+        info!(
+            "Multimodal memory stored successfully: entry_id={}",
+            entry_id
+        );
         Ok(entry_id)
     }
 
@@ -75,15 +83,18 @@ impl MultimodalMemoryService {
         entry_id: &str,
     ) -> Result<Option<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!("Getting multimodal memory: entry_id={}", entry_id);
-        
+
         let entry = MMRepository::get_entry_by_id(entry_id).await?;
-        
+
         if let Some(e) = &entry {
-            info!("Retrieved multimodal memory: entry_id={}, modality_type={}", entry_id, e.modality_type);
+            info!(
+                "Retrieved multimodal memory: entry_id={}, modality_type={}",
+                entry_id, e.modality_type
+            );
         } else {
             info!("Multimodal memory not found: entry_id={}", entry_id);
         }
-        
+
         Ok(entry)
     }
 
@@ -93,11 +104,18 @@ impl MultimodalMemoryService {
         session_id: &str,
         limit: Option<i32>,
     ) -> Result<Vec<crate::db::mm::MultimodalEntry>, crate::AppError> {
-        info!("Getting multimodal memories by session: session_id={}", session_id);
-        
+        info!(
+            "Getting multimodal memories by session: session_id={}",
+            session_id
+        );
+
         let entries = MMRepository::get_entries_by_session(session_id, limit).await?;
-        
-        info!("Retrieved {} multimodal memories for session: session_id={}", entries.len(), session_id);
+
+        info!(
+            "Retrieved {} multimodal memories for session: session_id={}",
+            entries.len(),
+            session_id
+        );
         Ok(entries)
     }
 
@@ -107,11 +125,18 @@ impl MultimodalMemoryService {
         modality_type: &str,
         limit: Option<i32>,
     ) -> Result<Vec<crate::db::mm::MultimodalEntry>, crate::AppError> {
-        info!("Getting multimodal memories by modality: modality_type={}", modality_type);
-        
+        info!(
+            "Getting multimodal memories by modality: modality_type={}",
+            modality_type
+        );
+
         let entries = MMRepository::get_entries_by_modality(modality_type, limit).await?;
-        
-        info!("Retrieved {} multimodal memories for modality: modality_type={}", entries.len(), modality_type);
+
+        info!(
+            "Retrieved {} multimodal memories for modality: modality_type={}",
+            entries.len(),
+            modality_type
+        );
         Ok(entries)
     }
 
@@ -120,12 +145,22 @@ impl MultimodalMemoryService {
     pub async fn get_related_multimodal_memories(
         entry_id: &str,
         limit: Option<i32>,
-    ) -> Result<Vec<(crate::db::mm::MultimodalEntry, crate::db::mm::ModalityRelation)>, crate::AppError> {
+    ) -> Result<
+        Vec<(
+            crate::db::mm::MultimodalEntry,
+            crate::db::mm::ModalityRelation,
+        )>,
+        crate::AppError,
+    > {
         info!("Getting related multimodal memories: entry_id={}", entry_id);
-        
+
         let related_entries = MMRepository::get_related_entries(entry_id, limit).await?;
-        
-        info!("Retrieved {} related multimodal memories: entry_id={}", related_entries.len(), entry_id);
+
+        info!(
+            "Retrieved {} related multimodal memories: entry_id={}",
+            related_entries.len(),
+            entry_id
+        );
         Ok(related_entries)
     }
 
@@ -143,7 +178,7 @@ impl MultimodalMemoryService {
             "Creating multimodal relation: source={}, target={}, type={}",
             source_entry_id, target_entry_id, relation_type
         );
-        
+
         let relation_id = MMRepository::create_relation(
             source_entry_id,
             target_entry_id,
@@ -153,7 +188,7 @@ impl MultimodalMemoryService {
             description,
         )
         .await?;
-        
+
         info!("Created multimodal relation: relation_id={}", relation_id);
         Ok(relation_id)
     }

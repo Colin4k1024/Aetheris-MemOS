@@ -90,7 +90,7 @@ jobs:
           DATABASE_URL: "file:./data/sqlx.sqlite"
 
       - name: Test
-        run: cargo test --lib
+        run: cargo test
         env:
           DATABASE_URL: "file:./data/sqlx.sqlite"
 

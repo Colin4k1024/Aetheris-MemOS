@@ -19,7 +19,7 @@ fn default_qdrant_host() -> String {
 }
 
 fn default_qdrant_port() -> u16 {
-    6334  // gRPC 端口（qdrant-client 使用 gRPC，不是 HTTP REST API）
+    6334 // gRPC 端口（qdrant-client 使用 gRPC，不是 HTTP REST API）
 }
 
 fn default_collection_name() -> String {
@@ -33,4 +33,3 @@ fn default_vector_dimension() -> usize {
 fn default_distance_type() -> String {
     "Euclid".to_string()
 }
-

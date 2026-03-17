@@ -4,8 +4,8 @@ use crate::db::agent::{
     AgentBehaviorProfileRepository, AgentCapabilityRepository, AgentEpisodeRepository,
     AgentRepository, AgentSelfModelRepository,
 };
-use crate::models::agent::*;
 use crate::error::AppError;
+use crate::models::agent::*;
 use sqlx::PgPool;
 
 pub struct AgentService {
@@ -32,14 +32,17 @@ impl AgentService {
     // =========================================================================
 
     /// Create a new agent with default self-model
-    pub async fn create_agent(&self, input: CreateAgentIdentity) -> Result<AgentIdentity, AppError> {
+    pub async fn create_agent(
+        &self,
+        input: CreateAgentIdentity,
+    ) -> Result<AgentIdentity, AppError> {
         let identity = self.identity_repo.create(input).await?;
 
         // Create default self-model for the agent
-        let _ = self.self_model_repo.upsert(
-            &identity.agent_id,
-            CreateAgentSelfModel::default(),
-        ).await;
+        let _ = self
+            .self_model_repo
+            .upsert(&identity.agent_id, CreateAgentSelfModel::default())
+            .await;
 
         Ok(identity)
     }
@@ -50,7 +53,11 @@ impl AgentService {
     }
 
     /// List all agents
-    pub async fn list_agents(&self, limit: i64, offset: i64) -> Result<AgentListResponse, AppError> {
+    pub async fn list_agents(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<AgentListResponse, AppError> {
         self.identity_repo.list(limit, offset).await
     }
 
@@ -82,7 +89,10 @@ impl AgentService {
     }
 
     /// List agent capabilities
-    pub async fn list_capabilities(&self, agent_id: &str) -> Result<Vec<AgentCapability>, AppError> {
+    pub async fn list_capabilities(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentCapability>, AppError> {
         self.capability_repo.list_by_agent(agent_id).await
     }
 
@@ -120,7 +130,9 @@ impl AgentService {
         limit: i64,
         offset: i64,
     ) -> Result<EpisodeListResponse, AppError> {
-        self.episode_repo.list_by_agent(agent_id, limit, offset).await
+        self.episode_repo
+            .list_by_agent(agent_id, limit, offset)
+            .await
     }
 
     /// Update episode (e.g., add reflection)
@@ -164,7 +176,10 @@ impl AgentService {
     }
 
     /// List behavior profiles
-    pub async fn list_behaviors(&self, agent_id: &str) -> Result<Vec<AgentBehaviorProfile>, AppError> {
+    pub async fn list_behaviors(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentBehaviorProfile>, AppError> {
         self.behavior_profile_repo.list_by_agent(agent_id).await
     }
 
@@ -204,11 +219,16 @@ impl AgentService {
         // Simple reflection: analyze success rate and update self-model
         let total_episodes = episodes.episodes.len() as f64;
         if total_episodes == 0.0 {
-            return self.self_model_repo.get_by_agent(agent_id).await?
+            return self
+                .self_model_repo
+                .get_by_agent(agent_id)
+                .await?
                 .ok_or_else(|| AppError::NotFound("Self-model not found".to_string()));
         }
 
-        let successful_episodes = episodes.episodes.iter()
+        let successful_episodes = episodes
+            .episodes
+            .iter()
             .filter(|e| e.success.unwrap_or(false))
             .count() as f64;
         let success_rate = successful_episodes / total_episodes;
@@ -223,17 +243,22 @@ impl AgentService {
         };
 
         // Update self-model
-        self.self_model_repo.update(agent_id, UpdateAgentSelfModel {
-            identity_beliefs: None,
-            strengths: None,
-            weaknesses: None,
-            learned_skills: None,
-            preferences: None,
-            relationships: None,
-            computed_traits: None,
-            confidence_score: Some(confidence_score),
-            consistency_score: Some(1.0), // Could calculate based on episode consistency
-        }).await
+        self.self_model_repo
+            .update(
+                agent_id,
+                UpdateAgentSelfModel {
+                    identity_beliefs: None,
+                    strengths: None,
+                    weaknesses: None,
+                    learned_skills: None,
+                    preferences: None,
+                    relationships: None,
+                    computed_traits: None,
+                    confidence_score: Some(confidence_score),
+                    consistency_score: Some(1.0), // Could calculate based on episode consistency
+                },
+            )
+            .await
     }
 }
 

@@ -1,7 +1,7 @@
 //! Agent Repository - Database operations for agent identity and self-model
 
-use crate::models::agent::*;
 use crate::error::AppError;
+use crate::models::agent::*;
 use sqlx::{PgPool, Row};
 use ulid::Ulid;
 
@@ -33,7 +33,7 @@ impl AgentRepository {
                  created_at, updated_at, status, metadata)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING *
-            "#
+            "#,
         )
         .bind(&agent_id)
         .bind(&input.agent_name)
@@ -103,7 +103,7 @@ impl AgentRepository {
     /// List all agents with pagination
     pub async fn list(&self, limit: i64, offset: i64) -> Result<AgentListResponse, AppError> {
         let agents: Vec<AgentIdentity> = sqlx::query(
-            "SELECT * FROM agent_identities ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+            "SELECT * FROM agent_identities ORDER BY created_at DESC LIMIT $1 OFFSET $2",
         )
         .bind(limit)
         .bind(offset)
@@ -161,7 +161,7 @@ impl AgentRepository {
                 updated_at = $11
             WHERE agent_id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(agent_id)
         .bind(&input.agent_name)
@@ -221,8 +221,14 @@ impl AgentCapabilityRepository {
     }
 
     /// Create a new capability
-    pub async fn create(&self, agent_id: &str, input: CreateAgentCapability) -> Result<AgentCapability, AppError> {
-        let capability_id = input.capability_id.unwrap_or_else(|| Ulid::new().to_string());
+    pub async fn create(
+        &self,
+        agent_id: &str,
+        input: CreateAgentCapability,
+    ) -> Result<AgentCapability, AppError> {
+        let capability_id = input
+            .capability_id
+            .unwrap_or_else(|| Ulid::new().to_string());
         let now = chrono::Utc::now().to_rfc3339();
 
         let result = sqlx::query(
@@ -233,7 +239,7 @@ impl AgentCapabilityRepository {
                  times_invoked, max_tokens, timeout_ms, enabled, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING *
-            "#
+            "#,
         )
         .bind(&capability_id)
         .bind(agent_id)
@@ -281,23 +287,26 @@ impl AgentCapabilityRepository {
             .await
             .map_err(|e| AppError::internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|row| AgentCapability {
-            capability_id: row.get("capability_id"),
-            agent_id: row.get("agent_id"),
-            capability_name: row.get("capability_name"),
-            capability_type: row.get("capability_type"),
-            description: row.get("description"),
-            implementation_type: row.get("implementation_type"),
-            implementation_ref: row.get("implementation_ref"),
-            success_rate: row.get("success_rate"),
-            avg_latency_ms: row.get("avg_latency_ms"),
-            times_invoked: row.get("times_invoked"),
-            max_tokens: row.get("max_tokens"),
-            timeout_ms: row.get("timeout_ms"),
-            enabled: row.get("enabled"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| AgentCapability {
+                capability_id: row.get("capability_id"),
+                agent_id: row.get("agent_id"),
+                capability_name: row.get("capability_name"),
+                capability_type: row.get("capability_type"),
+                description: row.get("description"),
+                implementation_type: row.get("implementation_type"),
+                implementation_ref: row.get("implementation_ref"),
+                success_rate: row.get("success_rate"),
+                avg_latency_ms: row.get("avg_latency_ms"),
+                times_invoked: row.get("times_invoked"),
+                max_tokens: row.get("max_tokens"),
+                timeout_ms: row.get("timeout_ms"),
+                enabled: row.get("enabled"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+            })
+            .collect())
     }
 
     /// Update capability
@@ -324,7 +333,7 @@ impl AgentCapabilityRepository {
                 updated_at = $12
             WHERE capability_id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(capability_id)
         .bind(&input.capability_name)
@@ -386,7 +395,11 @@ impl AgentEpisodeRepository {
     }
 
     /// Create a new episode
-    pub async fn create(&self, agent_id: &str, input: CreateAgentEpisode) -> Result<AgentEpisode, AppError> {
+    pub async fn create(
+        &self,
+        agent_id: &str,
+        input: CreateAgentEpisode,
+    ) -> Result<AgentEpisode, AppError> {
         let episode_id = input.episode_id.unwrap_or_else(|| Ulid::new().to_string());
         let now = chrono::Utc::now().to_rfc3339();
         let start_time = input.start_time.unwrap_or_else(|| now.clone());
@@ -400,7 +413,7 @@ impl AgentEpisodeRepository {
                  relevant_knowledge_ids, reflection_level, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             RETURNING *
-            "#
+            "#,
         )
         .bind(&episode_id)
         .bind(agent_id)
@@ -461,25 +474,28 @@ impl AgentEpisodeRepository {
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
 
-        let episodes: Vec<AgentEpisode> = rows.into_iter().map(|row| AgentEpisode {
-            episode_id: row.get("episode_id"),
-            agent_id: row.get("agent_id"),
-            episode_type: row.get("episode_type"),
-            start_time: row.get("start_time"),
-            end_time: row.get("end_time"),
-            situation: row.get("situation"),
-            actions_taken: row.get("actions_taken"),
-            outcome: row.get("outcome"),
-            outcome_score: row.get("outcome_score"),
-            success: row.get("success"),
-            what_went_well: row.get("what_went_well"),
-            what_could_improve: row.get("what_could_improve"),
-            lessons_learned: row.get("lessons_learned"),
-            related_episode_ids: row.get("related_episode_ids"),
-            relevant_knowledge_ids: row.get("relevant_knowledge_ids"),
-            reflection_level: row.get("reflection_level"),
-            created_at: row.get("created_at"),
-        }).collect();
+        let episodes: Vec<AgentEpisode> = rows
+            .into_iter()
+            .map(|row| AgentEpisode {
+                episode_id: row.get("episode_id"),
+                agent_id: row.get("agent_id"),
+                episode_type: row.get("episode_type"),
+                start_time: row.get("start_time"),
+                end_time: row.get("end_time"),
+                situation: row.get("situation"),
+                actions_taken: row.get("actions_taken"),
+                outcome: row.get("outcome"),
+                outcome_score: row.get("outcome_score"),
+                success: row.get("success"),
+                what_went_well: row.get("what_went_well"),
+                what_could_improve: row.get("what_could_improve"),
+                lessons_learned: row.get("lessons_learned"),
+                related_episode_ids: row.get("related_episode_ids"),
+                relevant_knowledge_ids: row.get("relevant_knowledge_ids"),
+                reflection_level: row.get("reflection_level"),
+                created_at: row.get("created_at"),
+            })
+            .collect();
 
         let total: i64 = sqlx::query("SELECT COUNT(*) FROM agent_episodes WHERE agent_id = $1")
             .bind(agent_id)
@@ -512,7 +528,7 @@ impl AgentEpisodeRepository {
                 reflection_level = COALESCE($11, reflection_level)
             WHERE episode_id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(episode_id)
         .bind(&input.end_time)
@@ -565,7 +581,11 @@ impl AgentSelfModelRepository {
     }
 
     /// Create or update self-model
-    pub async fn upsert(&self, agent_id: &str, input: CreateAgentSelfModel) -> Result<AgentSelfModel, AppError> {
+    pub async fn upsert(
+        &self,
+        agent_id: &str,
+        input: CreateAgentSelfModel,
+    ) -> Result<AgentSelfModel, AppError> {
         let model_id = input.model_id.unwrap_or_else(|| Ulid::new().to_string());
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -587,7 +607,7 @@ impl AgentSelfModelRepository {
                 consistency_score = COALESCE($11, agent_self_models.consistency_score),
                 updated_at = $13
             RETURNING *
-            "#
+            "#,
         )
         .bind(&model_id)
         .bind(agent_id)
@@ -674,7 +694,7 @@ impl AgentSelfModelRepository {
                 updated_at = $11
             WHERE agent_id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(agent_id)
         .bind(&input.identity_beliefs)
@@ -723,7 +743,11 @@ impl AgentBehaviorProfileRepository {
     }
 
     /// Create a new behavior profile
-    pub async fn create(&self, agent_id: &str, input: CreateAgentBehaviorProfile) -> Result<AgentBehaviorProfile, AppError> {
+    pub async fn create(
+        &self,
+        agent_id: &str,
+        input: CreateAgentBehaviorProfile,
+    ) -> Result<AgentBehaviorProfile, AppError> {
         let profile_id = input.profile_id.unwrap_or_else(|| Ulid::new().to_string());
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -735,7 +759,7 @@ impl AgentBehaviorProfileRepository {
                  status, created_at, last_used_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING *
-            "#
+            "#,
         )
         .bind(&profile_id)
         .bind(agent_id)
@@ -760,9 +784,14 @@ impl AgentBehaviorProfileRepository {
             agent_id: result.get("agent_id"),
             behavior_type: result.get("behavior_type"),
             pattern_description: result.get("pattern_description"),
-            pattern_embedding: result.get::<serde_json::Value, _>("pattern_embedding")
+            pattern_embedding: result
+                .get::<serde_json::Value, _>("pattern_embedding")
                 .as_array()
-                .map(|arr| arr.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect::<Vec<f32>>()),
+                .map(|arr| {
+                    arr.iter()
+                        .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                        .collect::<Vec<f32>>()
+                }),
             times_applied: result.get("times_applied"),
             success_rate: result.get("success_rate"),
             avg_outcome_score: result.get("avg_outcome_score"),
@@ -776,22 +805,31 @@ impl AgentBehaviorProfileRepository {
     }
 
     /// List behavior profiles for an agent
-    pub async fn list_by_agent(&self, agent_id: &str) -> Result<Vec<AgentBehaviorProfile>, AppError> {
+    pub async fn list_by_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentBehaviorProfile>, AppError> {
         let rows = sqlx::query("SELECT * FROM agent_behavior_profiles WHERE agent_id = $1")
             .bind(agent_id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|row| {
-            AgentBehaviorProfile {
+        Ok(rows
+            .into_iter()
+            .map(|row| AgentBehaviorProfile {
                 profile_id: row.get("profile_id"),
                 agent_id: row.get("agent_id"),
                 behavior_type: row.get("behavior_type"),
                 pattern_description: row.get("pattern_description"),
-                pattern_embedding: row.get::<serde_json::Value, _>("pattern_embedding")
+                pattern_embedding: row
+                    .get::<serde_json::Value, _>("pattern_embedding")
                     .as_array()
-                    .map(|arr| arr.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect::<Vec<f32>>()),
+                    .map(|arr| {
+                        arr.iter()
+                            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                            .collect::<Vec<f32>>()
+                    }),
                 times_applied: row.get("times_applied"),
                 success_rate: row.get("success_rate"),
                 avg_outcome_score: row.get("avg_outcome_score"),
@@ -801,7 +839,7 @@ impl AgentBehaviorProfileRepository {
                 created_at: row.get("created_at"),
                 last_used_at: row.get("last_used_at"),
                 updated_at: row.get("updated_at"),
-            }
-        }).collect())
+            })
+            .collect())
     }
 }

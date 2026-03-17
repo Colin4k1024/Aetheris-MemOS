@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use qdrant_client::qdrant::{
-    CreateCollection, Distance, PointId, PointStruct, SearchPoints, VectorsConfig,
-    VectorParams, Vectors,
+    CreateCollection, Distance, PointId, PointStruct, SearchPoints, VectorParams, Vectors,
+    VectorsConfig,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -38,12 +38,10 @@ impl QdrantClient {
         // 注意：虽然使用 http:// 前缀，但实际通信使用 gRPC (HTTP/2)
         let url = format!("http://{}:{}", config.qdrant.host, config.qdrant.port);
 
-        let client = qdrant_client::Qdrant::from_url(&url)
-            .build()
-            .map_err(|e| {
-                error!("Failed to create Qdrant client: {}", e);
-                anyhow::anyhow!("Failed to create Qdrant client: {}", e)
-            })?;
+        let client = qdrant_client::Qdrant::from_url(&url).build().map_err(|e| {
+            error!("Failed to create Qdrant client: {}", e);
+            anyhow::anyhow!("Failed to create Qdrant client: {}", e)
+        })?;
 
         // 将距离类型字符串转换为 Distance 枚举
         let distance = match config.qdrant.distance_type.as_str() {
@@ -110,7 +108,7 @@ impl QdrantClient {
     /// 创建集合
     async fn create_collection(&self) -> Result<()> {
         use qdrant_client::qdrant::vectors_config::Config;
-        
+
         self.client
             .create_collection(CreateCollection {
                 collection_name: self.collection_name.clone(),
@@ -161,11 +159,11 @@ impl QdrantClient {
                 // 因此我们使用整数 ID，并将原始 ULID 存储在 payload 中
                 use std::collections::hash_map::DefaultHasher;
                 use std::hash::{Hash, Hasher};
-                
+
                 let mut hasher = DefaultHasher::new();
                 id.hash(&mut hasher);
                 let numeric_id = hasher.finish();
-                
+
                 // 将原始 ULID 添加到 payload 中
                 let mut payload = json_to_qdrant_payload(&meta);
                 payload.insert(
@@ -174,14 +172,14 @@ impl QdrantClient {
                         kind: Some(qdrant_client::qdrant::value::Kind::StringValue(id)),
                     },
                 );
-                
-                use qdrant_client::qdrant::vectors::VectorsOptions;
+
                 use qdrant_client::qdrant::point_id::PointIdOptions;
-                
+                use qdrant_client::qdrant::vectors::VectorsOptions;
+
                 let point_id = PointId {
                     point_id_options: Some(PointIdOptions::Num(numeric_id)),
                 };
-                
+
                 PointStruct::new(
                     point_id,
                     Vectors {
@@ -195,7 +193,7 @@ impl QdrantClient {
             .collect();
 
         use qdrant_client::qdrant::UpsertPoints;
-        
+
         self.client
             .upsert_points(UpsertPoints {
                 collection_name: self.collection_name.clone(),
@@ -231,7 +229,11 @@ impl QdrantClient {
         top_k: usize,
         filter: Option<qdrant_client::qdrant::Filter>,
     ) -> Result<Vec<SearchResult>> {
-        info!("Searching for similar vectors, top_k={}, has_filter={}", top_k, filter.is_some());
+        info!(
+            "Searching for similar vectors, top_k={}, has_filter={}",
+            top_k,
+            filter.is_some()
+        );
 
         // 构建搜索请求
         let search_points = SearchPoints {
@@ -264,7 +266,7 @@ impl QdrantClient {
             .map(|point| {
                 // 将 Qdrant Payload 转换回 JSON Value
                 let metadata = qdrant_payload_to_json(&point.payload);
-                
+
                 // 提取 ID
                 // 优先从 payload 中获取原始 ULID，如果没有则使用 PointId
                 let id = if let Some(original_id_value) = point.payload.get("_original_id") {
@@ -321,7 +323,7 @@ impl QdrantClient {
         use qdrant_client::qdrant::point_id::PointIdOptions;
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         // 将字符串 ID（ULID）转换为整数 ID（使用哈希）
         let point_ids: Vec<PointId> = ids
             .into_iter()
@@ -336,9 +338,9 @@ impl QdrantClient {
             .collect();
 
         use qdrant_client::qdrant::points_selector::PointsSelectorOneOf;
-        
+
         use qdrant_client::qdrant::DeletePoints;
-        
+
         self.client
             .delete_points(DeletePoints {
                 collection_name: self.collection_name.clone(),
@@ -346,9 +348,7 @@ impl QdrantClient {
                 ordering: None,
                 points: Some(qdrant_client::qdrant::PointsSelector {
                     points_selector_one_of: Some(PointsSelectorOneOf::Points(
-                        qdrant_client::qdrant::PointsIdsList {
-                            ids: point_ids,
-                        },
+                        qdrant_client::qdrant::PointsIdsList { ids: point_ids },
                     )),
                 }),
                 shard_key_selector: None,
@@ -417,9 +417,7 @@ fn json_value_to_qdrant_value(v: &Value) -> qdrant_client::qdrant::Value {
 }
 
 /// 将 Qdrant Payload 转换回 JSON Value
-fn qdrant_payload_to_json(
-    payload: &HashMap<String, qdrant_client::qdrant::Value>,
-) -> Value {
+fn qdrant_payload_to_json(payload: &HashMap<String, qdrant_client::qdrant::Value>) -> Value {
     let mut map = serde_json::Map::new();
     for (k, v) in payload {
         map.insert(k.clone(), qdrant_value_to_json_value(v));
@@ -431,14 +429,10 @@ fn qdrant_payload_to_json(
 fn qdrant_value_to_json_value(v: &qdrant_client::qdrant::Value) -> Value {
     match &v.kind {
         Some(qdrant_client::qdrant::value::Kind::StringValue(s)) => Value::String(s.clone()),
-        Some(qdrant_client::qdrant::value::Kind::IntegerValue(i)) => {
-            Value::Number((*i).into())
-        }
-        Some(qdrant_client::qdrant::value::Kind::DoubleValue(f)) => {
-            Value::Number(serde_json::Number::from_f64(*f).unwrap_or_else(|| {
-                serde_json::Number::from(0)
-            }))
-        }
+        Some(qdrant_client::qdrant::value::Kind::IntegerValue(i)) => Value::Number((*i).into()),
+        Some(qdrant_client::qdrant::value::Kind::DoubleValue(f)) => Value::Number(
+            serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0)),
+        ),
         Some(qdrant_client::qdrant::value::Kind::BoolValue(b)) => Value::Bool(*b),
         Some(qdrant_client::qdrant::value::Kind::NullValue(_)) => Value::Null,
         _ => Value::Null,
@@ -446,8 +440,7 @@ fn qdrant_value_to_json_value(v: &qdrant_client::qdrant::Value) -> Value {
 }
 
 /// 全局 Qdrant 客户端实例
-static QDRANT_CLIENT: once_cell::sync::OnceCell<QdrantClient> =
-    once_cell::sync::OnceCell::new();
+static QDRANT_CLIENT: once_cell::sync::OnceCell<QdrantClient> = once_cell::sync::OnceCell::new();
 
 /// 获取全局 Qdrant 客户端实例
 pub fn get_qdrant_client() -> Result<&'static QdrantClient> {
@@ -455,4 +448,3 @@ pub fn get_qdrant_client() -> Result<&'static QdrantClient> {
         .get_or_try_init(|| QdrantClient::new())
         .map_err(|e| anyhow::anyhow!("Failed to initialize Qdrant client: {}", e))
 }
-

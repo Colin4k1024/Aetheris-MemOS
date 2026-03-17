@@ -3,23 +3,21 @@
 //! This module provides gRPC service definitions for the Memory Kernel.
 
 /// gRPC service definition for Memory Kernel.
-/// 
+///
 /// This can be used with tonic to generate gRPC servers and clients.
-/// 
+///
 /// To regenerate:
 /// ```bash
 /// protoc --proto_path=proto --rust_out=src/protocol proto/memory_kernel.proto
 /// ```
-
 // Note: In production, you would use protobuf definitions.
 // This module provides the Rust structures that would be generated.
-
 use crate::kernel::types::*;
 
 /// gRPC Store Request
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GrpcStoreRequest {
-    pub layer: i32, // LayerType as i32
+    pub layer: i32,       // LayerType as i32
     pub content: Vec<u8>, // Serialized MemoryContent
     pub metadata: Option<GrpcMemoryMetadata>,
 }

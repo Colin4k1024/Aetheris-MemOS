@@ -110,9 +110,8 @@ impl WeightStrategy for SynergyAwareStrategy {
     }
     fn evaluate(&self, metrics: &WeightStrategyMetrics<'_>) -> WeightDelta {
         let weights = metrics.base_weights.clone();
-        let active_secondary = (weights.ltm > 0.0) as i32
-            + (weights.kg > 0.0) as i32
-            + (weights.mm > 0.0) as i32;
+        let active_secondary =
+            (weights.ltm > 0.0) as i32 + (weights.kg > 0.0) as i32 + (weights.mm > 0.0) as i32;
         let mut reasons = crate::models::AdjustmentReasons {
             stm: "Primary memory, always enabled".to_string(),
             ltm: String::new(),
@@ -129,7 +128,10 @@ impl WeightStrategy for SynergyAwareStrategy {
             reasons.ltm = "Synergy boost (multiple layers active)".to_string();
             reasons.kg = "Synergy boost (multiple layers active)".to_string();
             reasons.mm = "Synergy boost (multiple layers active)".to_string();
-            return WeightDelta { weights: w, reasons };
+            return WeightDelta {
+                weights: w,
+                reasons,
+            };
         }
 
         WeightDelta { weights, reasons }

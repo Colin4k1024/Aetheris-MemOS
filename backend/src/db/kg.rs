@@ -4,8 +4,8 @@ use sqlx::FromRow;
 use tracing::error;
 use ulid::Ulid;
 
-use crate::AppError;
 use crate::db::pool;
+use crate::AppError;
 
 /// 知识图谱仓库
 pub struct KGRepository;
@@ -439,15 +439,16 @@ impl KGRepository {
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-            let total =
-                sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM entities WHERE status = 'active' AND entity_type = $1")
-                    .bind(et)
-                    .fetch_one(pool)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to count entities: {}", e);
-                        AppError::Internal(format!("Database error: {}", e))
-                    })?;
+            let total = sqlx::query_as::<_, (i64,)>(
+                "SELECT COUNT(*) FROM entities WHERE status = 'active' AND entity_type = $1",
+            )
+            .bind(et)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count entities: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
             (entities, total)
         } else {
             let entities = sqlx::query_as::<_, Entity>(
@@ -471,13 +472,15 @@ impl KGRepository {
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-            let total = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM entities WHERE status = 'active'")
-                .fetch_one(pool)
-                .await
-                .map_err(|e| {
-                    error!("Failed to count entities: {}", e);
-                    AppError::Internal(format!("Database error: {}", e))
-                })?;
+            let total = sqlx::query_as::<_, (i64,)>(
+                "SELECT COUNT(*) FROM entities WHERE status = 'active'",
+            )
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to count entities: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
             (entities, total)
         };
 

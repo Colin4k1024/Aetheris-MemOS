@@ -1,7 +1,7 @@
 //! Database layer: PostgreSQL for Docker/production.
 
-use sqlx::PgPool;
 use sqlx::migrate::Migrator;
+use sqlx::PgPool;
 use std::path::Path;
 use std::sync::OnceLock;
 use tracing::{error, info};

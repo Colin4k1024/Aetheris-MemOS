@@ -1,6 +1,6 @@
-use axum::Json;
 use axum::extract::{Extension, Query};
 use axum::response::{Html, IntoResponse, Redirect};
+use axum::Json;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use rinja::Template;
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 use crate::hoops::jwt;
 use crate::models::User;
-use crate::{AppError, AppResult, JsonResult, db, json_ok, utils};
+use crate::{db, json_ok, utils, AppError, AppResult, JsonResult};
 
 pub async fn login_page(jar: CookieJar) -> AppResult<impl IntoResponse> {
     #[derive(Template)]
