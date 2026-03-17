@@ -13,6 +13,7 @@ mod demo;
 mod knowledge_graph;
 #[allow(dead_code)]
 mod memory;
+mod mcp;
 mod memory_search;
 mod memory_storage;
 #[allow(dead_code)]
@@ -200,7 +201,8 @@ pub fn root() -> Router {
             "/login/account",
             post(auth::post_login_with_token).get(auth::get_login_with_token),
         )
-        .merge(protected_api_router);
+        .merge(protected_api_router)
+        .merge(mcp::router());
 
     Router::new()
         .route("/", get(demo::hello))

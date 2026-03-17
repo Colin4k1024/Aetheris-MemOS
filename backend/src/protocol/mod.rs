@@ -3,6 +3,7 @@
 //! This module defines the Memory Protocol for client-server communication.
 
 pub mod grpc;
+pub mod mcp;
 pub mod websocket;
 
 use serde::{Deserialize, Serialize};

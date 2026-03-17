@@ -361,7 +361,7 @@ impl WsMessageBuilder {
         self
     }
 
-    pub fn payload<T: Into<WsPayload>>(self, payload: T) -> Self {
+    pub fn payload<T: Into<WsPayload>>(mut self, payload: T) -> Self {
         self.payload = payload.into();
         self
     }

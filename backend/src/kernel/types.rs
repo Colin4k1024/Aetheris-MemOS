@@ -31,7 +31,7 @@ impl Default for MemoryId {
 }
 
 /// Represents the type of memory layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LayerType {
     /// Short-term memory (ephemeral, fast)

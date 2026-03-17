@@ -32,7 +32,7 @@ pub trait MemoryKernel: Send + Sync {
 }
 
 /// Policy for memory eviction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EvictionPolicy {
     pub layer: Option<LayerType>,
     pub max_entries: Option<usize>,
