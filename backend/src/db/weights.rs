@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use tracing::{error, info};
 use ulid::Ulid;
 
