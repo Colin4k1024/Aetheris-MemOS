@@ -322,7 +322,7 @@ impl WsConnectionManager {
 
             // For simplicity, always return true if session exists
             // In real implementation, would send via WebSocket
-            is_subscribed || true
+            true
         } else {
             false
         }
