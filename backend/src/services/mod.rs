@@ -5,6 +5,8 @@ pub mod analyzer;
 #[allow(dead_code)]
 pub mod embedding;
 #[allow(dead_code)]
+pub mod importance_evaluator;
+#[allow(dead_code)]
 pub mod llm;
 pub mod memory_orchestrator;
 pub mod memory_search;

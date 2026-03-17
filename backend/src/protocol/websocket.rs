@@ -402,7 +402,7 @@ mod tests {
         assert!(sub_id.is_some());
 
         // Unsubscribe
-        let result = manager.unsubscribe(&session_id, sub_id.unwrap()).await;
+        let result = manager.unsubscribe(&session_id, &sub_id.unwrap()).await;
         assert!(result);
 
         // Remove session
