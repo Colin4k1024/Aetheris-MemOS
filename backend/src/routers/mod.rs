@@ -9,6 +9,7 @@ use tower_http::trace::TraceLayer;
 
 mod agent;
 mod auth;
+mod billing;
 mod demo;
 mod knowledge_graph;
 mod mcp;
@@ -149,6 +150,16 @@ pub fn root() -> Router {
                 .route("/correlations/{memory_id}", get(memory_pool::get_correlations))
                 .route("/network", get(memory_pool::get_network_status))
                 .route("/agents", get(memory_pool::list_agents)),
+        )
+        // Billing routes
+        .nest(
+            "/billing",
+            Router::new()
+                .route("/init", post(billing::init_tenant))
+                .route("/usage", post(billing::get_usage))
+                .route("/usage/{tenant_id}", get(billing::get_current_usage))
+                .route("/quota/{tenant_id}", get(billing::get_quota_status))
+                .route("/record", post(billing::record_usage)),
         )
         .route_layer(memory_rate_limit);
 

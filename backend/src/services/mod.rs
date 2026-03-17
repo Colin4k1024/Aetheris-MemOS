@@ -33,6 +33,8 @@ pub mod rbac;
 pub mod rerank;
 pub mod scheduler;
 #[allow(dead_code)]
+pub mod usage_tracker;
+#[allow(dead_code)]
 pub mod weight_adjuster;
 #[allow(dead_code)]
 pub mod weight_strategy;
