@@ -1334,7 +1334,610 @@ Authorization: Bearer <your-access-token>
 }
 ```
 
-## 11. 错误码说明
+## 11. 双时态追踪API (Phase 2.4)
+
+### 11.1 查询特定时间点的LTM条目
+
+**接口**: `GET /api/v1/memory/search/ltm/{entry_id}/at`
+
+**描述**: 查询记忆在特定时间点的状态
+
+**请求参数**:
+
+```
+timestamp: ISO 8601格式时间戳 (如: 2024-01-01T00:00:00Z)
+```
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "entry_id": "string",
+    "content": "string",
+    "valid_from": "2024-01-01T00:00:00Z",
+    "valid_until": "2024-06-01T00:00:00Z",
+    "superseded_by": null,
+    "version": 3
+  }
+}
+```
+
+### 11.2 获取LTM条目历史版本
+
+**接口**: `GET /api/v1/memory/search/ltm/{entry_id}/history`
+
+**描述**: 获取记忆的所有历史版本
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "versions": [
+      {
+        "version": 1,
+        "content": "原始内容",
+        "valid_from": "2024-01-01T00:00:00Z",
+        "valid_until": "2024-03-01T00:00:00Z",
+        "superseded_by": "entry_002"
+      },
+      {
+        "version": 2,
+        "content": "更新后的内容",
+        "valid_from": "2024-03-01T00:00:00Z",
+        "valid_until": null,
+        "superseded_by": null
+      }
+    ]
+  }
+}
+```
+
+### 11.3 时间旅行搜索
+
+**接口**: `POST /api/v1/memory/search/ltm/time-travel`
+
+**描述**: 在特定时间点搜索记忆
+
+**请求参数**:
+
+```json
+{
+  "query": "搜索内容",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "top_k": 10
+}
+```
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "entry_id": "string",
+        "content": "string",
+        "score": 0.95,
+        "valid_at": "2024-01-01T00:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### 11.4 查询KG实体历史
+
+**接口**: `GET /api/v1/memory/search/kg/{entity_id}/history`
+
+**描述**: 获取知识图谱实体的版本历史
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "versions": [
+      {
+        "version": 1,
+        "entity_name": "原始名称",
+        "valid_from": "2024-01-01T00:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 12. 上下文快照API (Phase 3.1 - Oris集成)
+
+### 12.1 创建任务快照
+
+**接口**: `POST /api/v1/memory/snapshot/task`
+
+**描述**: 创建任务执行上下文快照
+
+**请求参数**:
+
+```json
+{
+  "task_id": "string",
+  "task_type": "long_running_task",
+  "context": {
+    "memory_state": {},
+    "execution_state": {},
+    "checkpoint_id": "optional"
+  }
+}
+```
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "snapshot_id": "string",
+    "task_id": "string",
+    "created_at": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+### 12.2 恢复快照
+
+**接口**: `POST /api/v1/memory/snapshot/restore`
+
+**描述**: 从快照恢复任务上下文
+
+**请求参数**:
+
+```json
+{
+  "snapshot_id": "string"
+}
+```
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "restored_task_id": "string",
+    "context": {}
+  }
+}
+```
+
+### 12.3 创建检查点
+
+**接口**: `POST /api/v1/memory/snapshot/checkpoint`
+
+**描述**: 创建可回滚的检查点
+
+**请求参数**:
+
+```json
+{
+  "task_id": "string",
+  "checkpoint_data": {
+    "step": 10,
+    "memory_snapshot": {},
+    "metadata": {}
+  }
+}
+```
+
+### 12.4 回滚到检查点
+
+**接口**: `POST /api/v1/memory/snapshot/rollback`
+
+**描述**: 回滚到指定检查点
+
+**请求参数**:
+
+```json
+{
+  "task_id": "string",
+  "checkpoint_id": "string"
+}
+```
+
+---
+
+## 13. 租户管理API (Phase 3.2 - Aetheris)
+
+### 13.1 创建租户
+
+**接口**: `POST /api/v1/tenants`
+
+**描述**: 创建新的租户
+
+**请求参数**:
+
+```json
+{
+  "name": "string",
+  "quota": {
+    "storage_mb": 1024000,
+    "api_calls_per_month": 1000000
+  }
+}
+```
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "tenant_id": "string",
+    "name": "string",
+    "created_at": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+### 13.2 获取租户配额
+
+**接口**: `GET /api/v1/tenants/{tenant_id}/quota`
+
+**描述**: 获取租户资源配额状态
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "tenant_id": "string",
+    "quota": {
+      "storage_mb": 1024000,
+      "api_calls_per_month": 1000000
+    },
+    "usage": {
+      "storage_used_mb": 256000,
+      "api_calls_used": 250000
+    }
+  }
+}
+```
+
+---
+
+## 14. 记忆池API (Phase 3.3 - 多智能体协同)
+
+### 14.1 注册智能体
+
+**接口**: `POST /api/v1/memory/memory-pool/register`
+
+**描述**: 注册智能体到记忆池网络
+
+**请求参数**:
+
+```json
+{
+  "agent_id": "string",
+  "agent_name": "string",
+  "capabilities": ["reasoning", "planning"]
+}
+```
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "agent_id": "string",
+    "registered_at": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+### 14.2 共享记忆
+
+**接口**: `POST /api/v1/memory/memory-pool/share/{owner_agent_id}`
+
+**描述**: 将记忆共享给其他智能体
+
+**请求参数**:
+
+```json
+{
+  "memory_id": "string",
+  "visibility": "shared",
+  "allowed_agents": ["agent_2", "agent_3"]
+}
+```
+
+### 14.3 获取可见记忆
+
+**接口**: `GET /api/v1/memory/memory-pool/visible/{agent_id}`
+
+**描述**: 获取智能体可见的共享记忆
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "memories": [
+      {
+        "memory_id": "string",
+        "owner_agent_id": "string",
+        "content": "string",
+        "visibility": "shared"
+      }
+    ]
+  }
+}
+```
+
+### 14.4 获取网络状态
+
+**接口**: `GET /api/v1/memory/memory-pool/network`
+
+**描述**: 获取记忆池网络拓扑状态
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "active_agents": 5,
+    "total_memories": 100,
+    "shared_memories": 30,
+    "correlations": 15
+  }
+}
+```
+
+---
+
+## 15. 计费API (Phase 4.3)
+
+### 15.1 初始化租户计费
+
+**接口**: `POST /api/v1/memory/billing/init`
+
+**描述**: 为租户初始化计费信息
+
+**请求参数**:
+
+```json
+{
+  "tenant_id": "string",
+  "plan": "enterprise"
+}
+```
+
+### 15.2 获取使用量
+
+**接口**: `GET /api/v1/memory/billing/usage/{tenant_id}`
+
+**描述**: 获取租户当前使用量
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "tenant_id": "string",
+    "period": "2024-01",
+    "api_calls": 50000,
+    "storage_mb": 256000,
+    "cognitive_units": 10000
+  }
+}
+```
+
+### 15.3 记录使用量
+
+**接口**: `POST /api/v1/memory/billing/record`
+
+**描述**: 记录资源使用量
+
+**请求参数**:
+
+```json
+{
+  "tenant_id": "string",
+  "resource_type": "api_calls",
+  "amount": 100,
+  "timestamp": "2024-01-01T12:00:00Z"
+}
+```
+
+---
+
+## 16. 企业API (Phase 4.1)
+
+### 16.1 注册集群节点
+
+**接口**: `POST /api/v1/memory/enterprise/cluster/node`
+
+**描述**: 在企业集群中注册新节点
+
+**请求参数**:
+
+```json
+{
+  "nodeId": "node_2",
+  "host": "192.168.1.100",
+  "port": 8080
+}
+```
+
+### 16.2 获取集群节点列表
+
+**接口**: `GET /api/v1/memory/enterprise/cluster/nodes`
+
+**描述**: 获取所有集群节点
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "node_id": "node_1",
+      "host": "192.168.1.1",
+      "port": 8080,
+      "role": "leader",
+      "status": "active"
+    }
+  ]
+}
+```
+
+### 16.3 创建数据分片
+
+**接口**: `POST /api/v1/memory/enterprise/shards`
+
+**描述**: 创建数据分片
+
+**请求参数**:
+
+```json
+{
+  "shardId": 1,
+  "primaryNode": "node_1",
+  "replicaNodes": ["node_2", "node_3"],
+  "keyRangeStart": 0,
+  "keyRangeEnd": 50
+}
+```
+
+---
+
+## 17. 可视化API (Phase 4.2)
+
+### 17.1 获取时间线数据
+
+**接口**: `GET /api/v1/memory/visualization/timeline`
+
+**描述**: 获取记忆时间线可视化数据
+
+**请求参数**:
+
+```
+limit: 50
+layer: ltm
+```
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "string",
+      "title": "记忆标题",
+      "timestamp": "2024-01-01T00:00:00Z",
+      "layer": "ltm",
+      "importance": 0.85
+    }
+  ]
+}
+```
+
+### 17.2 获取知识图谱可视化
+
+**接口**: `GET /api/v1/memory/visualization/graph`
+
+**描述**: 获取知识图谱可视化数据
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "nodes": [
+      {
+        "id": "string",
+        "label": "实体名称",
+        "node_type": "person",
+        "importance": 0.9
+      }
+    ],
+    "edges": [
+      {
+        "source": "node_1",
+        "target": "node_2",
+        "label": "关系",
+        "strength": 0.8
+      }
+    ]
+  }
+}
+```
+
+### 17.3 获取热力图数据
+
+**接口**: `GET /api/v1/memory/visualization/heatmap`
+
+**描述**: 获取重要性热力图数据
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "cells": [
+      {
+        "x": 0,
+        "y": 1,
+        "value": 0.75,
+        "memory_id": "string"
+      }
+    ],
+    "max_value": 1.0,
+    "min_value": 0.0
+  }
+}
+```
+
+### 17.4 获取仪表盘统计
+
+**接口**: `GET /api/v1/memory/visualization/dashboard`
+
+**描述**: 获取仪表盘统计数据
+
+**响应参数**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "total_memories": 150,
+    "by_layer": {
+      "ltm": 100,
+      "stm": 30,
+      "kg": 20
+    },
+    "avg_importance": 0.72
+  }
+}
+```
+
+---
+
+## 18. 错误码说明
 
 | 错误码 | HTTP状态码 | 描述           |
 | ------ | ---------- | -------------- |
@@ -1400,5 +2003,14 @@ curl -X POST "http://127.0.0.1:8008/api/v1/memory/search/hybrid" \
 
 ---
 
-**版本**: 1.0.0  
-**最后更新**: 2025-12-30
+**版本**: 2.0.0
+**最后更新**: 2026-03-17
+
+**更新内容**:
+- 添加双时态追踪API (Phase 2.4)
+- 添加上下文快照API - Oris集成 (Phase 3.1)
+- 添加租户管理API - Aetheris (Phase 3.2)
+- 添加记忆池API - 多智能体协同 (Phase 3.3)
+- 添加计费API (Phase 4.3)
+- 添加企业API - 集群管理和数据分片 (Phase 4.1)
+- 添加可视化API (Phase 4.2)

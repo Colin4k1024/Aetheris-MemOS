@@ -14,7 +14,7 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 
 ---
 
-## v0.3 — Extensible & Agent-Ready (In Progress)
+## v0.3 — Extensible & Agent-Ready (Completed)
 
 **Theme:** Make the system composable, explainable, and open for extension.
 
@@ -25,6 +25,26 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 - **Decision trace (API + UI + persistence)** — `POST /api/v1/memory/adaptive/trace` and Memory Decision Trace page for step-by-step pipeline inspection (analyzer → predictor → weight adjustment → result), with DB persistence support.
 - **Storage baseline alignment** — PostgreSQL as relational baseline, Qdrant for vectors, Neo4j optional for graph scenarios.
 - **Documentation** — ARCHITECTURE, ROADMAP, USE_CASES, why-axum; CONTRIBUTING and EXTENSION_GUIDE.
+- **Axum backend migration** — Backend now runs on Axum; keep API compatibility and continue ecosystem alignment (see [why-axum.md](why-axum.md)).
+
+### Phase 2: Cognitive Architecture (Completed)
+
+- **Dynamic importance scoring** — Multi-factor importance evaluator with LLM-as-a-Judge support
+- **Fractal decay mechanism** — Bio-inspired adaptive forgetting with tier-specific decay rates
+- **Consolidation pipeline** — Sleep-like memory consolidation with compression and restructuring
+- **Bi-temporal tracking** — Version history and time-travel queries for LTM and KG
+
+### Phase 3: Ecosystem Integration (Completed)
+
+- **Oris integration** — Context snapshots, task persistence, checkpoints and rollback
+- **Aetheris multi-tenant** — Tenant management, quota control, RBAC (Owner/Admin/Member/Reader)
+- **Memory pool** — Multi-agent collaborative memory sharing with Private/Shared/Public visibility
+
+### Phase 4: Enterprise & Commercialization (Completed)
+
+- **Enterprise cluster** — Node registration, leader election, data sharding
+- **Visualization APIs** — Timeline, graph, heatmap, dashboard endpoints for frontend widgets
+- **Billing system** — Usage tracking, quota management, resource metering
 
 ### Planned
 
@@ -34,9 +54,6 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 ---
 
 ## v0.4 (Planned)
-
-- **Optional LLM integration** — Pluggable LLM-driven analyzer or predictor behind `MemoryAgent`.
-- **Axum backend migration** — Backend now runs on Axum; keep API compatibility and continue ecosystem alignment (see [why-axum.md](why-axum.md)).
 
 ---
 
