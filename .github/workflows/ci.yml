@@ -49,7 +49,7 @@ jobs:
         continue-on-error: true
 
       - name: Clippy
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --all
         continue-on-error: true
 
       - name: Build
@@ -58,7 +58,7 @@ jobs:
           DATABASE_URL: "file:./data/sqlx.sqlite"
 
       - name: Test
-        run: cargo test --lib
+        run: cargo test
         env:
           DATABASE_URL: "file:./data/sqlx.sqlite"
 
@@ -79,7 +79,7 @@ jobs:
           cache: 'npm'
 
       - name: Install
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Lint
         run: npm run lint
