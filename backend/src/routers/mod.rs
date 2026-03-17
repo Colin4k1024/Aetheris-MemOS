@@ -85,6 +85,8 @@ pub fn root() -> Router {
         .route("/weights/history", get(memory::get_weight_history))
         .route("/health", get(memory::health_check))
         .route("/config", get(memory::get_config))
+        .route("/importance/{entry_id}", get(memory::get_importance))
+        .route("/importance/batch", post(memory::batch_importance))
         .nest(
             "/storage",
             Router::new()

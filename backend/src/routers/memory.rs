@@ -9,6 +9,7 @@ use crate::db::{
     memory::MemoryConfigRepository, performance::PerformanceMetricsRepository,
     weights::WeightHistoryRepository,
 };
+use crate::kernel::types::{LayerType, MemoryContent, MemoryEntry, MemoryId, MemoryMetadata};
 use crate::models::*;
 use crate::services::*;
 use crate::{json_ok, JsonResult};
@@ -963,4 +964,130 @@ pub async fn delete_memory_config(Path(config_id): Path<String>) -> JsonResult<s
     MemoryConfigRepository::delete(&config_id).await?;
 
     json_ok(serde_json::json!({ "success": true }))
+}
+
+// ========== 重要性评估 API ==========
+
+use crate::services::importance_evaluator::ImportanceEvaluator;
+
+static IMPORTANCE_EVALUATOR: Lazy<Arc<ImportanceEvaluator>> =
+    Lazy::new(|| Arc::new(ImportanceEvaluator::new()));
+
+#[derive(Serialize, ToSchema)]
+pub struct ImportanceResponse {
+    pub entry_id: String,
+    pub score: f64,
+    pub factors: ImportanceFactors,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ImportanceFactors {
+    pub uniqueness: f64,
+    pub emotional_intensity: f64,
+    pub goal_relevance: f64,
+    pub timeliness: f64,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct BatchImportanceRequest {
+    pub entries: Vec<ImportanceEntryRequest>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ImportanceEntryRequest {
+    pub id: String,
+    pub layer: String,
+    pub content: String,
+    pub user_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub session_id: Option<String>,
+    pub tags: Vec<String>,
+    pub created_at: i64,
+    pub access_count: u32,
+    pub last_accessed: Option<i64>,
+    pub source: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct BatchImportanceResponse {
+    pub results: Vec<ImportanceResponse>,
+}
+
+/// Get importance score for a memory entry
+pub async fn get_importance(Path(entry_id): Path<String>) -> JsonResult<ImportanceResponse> {
+    // For now, return a placeholder - in production, fetch from DB
+    let score = IMPORTANCE_EVALUATOR.evaluate(&MemoryEntry::new(
+        LayerType::Stm,
+        MemoryContent::Text("placeholder".to_string()),
+    ));
+
+    json_ok(ImportanceResponse {
+        entry_id,
+        score,
+        factors: ImportanceFactors {
+            uniqueness: 0.5,
+            emotional_intensity: 0.0,
+            goal_relevance: 0.5,
+            timeliness: 0.5,
+        },
+    })
+}
+
+/// Batch evaluate importance scores for multiple entries
+pub async fn batch_importance(
+    Json(req): Json<BatchImportanceRequest>,
+) -> JsonResult<BatchImportanceResponse> {
+    use std::collections::HashMap;
+
+    let results: Vec<ImportanceResponse> = req
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let layer = match entry.layer.as_str() {
+                "stm" => LayerType::Stm,
+                "ltm" => LayerType::Ltm,
+                "kg" => LayerType::Kg,
+                "mm" => LayerType::Mm,
+                _ => LayerType::Stm,
+            };
+
+            let now = chrono::Utc::now().timestamp();
+            let metadata = MemoryMetadata {
+                user_id: entry.user_id,
+                session_id: entry.session_id,
+                agent_id: entry.agent_id,
+                tags: entry.tags,
+                importance: 0.0,
+                access_count: entry.access_count,
+                last_accessed: entry.last_accessed,
+                expires_at: None,
+                source: None,
+                extra: HashMap::new(),
+            };
+
+            let memory_entry = MemoryEntry {
+                id: MemoryId::from_string(entry.id.clone()),
+                layer,
+                content: MemoryContent::Text(entry.content),
+                metadata,
+                created_at: entry.created_at,
+                updated_at: now,
+            };
+
+            let score = IMPORTANCE_EVALUATOR.evaluate(&memory_entry);
+
+            ImportanceResponse {
+                entry_id: entry.id,
+                score,
+                factors: ImportanceFactors {
+                    uniqueness: 0.5,
+                    emotional_intensity: 0.0,
+                    goal_relevance: 0.5,
+                    timeliness: 0.5,
+                },
+            }
+        })
+        .collect();
+
+    json_ok(BatchImportanceResponse { results })
 }
