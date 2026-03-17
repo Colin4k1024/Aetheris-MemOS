@@ -55,6 +55,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run security audit
+        working-directory: backend
         uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
