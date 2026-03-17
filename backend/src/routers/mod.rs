@@ -157,7 +157,10 @@ pub fn root() -> Router {
             get(agent::list_behaviors).post(agent::record_behavior),
         )
         // Complete agent info
-        .route("/agents/{agent_id}/complete", get(agent::get_agent_complete));
+        .route(
+            "/agents/{agent_id}/complete",
+            get(agent::get_agent_complete),
+        );
 
     let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))

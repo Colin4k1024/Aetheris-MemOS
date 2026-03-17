@@ -53,7 +53,10 @@ pub fn router() -> Router {
             get(list_behaviors).post(record_behavior),
         )
         // Complete agent info
-        .route("/api/v1/agents/{agent_id}/complete", get(get_agent_complete))
+        .route(
+            "/api/v1/agents/{agent_id}/complete",
+            get(get_agent_complete),
+        )
 }
 
 // ============================================================================

@@ -57,12 +57,7 @@ impl ImportanceEvaluator {
     }
 
     /// Create with custom weights
-    pub fn with_weights(
-        uniqueness: f64,
-        emotional: f64,
-        relevance: f64,
-        timeliness: f64,
-    ) -> Self {
+    pub fn with_weights(uniqueness: f64, emotional: f64, relevance: f64, timeliness: f64) -> Self {
         Self {
             uniqueness_weight: uniqueness,
             emotional_weight: emotional,
@@ -235,7 +230,8 @@ mod tests {
 
         let score_with_tags = evaluator.evaluate(&entry);
 
-        let mut entry_no_tags = MemoryEntry::new(LayerType::Stm, MemoryContent::Text("test".to_string()));
+        let mut entry_no_tags =
+            MemoryEntry::new(LayerType::Stm, MemoryContent::Text("test".to_string()));
         let score_without_tags = evaluator.evaluate(&entry_no_tags);
 
         assert!(score_with_tags >= score_without_tags);
