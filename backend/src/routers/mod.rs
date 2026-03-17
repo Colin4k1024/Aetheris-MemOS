@@ -26,6 +26,7 @@ mod snapshot;
 #[allow(dead_code)]
 mod tenant;
 mod user;
+mod visualization;
 
 use crate::{config, hoops};
 
@@ -177,6 +178,15 @@ pub fn root() -> Router {
                 .route("/shards", post(enterprise::create_shard))
                 .route("/shards", get(enterprise::get_shards))
                 .route("/shards/{key}", get(enterprise::get_shard)),
+        )
+        // Visualization routes (for Widget Studio)
+        .nest(
+            "/visualization",
+            Router::new()
+                .route("/timeline", get(visualization::get_timeline))
+                .route("/graph", get(visualization::get_graph_visualization))
+                .route("/heatmap", get(visualization::get_heatmap))
+                .route("/dashboard", get(visualization::get_dashboard_stats)),
         )
         .route_layer(memory_rate_limit);
 
