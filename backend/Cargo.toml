@@ -48,3 +48,5 @@ moka = { version = "0.11", features = ["future"] }
 neo4rs = "0.8"
 async-trait = "0.1"
 base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
