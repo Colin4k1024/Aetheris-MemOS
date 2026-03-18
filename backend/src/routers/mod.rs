@@ -20,6 +20,8 @@ mod memory_pool;
 mod memory_search;
 mod memory_storage;
 #[allow(dead_code)]
+mod metrics;
+#[allow(dead_code)]
 mod multimodal;
 #[allow(dead_code)]
 mod snapshot;
@@ -186,7 +188,9 @@ pub fn root() -> Router {
                 .route("/timeline", get(visualization::get_timeline))
                 .route("/graph", get(visualization::get_graph_visualization))
                 .route("/heatmap", get(visualization::get_heatmap))
-                .route("/dashboard", get(visualization::get_dashboard_stats)),
+                .route("/dashboard", get(visualization::get_dashboard_stats))
+                // Metrics routes
+                .route("/metrics", get(metrics::get_metrics)),
         )
         .route_layer(memory_rate_limit);
 

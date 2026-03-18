@@ -13,6 +13,8 @@ pub mod enterprise;
 #[allow(dead_code)]
 pub mod importance_evaluator;
 #[allow(dead_code)]
+pub mod metrics;
+#[allow(dead_code)]
 pub mod llm;
 pub mod memory_orchestrator;
 pub mod memory_pool;

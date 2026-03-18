@@ -315,6 +315,14 @@ pub trait GovernanceHook: Send + Sync {
 
     /// Called when the hook is being disconnected/unloaded
     fn on_disconnect(&self) {}
+
+    // =========================================================================
+    // Metrics (optional, for sinks that want to collect)
+    // =========================================================================
+
+    /// Record metrics event (optional implementation)
+    /// Default: no-op
+    fn record_metrics(&self, _op_type: &str, _latency_ms: u64, _outcome: &str) {}
 }
 
 /// Usage snapshot for a tenant
