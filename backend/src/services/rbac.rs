@@ -92,6 +92,13 @@ pub struct RbacService {
 }
 
 impl RbacService {
+    /// Get internal roles for testing or advanced use cases
+    pub fn roles(&self) -> &Arc<RwLock<HashMap<String, HashMap<String, Role>>>> {
+        &self.roles
+    }
+}
+
+impl RbacService {
     /// Create a new RBAC service
     pub fn new() -> Self {
         Self {
