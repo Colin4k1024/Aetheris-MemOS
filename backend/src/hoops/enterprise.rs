@@ -804,7 +804,8 @@ mod tests {
 
         impl GovernanceHook for MockGovernance {
             fn check_license(&self, _tenant_id: &str, tier: LicenseTier) -> bool {
-                tier == LicenseTier::Pro || tier == LicenseTier::Enterprise
+                // Mock: Free tier is not allowed, Pro and Enterprise are allowed
+                tier != LicenseTier::Free
             }
 
             fn check_feature(&self, _tenant_id: &str, _feature: &str) -> bool {
@@ -829,7 +830,9 @@ mod tests {
 
         let hooks = EnterpriseHookSet::new().with_governance(MockGovernance);
         assert!(hooks.has_governance());
-        assert!(hooks.check_license("tenant1", LicenseTier::Free));
+        // Free tier should be denied by mock
+        assert!(!hooks.check_license("tenant1", LicenseTier::Free));
+        // Pro tier should be allowed by mock
         assert!(hooks.check_license("tenant1", LicenseTier::Pro));
     }
 
