@@ -42,9 +42,24 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 
 ### Phase 4: Enterprise & Commercialization (Completed)
 
-- **Enterprise cluster** — Node registration, leader election, data sharding
-- **Visualization APIs** — Timeline, graph, heatmap, dashboard endpoints for frontend widgets
-- **Billing system** — Usage tracking, quota management, resource metering
+**Open-Core Model:** Phase 4+ features are split into Core (MIT) and Enterprise (Commercial) modules.
+
+| Feature | Core | Enterprise |
+|---------|:----:|:----------:|
+| Memory Kernel | ✅ | - |
+| Agent Runtime | ✅ | - |
+| Memory Layers (STM/LTM/KG/MM) | ✅ | - |
+| Adaptive Scheduler | ✅ | - |
+| Weight Strategies | ✅ | - |
+| Multi-Agent Memory Pool | ✅ | - |
+| Multi-Tenant (Basic) | ✅ | - |
+| Enterprise Cluster | - | ✅ |
+| Visualization APIs | - | ✅ |
+| Billing System | - | ✅ |
+| RBAC | - | ✅ |
+| GovernanceHook | - | ✅ |
+
+> See [OPEN_CORE_BOUNDARY.md](OPEN_CORE_BOUNDARY.md) for full module details.
 
 ### Planned
 
