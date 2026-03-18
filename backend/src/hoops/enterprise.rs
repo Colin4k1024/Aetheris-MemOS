@@ -83,9 +83,174 @@ pub enum AuditResult {
     Denied,
 }
 
+// ============================================================================
+// Hook Types for GovernanceHook pre/post operations
+// ============================================================================
+
+/// Operation types for hooks
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Operation {
+    Store,
+    Search,
+    Update,
+    Delete,
+}
+
+impl Operation {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Operation::Store => "store",
+            Operation::Search => "search",
+            Operation::Update => "update",
+            Operation::Delete => "delete",
+        }
+    }
+}
+
+/// Hook context - carries request information through the hook chain
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookContext {
+    /// Tenant identifier
+    pub tenant_id: String,
+    /// User identifier (if authenticated)
+    pub user_id: Option<String>,
+    /// Operation being performed
+    pub operation: Operation,
+    /// Resource being accessed
+    pub resource: String,
+    /// Additional parameters
+    pub params: std::collections::HashMap<String, String>,
+}
+
+impl HookContext {
+    pub fn new(tenant_id: String, operation: Operation, resource: String) -> Self {
+        Self {
+            tenant_id,
+            user_id: None,
+            operation,
+            resource,
+            params: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_user(mut self, user_id: String) -> Self {
+        self.user_id = Some(user_id);
+        self
+    }
+
+    pub fn with_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.params.insert(key.into(), value.into());
+        self
+    }
+}
+
+/// Decision returned by pre-hooks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "reason")]
+pub enum HookDecision {
+    /// Allow the operation to proceed
+    Allow,
+    /// Deny the operation with a reason
+    Deny(String),
+    /// Skip this hook (for hook chains)
+    Skip,
+}
+
+impl HookDecision {
+    pub fn is_allowed(&self) -> bool {
+        matches!(self, HookDecision::Allow)
+    }
+
+    pub fn is_denied(&self) -> bool {
+        matches!(self, HookDecision::Deny(_))
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            HookDecision::Deny(reason) => Some(reason),
+            _ => None,
+        }
+    }
+}
+
+impl Default for HookDecision {
+    fn default() -> Self {
+        HookDecision::Allow
+    }
+}
+
+/// Result from post-hook execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookResult {
+    /// Whether the operation succeeded
+    pub success: bool,
+    /// Optional result data
+    pub data: Option<serde_json::Value>,
+    /// Error message if failed
+    pub error: Option<String>,
+}
+
+impl HookResult {
+    pub fn success() -> Self {
+        Self {
+            success: true,
+            data: None,
+            error: None,
+        }
+    }
+
+    pub fn success_with_data(data: serde_json::Value) -> Self {
+        Self {
+            success: true,
+            data: Some(data),
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            data: None,
+            error: Some(error.into()),
+        }
+    }
+}
+
+/// Error from hook execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookError {
+    /// Error code
+    pub code: String,
+    /// Error message
+    pub message: String,
+}
+
+impl HookError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+}
+
+impl From<std::io::Error> for HookError {
+    fn from(err: std::io::Error) -> Self {
+        Self {
+            code: "IO_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
 /// Governance hook trait for enterprise features
 /// Implement this trait to provide custom governance, licensing, and quota management
 pub trait GovernanceHook: Send + Sync {
+    // =========================================================================
+    // License & Feature Checks
+    // =========================================================================
+
     /// Check if a license tier is valid and active
     fn check_license(&self, tenant_id: &str, tier: LicenseTier) -> bool;
 
@@ -100,6 +265,56 @@ pub trait GovernanceHook: Send + Sync {
 
     /// Get current usage for a tenant
     fn get_usage(&self, tenant_id: &str) -> Option<UsageSnapshot>;
+
+    // =========================================================================
+    // Pre-hooks (return decision to allow/deny/skip)
+    // =========================================================================
+
+    /// Pre-hook for store operation
+    fn pre_store(&self, _ctx: &HookContext) -> HookDecision {
+        HookDecision::Allow
+    }
+
+    /// Pre-hook for search operation
+    fn pre_search(&self, _ctx: &HookContext) -> HookDecision {
+        HookDecision::Allow
+    }
+
+    /// Pre-hook for update operation
+    fn pre_update(&self, _ctx: &HookContext) -> HookDecision {
+        HookDecision::Allow
+    }
+
+    /// Pre-hook for delete operation
+    fn pre_delete(&self, _ctx: &HookContext) -> HookDecision {
+        HookDecision::Allow
+    }
+
+    // =========================================================================
+    // Post-hooks (called after operation completes)
+    // =========================================================================
+
+    /// Post-hook for store operation
+    fn post_store(&self, _ctx: &HookContext, _result: &HookResult) {}
+
+    /// Post-hook for search operation
+    fn post_search(&self, _ctx: &HookContext, _result: &HookResult) {}
+
+    /// Post-hook for update operation
+    fn post_update(&self, _ctx: &HookContext, _result: &HookResult) {}
+
+    /// Post-hook for delete operation
+    fn post_delete(&self, _ctx: &HookContext, _result: &HookResult) {}
+
+    // =========================================================================
+    // Error handling & lifecycle
+    // =========================================================================
+
+    /// Called when an operation fails with an error
+    fn on_error(&self, _ctx: &HookContext, _error: &HookError) {}
+
+    /// Called when the hook is being disconnected/unloaded
+    fn on_disconnect(&self) {}
 }
 
 /// Usage snapshot for a tenant
@@ -112,6 +327,223 @@ pub struct UsageSnapshot {
     pub cognitive_units: u64,
     pub memory_operations: u64,
     pub vector_queries: u64,
+}
+
+// ============================================================================
+// HookSet - Multiple hook registration with short-circuit logic
+// ============================================================================
+
+/// Short-circuit strategy for hook execution
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShortCircuit {
+    /// All hooks must allow (AND logic)
+    #[default]
+    All,
+    /// Any hook denying stops (OR logic)
+    Any,
+}
+
+/// Hook execution policy
+#[derive(Debug, Clone)]
+pub struct HookExecutionPolicy {
+    /// Timeout in milliseconds for each hook
+    pub timeout_ms: u64,
+    /// If true, one failure stops all subsequent hooks
+    pub fail_fast: bool,
+    /// Short-circuit strategy
+    pub short_circuit: ShortCircuit,
+}
+
+impl Default for HookExecutionPolicy {
+    fn default() -> Self {
+        Self {
+            timeout_ms: 5000, // 5 seconds default
+            fail_fast: true,
+            short_circuit: ShortCircuit::All,
+        }
+    }
+}
+
+/// HookSet - manages multiple governance hooks with execution policy
+#[derive(Clone)]
+pub struct HookSet {
+    hooks: Vec<Arc<dyn GovernanceHook>>,
+    policy: HookExecutionPolicy,
+}
+
+impl Default for HookSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HookSet {
+    /// Create a new empty hook set with default policy
+    pub fn new() -> Self {
+        Self {
+            hooks: Vec::new(),
+            policy: HookExecutionPolicy::default(),
+        }
+    }
+
+    /// Create with custom policy
+    pub fn with_policy(policy: HookExecutionPolicy) -> Self {
+        Self {
+            hooks: Vec::new(),
+            policy,
+        }
+    }
+
+    /// Register a new hook
+    pub fn register(&mut self, hook: Arc<dyn GovernanceHook>) {
+        self.hooks.push(hook);
+    }
+
+    /// Register a hook (builder pattern)
+    #[must_use]
+    pub fn with_hook(mut self, hook: Arc<dyn GovernanceHook>) -> Self {
+        self.hooks.push(hook);
+        self
+    }
+
+    /// Set execution policy
+    #[must_use]
+    pub fn with_policy_mut(mut self, policy: HookExecutionPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    /// Get number of registered hooks
+    pub fn len(&self) -> usize {
+        self.hooks.len()
+    }
+
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        self.hooks.is_empty()
+    }
+
+    /// Execute pre-hook for store operation
+    pub fn pre_store(&self, ctx: &HookContext) -> HookDecision {
+        self.execute_pre_hook(|hook| hook.pre_store(ctx))
+    }
+
+    /// Execute pre-hook for search operation
+    pub fn pre_search(&self, ctx: &HookContext) -> HookDecision {
+        self.execute_pre_hook(|hook| hook.pre_search(ctx))
+    }
+
+    /// Execute pre-hook for update operation
+    pub fn pre_update(&self, ctx: &HookContext) -> HookDecision {
+        self.execute_pre_hook(|hook| hook.pre_update(ctx))
+    }
+
+    /// Execute pre-hook for delete operation
+    pub fn pre_delete(&self, ctx: &HookContext) -> HookDecision {
+        self.execute_pre_hook(|hook| hook.pre_delete(ctx))
+    }
+
+    /// Execute post-hook for store operation
+    pub fn post_store(&self, ctx: &HookContext, result: &HookResult) {
+        self.execute_post_hook(|hook| hook.post_store(ctx, result));
+    }
+
+    /// Execute post-hook for search operation
+    pub fn post_search(&self, ctx: &HookContext, result: &HookResult) {
+        self.execute_post_hook(|hook| hook.post_search(ctx, result));
+    }
+
+    /// Execute post-hook for update operation
+    pub fn post_update(&self, ctx: &HookContext, result: &HookResult) {
+        self.execute_post_hook(|hook| hook.post_update(ctx, result));
+    }
+
+    /// Execute post-hook for delete operation
+    pub fn post_delete(&self, ctx: &HookContext, result: &HookResult) {
+        self.execute_post_hook(|hook| hook.post_delete(ctx, result));
+    }
+
+    /// Execute error handler
+    pub fn on_error(&self, ctx: &HookContext, error: &HookError) {
+        for hook in &self.hooks {
+            hook.on_error(ctx, error);
+        }
+    }
+
+    fn execute_pre_hook<F>(&self, mut f: F) -> HookDecision
+    where
+        F: FnMut(&dyn GovernanceHook) -> HookDecision,
+    {
+        if self.hooks.is_empty() {
+            return HookDecision::Allow;
+        }
+
+        match self.policy.short_circuit {
+            ShortCircuit::All => {
+                // All must allow
+                for hook in &self.hooks {
+                    let decision = f(hook.as_ref());
+                    if !decision.is_allowed() {
+                        return decision;
+                    }
+                }
+                HookDecision::Allow
+            }
+            ShortCircuit::Any => {
+                // Any deny stops
+                for hook in &self.hooks {
+                    let decision = f(hook.as_ref());
+                    if decision.is_denied() {
+                        return decision;
+                    }
+                }
+                HookDecision::Allow
+            }
+        }
+    }
+
+    fn execute_post_hook<F>(&self, mut f: F)
+    where
+        F: FnMut(&dyn GovernanceHook) -> (),
+    {
+        for hook in &self.hooks {
+            f(hook.as_ref());
+        }
+    }
+}
+
+/// No-op implementation of GovernanceHook
+pub struct NoopHookSet;
+
+impl GovernanceHook for NoopHookSet {
+    fn check_license(&self, _tenant_id: &str, _tier: LicenseTier) -> bool {
+        true
+    }
+
+    fn check_feature(&self, _tenant_id: &str, _feature: &str) -> bool {
+        true
+    }
+
+    fn check_quota(&self, _tenant_id: &str, _resource: Resource) -> QuotaResult {
+        QuotaResult {
+            allowed: true,
+            current: 0,
+            limit: u64::MAX,
+            overage: 0,
+        }
+    }
+
+    fn record_audit(&self, _event: AuditEvent) {}
+
+    fn get_usage(&self, _tenant_id: &str) -> Option<UsageSnapshot> {
+        None
+    }
+}
+
+impl Default for NoopHookSet {
+    fn default() -> Self {
+        Self
+    }
 }
 
 /// Authentication hook trait

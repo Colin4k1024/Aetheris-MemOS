@@ -119,6 +119,88 @@ ServerBuilder::new()
     .build();
 ```
 
+## Hook System (Core)
+
+The Core provides a comprehensive hook system for intercepting memory operations:
+
+### Hook Types
+
+| Type | Description |
+|------|-------------|
+| `pre_store` | Called before storing a memory |
+| `pre_search` | Called before searching |
+| `pre_update` | Called before updating a memory |
+| `pre_delete` | Called before deleting a memory |
+| `post_store` | Called after successful store |
+| `post_search` | Called after successful search |
+| `post_update` | Called after successful update |
+| `post_delete` | Called after successful delete |
+| `on_error` | Called when an operation fails |
+
+### Hook Decisions
+
+Pre-hooks return a `HookDecision`:
+
+```rust
+pub enum HookDecision {
+    Allow,      // Allow operation to proceed
+    Deny(String), // Deny with reason
+    Skip,       // Skip this hook (for chains)
+}
+```
+
+### Execution Policy
+
+```rust
+pub struct HookExecutionPolicy {
+    pub timeout_ms: u64,      // Timeout per hook (default: 5000ms)
+    pub fail_fast: bool,      // Stop on first failure
+    pub short_circuit: ShortCircuit,  // All (AND) or Any (OR)
+}
+```
+
+### HookSet
+
+Multiple hooks can be registered with `HookSet`:
+
+```rust
+use crate::hoops::{HookSet, HookExecutionPolicy, ShortCircuit};
+
+let mut hook_set = HookSet::new();
+hook_set.register(my_hook_1);
+hook_set.register(my_hook_2);
+
+// Or with custom policy
+let hook_set = HookSet::with_policy(HookExecutionPolicy {
+    timeout_ms: 3000,
+    fail_fast: true,
+    short_circuit: ShortCircuit::All,
+});
+```
+
+### NoopHookSet
+
+For Core builds without enterprise features, use `NoopHookSet`:
+
+```rust
+use crate::hoops::NoopHookSet;
+
+let hooks = EnterpriseHookSet::new()
+    .with_governance(NoopHookSet::default());
+```
+
+## Static Injection vs Dynamic Loading
+
+| Aspect | Static Injection | Dynamic Loading |
+|--------|------------------|-----------------|
+| Performance | Zero runtime overhead | Small overhead |
+| Type Safety | Full compile-time checks | Runtime reflection |
+| Updates | Requires rebuild | Hot reload possible |
+| Isolation | Crash can affect core | Better isolation |
+| Complexity | Simpler | More complex |
+
+**Recommendation**: Use static injection for enterprise hooks (simpler, type-safe). Dynamic loading can be considered for third-party plugins.
+
 ## Feature Flags
 
 The project uses Cargo feature flags to control enterprise features:
