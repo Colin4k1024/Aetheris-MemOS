@@ -10,6 +10,7 @@ use tower_http::trace::TraceLayer;
 mod agent;
 mod auth;
 mod billing;
+mod dashboard;
 mod demo;
 mod enterprise;
 mod knowledge_graph;
