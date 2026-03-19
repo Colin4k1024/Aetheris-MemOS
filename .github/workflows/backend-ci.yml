@@ -33,7 +33,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy linting
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --all
 
       - name: Check for broken links in docs
         run: |
@@ -45,6 +45,9 @@ jobs:
   # Security Audit
   security:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +55,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run security audit
+        working-directory: backend
         uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

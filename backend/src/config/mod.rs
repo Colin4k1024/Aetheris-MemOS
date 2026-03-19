@@ -8,6 +8,8 @@ mod log_config;
 pub use log_config::LogConfig;
 mod db_config;
 pub use db_config::DbConfig;
+mod storage;
+pub use storage::{StorageBackend, StorageConfig};
 mod llm_config;
 pub use llm_config::LLMConfig;
 mod embedding_config;

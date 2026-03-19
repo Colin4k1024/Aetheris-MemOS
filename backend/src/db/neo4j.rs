@@ -2,8 +2,6 @@
 //!
 //! This module provides Neo4j integration for knowledge graph storage.
 
-#![allow(dead_code)]
-
 use crate::config::Neo4jConfig;
 use crate::AppError;
 use neo4rs::{query, Graph, Node, Relation, Row};

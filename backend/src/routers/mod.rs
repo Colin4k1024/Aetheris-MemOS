@@ -9,16 +9,27 @@ use tower_http::trace::TraceLayer;
 
 mod agent;
 mod auth;
+mod billing;
+mod dashboard;
 mod demo;
+mod enterprise;
 mod knowledge_graph;
 mod mcp;
 #[allow(dead_code)]
 mod memory;
+mod memory_pool;
 mod memory_search;
 mod memory_storage;
 #[allow(dead_code)]
+mod metrics;
+#[allow(dead_code)]
 mod multimodal;
+#[allow(dead_code)]
+mod snapshot;
+#[allow(dead_code)]
+mod tenant;
 mod user;
+mod visualization;
 
 use crate::{config, hoops};
 
@@ -85,6 +96,8 @@ pub fn root() -> Router {
         .route("/weights/history", get(memory::get_weight_history))
         .route("/health", get(memory::health_check))
         .route("/config", get(memory::get_config))
+        .route("/importance/{entry_id}", get(memory::get_importance))
+        .route("/importance/batch", post(memory::batch_importance))
         .nest(
             "/storage",
             Router::new()
@@ -107,55 +120,127 @@ pub fn root() -> Router {
                     get(memory_search::list_ltm_entries).post(memory_search::search_ltm),
                 )
                 .route("/ltm/{entry_id}", get(memory_search::get_ltm_entry))
+                // Bi-temporal tracking endpoints
+                .route("/ltm/{entry_id}/at", get(memory_search::get_ltm_at_time))
+                .route("/ltm/{entry_id}/history", get(memory_search::get_ltm_history))
+                .route("/ltm/time-travel", post(memory_search::search_ltm_at_time))
+                .route("/kg/{entity_id}/at", get(memory_search::get_kg_entity_at_time))
+                .route("/kg/{entity_id}/history", get(memory_search::get_kg_entity_history))
                 .route("/hybrid", post(memory_search::hybrid_search))
                 .route("/entity", post(memory_search::search_by_entity)),
         )
         .merge(memory_config_routes)
+        // Snapshot routes (Oris Integration)
+        .nest(
+            "/snapshot",
+            Router::new()
+                .route("/task", post(snapshot::create_task))
+                .route("/task/{task_id}", get(snapshot::get_task))
+                .route("/create", post(snapshot::create_snapshot))
+                .route("/restore", post(snapshot::restore_snapshot))
+                .route("/checkpoint", post(snapshot::create_checkpoint))
+                .route("/rollback", post(snapshot::rollback_to_checkpoint))
+                .route("/checkpoints/{task_id}", get(snapshot::list_checkpoints)),
+        )
+        // Memory pool routes (Multi-agent Collaborative)
+        .nest(
+            "/memory-pool",
+            Router::new()
+                .route("/register", post(memory_pool::register_agent))
+                .route("/unregister/{agent_id}", post(memory_pool::unregister_agent))
+                .route("/share/{owner_agent_id}", post(memory_pool::share_memory))
+                .route("/revoke/{owner_agent_id}/{memory_id}", post(memory_pool::revoke_memory))
+                .route("/visible/{agent_id}", get(memory_pool::get_visible_memories))
+                .route("/correlations", post(memory_pool::add_correlation))
+                .route("/correlations/{memory_id}", get(memory_pool::get_correlations))
+                .route("/network", get(memory_pool::get_network_status))
+                .route("/agents", get(memory_pool::list_agents)),
+        )
+        // Billing routes
+        .nest(
+            "/billing",
+            Router::new()
+                .route("/init", post(billing::init_tenant))
+                .route("/usage", post(billing::get_usage))
+                .route("/usage/{tenant_id}", get(billing::get_current_usage))
+                .route("/quota/{tenant_id}", get(billing::get_quota_status))
+                .route("/record", post(billing::record_usage)),
+        )
+        // Enterprise routes
+        .nest(
+            "/enterprise",
+            Router::new()
+                // Cluster management
+                .route("/cluster/node", post(enterprise::register_node))
+                .route("/cluster/nodes", get(enterprise::get_cluster_nodes))
+                .route("/cluster/active", get(enterprise::get_active_nodes))
+                .route("/cluster/leader", get(enterprise::get_leader))
+                .route("/cluster/become-leader", post(enterprise::become_leader))
+                .route("/cluster/is-leader", get(enterprise::is_leader))
+                // Sharding
+                .route("/shards", post(enterprise::create_shard))
+                .route("/shards", get(enterprise::get_shards))
+                .route("/shards/{key}", get(enterprise::get_shard)),
+        )
+        // Visualization routes (for Widget Studio)
+        .nest(
+            "/visualization",
+            Router::new()
+                .route("/timeline", get(visualization::get_timeline))
+                .route("/graph", get(visualization::get_graph_visualization))
+                .route("/heatmap", get(visualization::get_heatmap))
+                .route("/dashboard", get(visualization::get_dashboard_stats))
+                // Metrics routes
+                .route("/metrics", get(metrics::get_metrics)),
+        )
         .route_layer(memory_rate_limit);
 
     let agent_routes = Router::new()
         // Agent Identity
         .route("/agents", post(agent::create_agent).get(agent::list_agents))
         .route(
-            "/agents/:agent_id",
+            "/agents/{agent_id}",
             get(agent::get_agent)
                 .put(agent::update_agent)
                 .delete(agent::delete_agent),
         )
         // Self-Model
         .route(
-            "/agents/:agent_id/self-model",
+            "/agents/{agent_id}/self-model",
             get(agent::get_self_model).put(agent::update_self_model),
         )
         .route(
-            "/agents/:agent_id/self-model/reflect",
+            "/agents/{agent_id}/self-model/reflect",
             post(agent::trigger_reflection),
         )
         // Capabilities
         .route(
-            "/agents/:agent_id/capabilities",
+            "/agents/{agent_id}/capabilities",
             get(agent::list_capabilities).post(agent::add_capability),
         )
         .route(
-            "/agents/:agent_id/capabilities/:capability_id",
+            "/agents/{agent_id}/capabilities/{capability_id}",
             put(agent::update_capability).delete(agent::delete_capability),
         )
         // Episodes
         .route(
-            "/agents/:agent_id/episodes",
+            "/agents/{agent_id}/episodes",
             get(agent::list_episodes).post(agent::record_episode),
         )
         .route(
-            "/agents/:agent_id/episodes/:episode_id",
+            "/agents/{agent_id}/episodes/{episode_id}",
             put(agent::update_episode),
         )
         // Behavior Profiles
         .route(
-            "/agents/:agent_id/behaviors",
+            "/agents/{agent_id}/behaviors",
             get(agent::list_behaviors).post(agent::record_behavior),
         )
         // Complete agent info
-        .route("/agents/:agent_id/complete", get(agent::get_agent_complete));
+        .route(
+            "/agents/{agent_id}/complete",
+            get(agent::get_agent_complete),
+        );
 
     let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))

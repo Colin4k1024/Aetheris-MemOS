@@ -1,5 +1,6 @@
 //! Memory Kernel - Core Trait Definitions
 
+#[allow(unused_imports)]
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::types::*;
 use std::collections::HashMap;

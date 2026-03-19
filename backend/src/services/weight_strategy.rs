@@ -1,8 +1,6 @@
 //! Weight strategy plugin abstraction: each strategy produces a weight suggestion from metrics.
 //! Built-in strategies: complexity/modality/reasoning (marginal benefit), cost-benefit decay, synergy.
 
-#![allow(dead_code)]
-
 use crate::models::*;
 
 /// Input to a weight strategy: task profile, cost-benefit ratio, and current (base) weights.

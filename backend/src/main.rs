@@ -8,12 +8,14 @@ mod config;
 mod db;
 mod error;
 mod hoops;
+mod integrations;
 mod kernel;
 mod models;
 mod protocol;
 mod routers;
 mod axum_routers;
 mod services;
+mod tenant;
 mod utils;
 mod web;
 

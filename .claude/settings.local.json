@@ -38,7 +38,16 @@
       "Bash(cargo check:*)",
       "Bash(cargo test:*)",
       "Bash(git checkout:*)",
-      "Bash(cargo tree:*)"
+      "Bash(cargo tree:*)",
+      "Bash(gh issue:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(git rm:*)",
+      "Bash(git reset:*)",
+      "Bash(cd /Users/jiafan/Desktop/poc/adaptive-memory-system/frontend/ant-design-pro-template && npm install)",
+      "Bash(cd /Users/jiafan/Desktop/poc/adaptive-memory-system/frontend/ant-design-pro-template && npm install --legacy-peer-deps)",
+      "Bash(gh run:*)",
+      "Bash(cd /Users/jiafan/Desktop/poc/adaptive-memory-system/backend && cargo clippy 2>&1 | head -30)",
+      "Bash(cargo clippy:*)"
     ]
   }
 }

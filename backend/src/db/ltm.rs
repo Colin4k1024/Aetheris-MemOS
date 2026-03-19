@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use tracing::{error, info};
@@ -42,6 +40,11 @@ pub struct KnowledgeEntry {
     pub relevance_score: Option<f32>,
     pub status: String,
     pub access_count: Option<i32>,
+    pub version: Option<i32>,
+    // Bi-temporal fields
+    pub valid_from: Option<String>,
+    pub valid_until: Option<String>,
+    pub superseded_by: Option<String>,
 }
 
 impl LTMRepository {
@@ -178,7 +181,11 @@ impl LTMRepository {
                    last_accessed_at::text as last_accessed_at,
                    category, domain,
                    quality_score, relevance_score, status,
-                   COALESCE(access_count, 0) as access_count
+                   COALESCE(access_count, 0) as access_count,
+                   version,
+                   valid_from::text as valid_from,
+                   valid_until::text as valid_until,
+                   superseded_by
             FROM knowledge_entries
             WHERE entry_id = $1 AND status = 'active'
             "#,
@@ -212,7 +219,11 @@ impl LTMRepository {
                        last_accessed_at::text as last_accessed_at,
                        category, domain,
                        quality_score, relevance_score, status,
-                       COALESCE(access_count, 0) as access_count
+                       COALESCE(access_count, 0) as access_count,
+                       version,
+                       valid_from::text as valid_from,
+                       valid_until::text as valid_until,
+                       superseded_by
                 FROM knowledge_entries
                 WHERE source_id = $1 AND source_type = $2 AND status = 'active'
                 ORDER BY created_at DESC
@@ -231,7 +242,11 @@ impl LTMRepository {
                        last_accessed_at::text as last_accessed_at,
                        category, domain,
                        quality_score, relevance_score, status,
-                       COALESCE(access_count, 0) as access_count
+                       COALESCE(access_count, 0) as access_count,
+                       version,
+                       valid_from::text as valid_from,
+                       valid_until::text as valid_until,
+                       superseded_by
                 FROM knowledge_entries
                 WHERE source_id = $1 AND status = 'active'
                 ORDER BY created_at DESC
@@ -268,7 +283,11 @@ impl LTMRepository {
                    created_at::text as created_at, updated_at::text as updated_at,
                    last_accessed_at::text as last_accessed_at,
                    category, domain, quality_score, relevance_score, status,
-                   COALESCE(access_count, 0) as access_count
+                   COALESCE(access_count, 0) as access_count,
+                   version,
+                   valid_from::text as valid_from,
+                   valid_until::text as valid_until,
+                   superseded_by
             FROM knowledge_entries
             WHERE status = 'active'
             ORDER BY created_at DESC
@@ -312,5 +331,206 @@ impl LTMRepository {
             })?;
 
         Ok(row.0)
+    }
+
+    // ============ Bi-temporal Tracking Methods ============
+
+    /// 获取特定时间点的知识条目（时间旅行查询）
+    pub async fn get_entry_at_time(
+        entry_id: &str,
+        at_timestamp: &str,
+    ) -> Result<Option<KnowledgeEntry>, AppError> {
+        let pool = pool();
+
+        let entry = sqlx::query_as::<_, KnowledgeEntry>(
+            r#"
+            SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
+                   embedding_vector, embedding_model, embedding_dimension,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   last_accessed_at::text as last_accessed_at,
+                   category, domain,
+                   quality_score, relevance_score, status,
+                   COALESCE(access_count, 0) as access_count,
+                   valid_from::text as valid_from,
+                   valid_until::text as valid_until,
+                   superseded_by
+            FROM knowledge_entries
+            WHERE entry_id = $1
+              AND valid_from <= $2
+              AND (valid_until IS NULL OR valid_until > $2)
+            "#,
+        )
+        .bind(entry_id)
+        .bind(at_timestamp)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get knowledge entry at time: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(entry)
+    }
+
+    /// 搜索特定时间点的知识条目
+    pub async fn search_entries_at_time(
+        query: &str,
+        at_timestamp: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<KnowledgeEntry>, AppError> {
+        let pool = pool();
+        let limit = limit.unwrap_or(20);
+
+        let entries = sqlx::query_as::<_, KnowledgeEntry>(
+            r#"
+            SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
+                   embedding_vector, embedding_model, embedding_dimension,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   last_accessed_at::text as last_accessed_at,
+                   category, domain,
+                   quality_score, relevance_score, status,
+                   COALESCE(access_count, 0) as access_count,
+                   valid_from::text as valid_from,
+                   valid_until::text as valid_until,
+                   superseded_by
+            FROM knowledge_entries
+            WHERE status = 'active'
+              AND valid_from <= $2
+              AND (valid_until IS NULL OR valid_until > $2)
+              AND (
+                  title ILIKE '%' || $1 || '%'
+                  OR content ILIKE '%' || $1 || '%'
+                  OR category ILIKE '%' || $1 || '%'
+                  OR domain ILIKE '%' || $1 || '%'
+              )
+            ORDER BY quality_score DESC, relevance_score DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(query)
+        .bind(at_timestamp)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to search knowledge entries at time: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(entries)
+    }
+
+    /// 获取条目的版本历史
+    pub async fn get_entry_history(
+        entry_id: &str,
+    ) -> Result<Vec<KnowledgeEntry>, AppError> {
+        let pool = pool();
+
+        let entries = sqlx::query_as::<_, KnowledgeEntry>(
+            r#"
+            SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
+                   embedding_vector, embedding_model, embedding_dimension,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   last_accessed_at::text as last_accessed_at,
+                   category, domain,
+                   quality_score, relevance_score, status,
+                   COALESCE(access_count, 0) as access_count,
+                   valid_from::text as valid_from,
+                   valid_until::text as valid_until,
+                   superseded_by
+            FROM knowledge_entries
+            WHERE entry_id = $1
+            ORDER BY version DESC, valid_from DESC
+            "#,
+        )
+        .bind(entry_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get entry history: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(entries)
+    }
+
+    /// 更新条目时创建新版本（保留历史）
+    pub async fn supersede_entry(
+        entry_id: &str,
+        new_content: &str,
+        new_title: Option<&str>,
+        change_reason: Option<&str>,
+    ) -> Result<String, AppError> {
+        let pool = pool();
+        let new_entry_id = Ulid::new().to_string();
+
+        // 获取当前条目
+        let current = Self::get_entry_by_id(entry_id).await?;
+        if current.is_none() {
+            return Err(AppError::NotFound(format!("Entry {} not found", entry_id)));
+        }
+        let current = current.unwrap();
+
+        // 计算内容哈希
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        new_content.hash(&mut hasher);
+        let content_hash = format!("{:x}", hasher.finish());
+
+        // 将当前条目标记为被替换
+        sqlx::query(
+            r#"
+            UPDATE knowledge_entries
+            SET valid_until = CURRENT_TIMESTAMP,
+                superseded_by = $1,
+                status = 'deprecated'
+            WHERE entry_id = $2
+            "#,
+        )
+        .bind(&new_entry_id)
+        .bind(entry_id)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to supersede entry: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        // 创建新版本条目
+        sqlx::query(
+            r#"
+            INSERT INTO knowledge_entries (
+                entry_id, source_id, source_type, title, content, content_type, content_hash,
+                embedding_vector, embedding_model, embedding_dimension,
+                quality_score, status, version,
+                valid_from, superseded_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12, CURRENT_TIMESTAMP, NULL)
+            "#,
+        )
+        .bind(&new_entry_id)
+        .bind(&current.source_id)
+        .bind(&current.source_type)
+        .bind(new_title)
+        .bind(new_content)
+        .bind(&current.content_type)
+        .bind(&content_hash)
+        .bind(&current.embedding_vector)
+        .bind(&current.embedding_model)
+        .bind(current.embedding_dimension)
+        .bind(current.quality_score)
+        .bind(current.version.unwrap_or(1) + 1)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to create new version: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        info!(
+            "Superseded entry {} with new version {}, reason: {:?}",
+            entry_id, new_entry_id, change_reason
+        );
+        Ok(new_entry_id)
     }
 }

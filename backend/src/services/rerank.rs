@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use anyhow::Result;
 use reqwest::Client;
 use serde::Deserialize;

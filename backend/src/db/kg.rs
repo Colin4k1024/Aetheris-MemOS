@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
-use tracing::error;
+use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
@@ -38,6 +38,10 @@ pub struct Entity {
     pub relation_count: i32,
     pub mention_count: i32,
     pub status: String,
+    // Bi-temporal fields
+    pub valid_from: Option<String>,
+    pub valid_until: Option<String>,
+    pub superseded_by: Option<String>,
 }
 
 /// 关系信息
@@ -490,5 +494,143 @@ impl KGRepository {
             limit,
             offset,
         })
+    }
+
+    // ============ Bi-temporal Tracking Methods ============
+
+    /// 获取特定时间点的实体（时间旅行查询）
+    pub async fn get_entity_at_time(
+        entity_id: &str,
+        at_timestamp: &str,
+    ) -> Result<Option<Entity>, AppError> {
+        let pool = pool();
+
+        let entity = sqlx::query_as::<_, Entity>(
+            r#"
+            SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
+                   embedding_vector, embedding_model, embedding_dimension,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   confidence_score, popularity_score, relation_count, mention_count, status,
+                   valid_from::text as valid_from,
+                   valid_until::text as valid_until,
+                   superseded_by
+            FROM entities
+            WHERE entity_id = $1
+              AND valid_from <= $2
+              AND (valid_until IS NULL OR valid_until > $2)
+            "#,
+        )
+        .bind(entity_id)
+        .bind(at_timestamp)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get entity at time: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(entity)
+    }
+
+    /// 获取实体的版本历史
+    pub async fn get_entity_history(
+        entity_id: &str,
+    ) -> Result<Vec<Entity>, AppError> {
+        let pool = pool();
+
+        let entities = sqlx::query_as::<_, Entity>(
+            r#"
+            SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
+                   embedding_vector, embedding_model, embedding_dimension,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   confidence_score, popularity_score, relation_count, mention_count, status,
+                   valid_from::text as valid_from,
+                   valid_until::text as valid_until,
+                   superseded_by
+            FROM entities
+            WHERE entity_id = $1
+            ORDER BY version DESC, valid_from DESC
+            "#,
+        )
+        .bind(entity_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get entity history: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(entities)
+    }
+
+    /// 更新实体时创建新版本（保留历史）
+    pub async fn supersede_entity(
+        entity_id: &str,
+        new_name: &str,
+        new_type: &str,
+        new_description: Option<&str>,
+    ) -> Result<String, AppError> {
+        let pool = pool();
+        let new_entity_id = Ulid::new().to_string();
+
+        // 获取当前实体
+        let current = Self::get_entity_by_id(entity_id).await?;
+        if current.is_none() {
+            return Err(AppError::NotFound(format!("Entity {} not found", entity_id)));
+        }
+        let current = current.unwrap();
+
+        // 将当前实体标记为被替换
+        sqlx::query(
+            r#"
+            UPDATE entities
+            SET valid_until = CURRENT_TIMESTAMP,
+                superseded_by = $1,
+                status = 'deprecated'
+            WHERE entity_id = $2
+            "#,
+        )
+        .bind(&new_entity_id)
+        .bind(entity_id)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to supersede entity: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        // 创建新版本实体
+        sqlx::query(
+            r#"
+            INSERT INTO entities (
+                entity_id, entity_name, entity_type, description, attributes, aliases,
+                embedding_vector, embedding_model, embedding_dimension,
+                confidence_score, popularity_score, relation_count, mention_count,
+                status, version, valid_from
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', 1, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind(&new_entity_id)
+        .bind(new_name)
+        .bind(new_type)
+        .bind(new_description)
+        .bind(&current.attributes)
+        .bind(&current.aliases)
+        .bind(&current.embedding_vector)
+        .bind(&current.embedding_model)
+        .bind(current.embedding_dimension)
+        .bind(current.confidence_score)
+        .bind(current.popularity_score)
+        .bind(current.relation_count)
+        .bind(current.mention_count)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to create new entity version: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        info!("Superseded entity {} with new version {}", entity_id, new_entity_id);
+        Ok(new_entity_id)
     }
 }

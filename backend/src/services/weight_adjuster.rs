@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::db::weights::WeightHistoryRepository;
 use crate::models::*;
 use crate::services::weight_strategy::{LinearDecayStrategy, MarginalBenefitStrategy};

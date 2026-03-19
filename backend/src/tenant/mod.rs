@@ -9,9 +9,11 @@ pub mod context;
 pub mod quota;
 pub mod isolation;
 
-pub use context::{TenantContext, TenantId};
-pub use quota::{ResourceQuota, QuotaManager};
+pub use context::TenantContext;
+pub use quota::QuotaManager;
 pub use isolation::TenantIsolation;
+
+pub use crate::tenant::context::QuotaResource;
 
 /// Tenant identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

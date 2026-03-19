@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaptive-memory"
+version = "0.1.0"
+description = "Python SDK for Adaptive Memory System"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Adaptive Memory Team", email = "team@adaptive-memory.dev"}
+]
+keywords = ["ai", "memory", "llm", "agent", "cognitive"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "requests>=2.28.0",
+    "aiohttp>=3.8.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+async = [
+    "aiohttp>=3.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Colin4k1024/adaptive-memory-system"
+Repository = "https://github.com/Colin4k1024/adaptive-memory-system"
+Issues = "https://github.com/Colin4k1024/adaptive-memory-system/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["adaptive_memory*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
