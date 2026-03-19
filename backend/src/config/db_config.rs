@@ -2,13 +2,31 @@ use serde::{Deserialize, Serialize};
 
 use super::default_false;
 
+/// Database backend type
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DatabaseBackend {
+    #[default]
+    Postgres,
+    Sqlite,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct DbConfig {
+    /// Database backend type: "postgres" or "sqlite"
+    #[serde(default)]
+    pub backend: DatabaseBackend,
+
     /// Settings for the primary database. This is usually writeable, but will be read-only in
     /// some configurations.
     /// An optional follower database. Always read-only.
     #[serde(alias = "database_url")]
     pub url: String,
+
+    /// SQLite specific: local file path (alternative to url for SQLite)
+    #[serde(default)]
+    pub path: Option<String>,
+
     #[serde(default = "default_db_pool_size")]
     pub pool_size: u32,
     pub min_idle: Option<u32>,

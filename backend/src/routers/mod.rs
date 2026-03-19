@@ -11,6 +11,7 @@ mod agent;
 mod auth;
 mod billing;
 mod dashboard;
+mod data_io;
 mod demo;
 mod enterprise;
 mod knowledge_graph;
@@ -286,7 +287,8 @@ pub fn root() -> Router {
             post(auth::post_login_with_token).get(auth::get_login_with_token),
         )
         .merge(protected_api_router)
-        .merge(mcp::router());
+        .merge(mcp::router())
+        .merge(data_io::router());
 
     Router::new()
         .route("/", get(demo::hello))

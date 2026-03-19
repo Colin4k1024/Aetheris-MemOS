@@ -2,6 +2,8 @@
 backend/target/
 backend/**/*.rs.bk
 backend/Cargo.lock
+sdks/rust/target/
+sdks/rust/Cargo.lock
 
 # Node.js
 frontend/ant-design-pro-template/.npm
@@ -18,6 +20,7 @@ frontend/ant-design-pro-template/.env.production.local
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
@@ -46,3 +49,9 @@ logs/
 # Backend config (contains secrets)
 backend/config.toml
 backend/config.local.toml
+backend/local.toml
+
+# Python build artifacts
+sdks/python/*.egg-info/
+sdks/python/__pycache__/
+sdks/python/.eggs/

@@ -7,7 +7,7 @@ use serde::Deserialize;
 mod log_config;
 pub use log_config::LogConfig;
 mod db_config;
-pub use db_config::DbConfig;
+pub use db_config::{DatabaseBackend, DbConfig};
 mod storage;
 pub use storage::{StorageBackend, StorageConfig};
 mod llm_config;

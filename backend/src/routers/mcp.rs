@@ -4,14 +4,19 @@
 
 use axum::{
     extract::State,
+    middleware,
     routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
 use tracing::{error, info};
 
-use crate::db::ltm::{KnowledgeEntry, LTMRepository};
-use crate::db::stm::{STMRepository, Session, SessionListResponse};
+use crate::hoops::jwt::auth_middleware;
+
+use crate::db::kg::KGRepository;
+use crate::db::ltm::LTMRepository;
+use crate::db::mm::MMRepository;
+use crate::db::stm::STMRepository;
 use crate::protocol::mcp::{
     get_memory_resources, get_memory_tools, ResourceContent, ResourceContentResponse,
     ServerCapabilities, ToolCallResponse, ToolsListResponse, TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST,
@@ -36,15 +41,21 @@ impl Default for McpState {
     }
 }
 
-/// Build MCP router
+/// Build MCP router with authentication
 pub fn router() -> Router {
     let state = McpState::default();
+
+    // Protected routes (require authentication)
+    let protected_router = Router::new()
+        .route("/tools", get(list_tools))
+        .route("/tools/call", post(call_tool))
+        .route("/resources", get(list_resources))
+        .route("/resources/read", post(read_resource))
+        .layer(middleware::from_fn(auth_middleware));
+
     Router::new()
-        .route("/mcp/tools", get(list_tools))
-        .route("/mcp/tools/call", post(call_tool))
-        .route("/mcp/resources", get(list_resources))
-        .route("/mcp/resources/read", post(read_resource))
-        .route("/mcp/initialize", post(initialize))
+        .route("/initialize", post(initialize))
+        .nest("/mcp", protected_router)
         .with_state(state)
 }
 
@@ -162,12 +173,65 @@ async fn handle_memory_write(
                 .to_string(),
             )])
         }
-        "kg" | "mm" => {
-            // TODO: Implement KG and MM storage
-            Err(AppError::BadRequest(format!(
-                "Layer '{}' storage not yet implemented via MCP",
-                layer
-            )))
+        "kg" => {
+            let entity_name = args["entity_name"]
+                .as_str()
+                .ok_or_else(|| AppError::BadRequest("Missing 'entity_name' parameter for KG".to_string()))?
+                .to_string();
+            let entity_type = args["entity_type"]
+                .as_str()
+                .unwrap_or("concept");
+            let description = args["description"].as_str();
+
+            let entity_id = KGRepository::create_entity(
+                &entity_name,
+                entity_type,
+                description,
+                None,
+                None,
+                None,
+                None,
+                1.0,
+            ).await?;
+
+            Ok(vec![crate::protocol::mcp::ToolContent::Text(
+                serde_json::json!({
+                    "success": true,
+                    "layer": "kg",
+                    "entityId": entity_id,
+                    "entityName": entity_name,
+                    "entityType": entity_type
+                })
+                .to_string(),
+            )])
+        }
+        "mm" => {
+            let modality_type = args["modality_type"]
+                .as_str()
+                .unwrap_or("text");
+            let session_id = session_id.or(Some("mcp_session".to_string()));
+            let source_id = format!("mcp_{}", ulid::Ulid::new());
+
+            let entry_id = MMRepository::create_entry(
+                session_id.as_deref(),
+                &source_id,
+                modality_type,
+                "{}",
+                Some(&content),
+                None,
+                None,
+                None,
+            ).await?;
+
+            Ok(vec![crate::protocol::mcp::ToolContent::Text(
+                serde_json::json!({
+                    "success": true,
+                    "layer": "mm",
+                    "entryId": entry_id,
+                    "modalityType": modality_type
+                })
+                .to_string(),
+            )])
         }
         _ => Err(AppError::BadRequest(format!("Invalid layer: {}", layer))),
     }
@@ -188,7 +252,7 @@ async fn handle_memory_search(
     let user_id = args["user_id"].as_str();
     let session_id = args["session_id"].as_str();
 
-    let (results, result_layer) = match layer.as_str() {
+    let results = match layer.as_str() {
         "stm" => {
             // Search in STM sessions - returns SessionMessage
             let user = user_id.unwrap_or("default");
@@ -205,16 +269,13 @@ async fn handle_memory_search(
                     })
                 })
                 .collect();
-            (
-                serde_json::json!({ "type": "stm", "results": results }),
-                layer.clone(),
-            )
+            serde_json::json!({ "type": "stm", "results": results })
         }
         "ltm" => {
             // Search in LTM - returns SearchResult
-            let results =
+            let search_results =
                 MemorySearchService::search_ltm(&query, limit as usize, None, None).await?;
-            let results_json: Vec<serde_json::Value> = results
+            let results_json: Vec<serde_json::Value> = search_results
                 .iter()
                 .map(|m| {
                     serde_json::json!({
@@ -224,16 +285,45 @@ async fn handle_memory_search(
                     })
                 })
                 .collect();
-            (
-                serde_json::json!({ "type": "ltm", "results": results_json }),
-                layer.clone(),
-            )
+            serde_json::json!({ "type": "ltm", "results": results_json })
         }
         "kg" => {
-            // Search in knowledge graph - not supported via this interface
-            return Err(AppError::BadRequest(
-                "Use /kg/search endpoint for KG queries".to_string(),
-            ));
+            // Search in knowledge graph entities
+            let entities = KGRepository::list_entities(Some(&query), Some(limit), Some(0)).await?;
+            let results_json: Vec<serde_json::Value> = entities
+                .entities
+                .iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "id": e.entity_id,
+                        "name": e.entity_name,
+                        "type": e.entity_type,
+                        "score": e.confidence_score,
+                        "description": e.description
+                    })
+                })
+                .collect();
+            serde_json::json!({ "type": "kg", "results": results_json })
+        }
+        "mm" => {
+            // Search in multimodal memories by modality type
+            let entries = MMRepository::get_entries_by_modality("text", Some(limit)).await?;
+            // Filter by query if possible
+            let results_json: Vec<serde_json::Value> = entries
+                .iter()
+                .filter(|e| {
+                    e.text_content.as_ref().map_or(false, |t| t.contains(&query))
+                })
+                .map(|e| {
+                    serde_json::json!({
+                        "id": e.entry_id,
+                        "score": e.quality_score,
+                        "modalityType": e.modality_type,
+                        "content": e.text_content
+                    })
+                })
+                .collect();
+            serde_json::json!({ "type": "mm", "results": results_json })
         }
         _ => {
             return Err(AppError::BadRequest(format!("Invalid layer: {}", layer)));
@@ -359,6 +449,50 @@ async fn handle_memory_list(
             })
             .to_string()
         }
+        "kg" => {
+            // List KG entities
+            let entity_type = args["entity_type"].as_str();
+            let response =
+                KGRepository::list_entities(entity_type, Some(limit), Some(offset)).await?;
+
+            serde_json::json!({
+                "type": "kg_entities",
+                "count": response.entities.len(),
+                "entities": response.entities.iter().map(|e| {
+                    serde_json::json!({
+                        "id": e.entity_id,
+                        "name": e.entity_name,
+                        "type": e.entity_type,
+                        "description": e.description,
+                        "confidenceScore": e.confidence_score,
+                        "createdAt": e.created_at
+                    })
+                }).collect::<Vec<_>>()
+            })
+            .to_string()
+        }
+        "mm" => {
+            // List MM entries
+            let modality_type = args["modality_type"].as_str();
+            let response =
+                MMRepository::list_entries(modality_type, Some(limit), Some(offset)).await?;
+
+            serde_json::json!({
+                "type": "mm_entries",
+                "count": response.entries.len(),
+                "entries": response.entries.iter().map(|e| {
+                    serde_json::json!({
+                        "id": e.entry_id,
+                        "sessionId": e.session_id,
+                        "modalityType": e.modality_type,
+                        "title": e.title,
+                        "qualityScore": e.quality_score,
+                        "createdAt": e.created_at
+                    })
+                }).collect::<Vec<_>>()
+            })
+            .to_string()
+        }
         _ => {
             return Err(AppError::BadRequest(format!("Invalid layer: {}", layer)));
         }
@@ -450,12 +584,120 @@ async fn read_resource(
             }
         }
         "kg" => {
-            // TODO: Implement KG resource
-            r#"{"message": "Knowledge graph resources not yet implemented"}"#.to_string()
+            // Knowledge graph resources
+            if let Some(entity_id) = id {
+                let entity = KGRepository::get_entity_by_id(&entity_id).await?;
+
+                match entity {
+                    Some(e) => {
+                        // Get related entities
+                        let related = KGRepository::get_related_entities(&entity_id, None, Some(5)).await?;
+                        let relations: Vec<serde_json::Value> = related.iter().map(|(ent, rel)| {
+                            serde_json::json!({
+                                "entityId": ent.entity_id,
+                                "entityName": ent.entity_name,
+                                "relationType": rel.relation_type,
+                                "weight": rel.weight
+                            })
+                        }).collect();
+
+                        serde_json::json!({
+                            "entity": {
+                                "id": e.entity_id,
+                                "name": e.entity_name,
+                                "type": e.entity_type,
+                                "description": e.description,
+                                "attributes": e.attributes,
+                                "confidenceScore": e.confidence_score,
+                                "popularityScore": e.popularity_score,
+                                "relationCount": e.relation_count,
+                                "createdAt": e.created_at
+                            },
+                            "relations": relations
+                        })
+                        .to_string()
+                    }
+                    None => {
+                        return Err(AppError::NotFound(format!("Entity {} not found", entity_id)));
+                    }
+                }
+            } else {
+                // List all entities
+                let response = KGRepository::list_entities(None, Some(20), Some(0)).await?;
+
+                serde_json::json!({
+                    "entities": response.entities.iter().map(|e| {
+                        serde_json::json!({
+                            "id": e.entity_id,
+                            "name": e.entity_name,
+                            "type": e.entity_type,
+                            "description": e.description,
+                            "confidenceScore": e.confidence_score
+                        })
+                    }).collect::<Vec<_>>()
+                })
+                .to_string()
+            }
         }
         "mm" => {
-            // TODO: Implement MM resource
-            r#"{"message": "Multimodal resources not yet implemented"}"#.to_string()
+            // Multimodal resources
+            if let Some(entry_id) = id {
+                let entry = MMRepository::get_entry_by_id(&entry_id).await?;
+
+                match entry {
+                    Some(e) => {
+                        // Get related entries
+                        let related = MMRepository::get_related_entries(&entry_id, Some(5)).await?;
+                        let relations: Vec<serde_json::Value> = related.iter().map(|(ent, rel)| {
+                            serde_json::json!({
+                                "entryId": ent.entry_id,
+                                "modalityType": ent.modality_type,
+                                "relationType": rel.relation_type,
+                                "strength": rel.relation_strength
+                            })
+                        }).collect();
+
+                        serde_json::json!({
+                            "entry": {
+                                "id": e.entry_id,
+                                "sessionId": e.session_id,
+                                "sourceId": e.source_id,
+                                "modalityType": e.modality_type,
+                                "title": e.title,
+                                "description": e.description,
+                                "textContent": e.text_content,
+                                "imageUrl": e.image_url,
+                                "audioUrl": e.audio_url,
+                                "videoUrl": e.video_url,
+                                "qualityScore": e.quality_score,
+                                "createdAt": e.created_at
+                            },
+                            "relations": relations
+                        })
+                        .to_string()
+                    }
+                    None => {
+                        return Err(AppError::NotFound(format!("Entry {} not found", entry_id)));
+                    }
+                }
+            } else {
+                // List all entries
+                let response = MMRepository::list_entries(None, Some(20), Some(0)).await?;
+
+                serde_json::json!({
+                    "entries": response.entries.iter().map(|e| {
+                        serde_json::json!({
+                            "id": e.entry_id,
+                            "sessionId": e.session_id,
+                            "modalityType": e.modality_type,
+                            "title": e.title,
+                            "qualityScore": e.quality_score,
+                            "createdAt": e.created_at
+                        })
+                    }).collect::<Vec<_>>()
+                })
+                .to_string()
+            }
         }
         _ => {
             return Err(AppError::NotFound(format!("Unknown layer: {}", layer)));
