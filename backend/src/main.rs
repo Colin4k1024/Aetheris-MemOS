@@ -58,6 +58,11 @@ async fn main() {
         std::process::exit(1);
     }
 
+    // Issue #50: start the proactive layered memory ingestion / reflection daemon
+    crate::services::memory_ingestion::init_reflection_daemon(
+        crate::services::memory_ingestion::IngestionConfig::default(),
+    );
+
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");
