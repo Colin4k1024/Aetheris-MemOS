@@ -43,6 +43,8 @@ pub mod weight_adjuster;
 #[allow(dead_code)]
 pub mod weight_strategy;
 pub mod write_queue;
+pub mod hardware_detector;
+pub mod model_router;
 
 pub use analyzer::*;
 pub use memory_storage::*;

@@ -49,6 +49,9 @@ async fn main() {
         crate::services::write_queue::init_write_queue();
     }
 
+    // Issue #49: detect hardware capabilities (CUDA / Metal / CPU) once at startup
+    crate::services::hardware_detector::init();
+
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");

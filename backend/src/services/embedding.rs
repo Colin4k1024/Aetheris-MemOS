@@ -29,9 +29,29 @@ impl EmbeddingService {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 
+        // When auto_detect is enabled and hardware capabilities are available,
+        // prefer the hardware-routed model over the static config values.
+        let (model, dimension) = if config.embedding.auto_detect {
+            if let Some(caps) = crate::services::hardware_detector::get() {
+                let rec = crate::services::model_router::recommend_embedding(
+                    caps,
+                    &config.embedding.base_url,
+                );
+                info!(
+                    "Hardware auto-detect: using model='{}' dimension={} ({})",
+                    rec.model, rec.dimension, rec.reasoning
+                );
+                (rec.model, rec.dimension)
+            } else {
+                (config.embedding.model.clone(), config.embedding.dimension)
+            }
+        } else {
+            (config.embedding.model.clone(), config.embedding.dimension)
+        };
+
         info!(
             "Embedding service initialized: base_url={}, model={}, dimension={}",
-            config.embedding.base_url, config.embedding.model, config.embedding.dimension
+            config.embedding.base_url, model, dimension
         );
 
         // 初始化嵌入缓存，容量为10000个条目，过期时间为24小时
@@ -43,8 +63,8 @@ impl EmbeddingService {
         Ok(Self {
             client,
             base_url: config.embedding.base_url.clone(),
-            model: config.embedding.model.clone(),
-            dimension: config.embedding.dimension,
+            model,
+            dimension,
             timeout,
             cache,
         })

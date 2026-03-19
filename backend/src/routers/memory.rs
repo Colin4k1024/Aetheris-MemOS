@@ -568,6 +568,8 @@ pub struct ComponentStatus {
     pub weight_adjuster: String,
     pub database: String,
     pub database_backend: String,
+    /// Best detected compute backend (e.g. `apple-silicon`, `cuda-high-vram`, `cpu`).
+    pub compute_backend: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -595,6 +597,10 @@ pub async fn health_check() -> JsonResult<HealthResponse> {
     let (db_status, db_backend) = check_database_health().await;
     let overall = if db_status == "healthy" { "healthy" } else { "degraded" };
 
+    let compute_backend = crate::services::hardware_detector::get()
+        .map(|h| h.best_backend_tag().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
     json_ok(HealthResponse {
         status: overall.to_string(),
         timestamp: OffsetDateTime::now_utc().to_string(),
@@ -606,6 +612,7 @@ pub async fn health_check() -> JsonResult<HealthResponse> {
             weight_adjuster: "healthy".to_string(),
             database: db_status,
             database_backend: db_backend,
+            compute_backend,
         },
         performance: SystemPerformance {
             avg_response_time_ms: 0,
