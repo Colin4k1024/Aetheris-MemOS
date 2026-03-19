@@ -560,6 +560,169 @@ impl MemorySearchService {
         Ok(reranked_candidates)
     }
 
+    /// 三路混合搜索：向量 + 关键词 + KG图谱
+    ///
+    /// 将三种搜索方式的结果融合，支持可配置权重。
+    /// - vector_weight: 向量语义搜索权重 (default 0.5)
+    /// - keyword_weight: 关键词 BM25 搜索权重 (default 0.3)
+    /// - graph_weight: 知识图谱实体搜索权重 (default 0.2)
+    #[instrument]
+    pub async fn triple_hybrid_search(
+        query: &str,
+        top_k: usize,
+        vector_weight: Option<f32>,
+        keyword_weight: Option<f32>,
+        graph_weight: Option<f32>,
+        enable_rerank: Option<bool>,
+        min_score: Option<f32>,
+    ) -> Result<Vec<SearchResult>, AppError> {
+        let vw = vector_weight.unwrap_or(0.5_f32).clamp(0.0, 1.0);
+        let kw = keyword_weight.unwrap_or(0.3_f32).clamp(0.0, 1.0);
+        let gw = graph_weight.unwrap_or(0.2_f32).clamp(0.0, 1.0);
+
+        // 归一化权重（以防三者之和不为1）
+        let weight_sum = vw + kw + gw;
+        let (vw, kw, gw) = if weight_sum > 0.0 {
+            (vw / weight_sum, kw / weight_sum, gw / weight_sum)
+        } else {
+            (0.5, 0.3, 0.2)
+        };
+
+        info!(
+            "Triple hybrid search: query={}, top_k={}, weights=(v={:.2}, k={:.2}, g={:.2})",
+            query, top_k, vw, kw, gw
+        );
+
+        let rerank_config = config::get().rerank.clone();
+        let should_rerank = enable_rerank.unwrap_or(rerank_config.enabled);
+        let min_score_threshold = min_score.unwrap_or(rerank_config.min_score_threshold);
+        let fetch_k = if should_rerank {
+            top_k * rerank_config.candidate_multiplier
+        } else {
+            top_k * 2
+        };
+
+        // --- 1. 向量搜索 ---
+        let vector_results = Self::search_ltm(query, fetch_k, Some(false), None).await?;
+
+        // --- 2. 关键词搜索 ---
+        let keyword_results = Self::keyword_search(query, fetch_k).await?;
+
+        // --- 3. KG 图谱搜索：取查询中首个词条或整个查询作为实体名 ---
+        let graph_results = Self::search_by_entity(query, Some(fetch_k as i32)).await?;
+
+        // --- 4. 分数融合 ---
+        use std::collections::HashMap;
+
+        // 建立 entry_id → (vector_score, keyword_score, graph_score, content, title) 的映射
+        struct Scores {
+            vector_score: f32,
+            keyword_score: f32,
+            graph_score: f32,
+            content: String,
+            title: Option<String>,
+        }
+        let mut score_map: HashMap<String, Scores> = HashMap::new();
+
+        // 向量结果：分数已在 [0,1] 区间
+        for r in &vector_results {
+            score_map
+                .entry(r.entry_id.clone())
+                .or_insert(Scores {
+                    vector_score: 0.0,
+                    keyword_score: 0.0,
+                    graph_score: 0.0,
+                    content: r.content.clone(),
+                    title: r.title.clone(),
+                })
+                .vector_score = r.score;
+        }
+
+        // 关键词结果：分数需要归一化到 [0,1]
+        let max_keyword_score = keyword_results.iter().map(|(_, s)| *s as f32).fold(0.0_f32, f32::max).max(1.0);
+        for (entry_id, kw_score) in &keyword_results {
+            let normalized = (*kw_score as f32) / max_keyword_score;
+            let entry = if let Some(e) = score_map.get_mut(entry_id) {
+                e.keyword_score = normalized;
+                continue;
+            } else {
+                // 关键词命中但向量未命中 — 拉取条目内容
+                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(entry_id).await {
+                    (entry.content, entry.title)
+                } else {
+                    continue;
+                }
+            };
+            score_map.insert(
+                entry_id.clone(),
+                Scores {
+                    vector_score: 0.0,
+                    keyword_score: normalized,
+                    graph_score: 0.0,
+                    content: entry.0,
+                    title: entry.1,
+                },
+            );
+        }
+
+        // 图谱结果：分数已在 [0,1] 区间（popularity_score乘权重后）
+        let max_graph_score = graph_results.iter().map(|r| r.score).fold(0.0_f32, f32::max).max(1.0);
+        for r in &graph_results {
+            let normalized = r.score / max_graph_score;
+            if let Some(e) = score_map.get_mut(&r.entry_id) {
+                e.graph_score = normalized;
+            } else {
+                score_map.insert(
+                    r.entry_id.clone(),
+                    Scores {
+                        vector_score: 0.0,
+                        keyword_score: 0.0,
+                        graph_score: normalized,
+                        content: r.content.clone(),
+                        title: r.title.clone(),
+                    },
+                );
+            }
+        }
+
+        // --- 5. 加权合并并排序 ---
+        let mut combined: Vec<SearchResult> = score_map
+            .into_iter()
+            .map(|(entry_id, s)| {
+                let combined_score = vw * s.vector_score + kw * s.keyword_score + gw * s.graph_score;
+                SearchResult {
+                    entry_id,
+                    score: combined_score,
+                    content: s.content,
+                    title: s.title,
+                    metadata: serde_json::json!({
+                        "vector_score": s.vector_score,
+                        "keyword_score": s.keyword_score,
+                        "graph_score": s.graph_score,
+                    }),
+                }
+            })
+            .collect();
+
+        combined.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        // --- 6. 可选 rerank ---
+        let mut results = combined;
+        if should_rerank && !results.is_empty() {
+            info!("Applying rerank to {} triple-hybrid candidates", results.len());
+            results = Self::apply_rerank(query, results).await?;
+        }
+
+        // --- 7. 过滤最低分 ---
+        if min_score_threshold > 0.0 {
+            results = Self::filter_by_threshold(results, min_score_threshold);
+        }
+
+        results.truncate(top_k);
+        info!("Triple hybrid search completed: {} results", results.len());
+        Ok(results)
+    }
+
     /// 根据最低分数阈值过滤结果
     fn filter_by_threshold(results: Vec<SearchResult>, threshold: f32) -> Vec<SearchResult> {
         let original_count = results.len();

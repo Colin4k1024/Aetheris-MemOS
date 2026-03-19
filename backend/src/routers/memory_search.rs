@@ -80,6 +80,33 @@ pub struct SearchByEntityResponse {
     pub results: Vec<SearchResult>,
 }
 
+/// 三路混合搜索请求（向量 + 关键词 + KG图谱）
+#[derive(Deserialize, ToSchema, Validate)]
+pub struct TripleHybridSearchRequest {
+    pub query: String,
+    #[serde(rename = "topK")]
+    pub top_k: Option<usize>,
+    /// 向量搜索权重（默认 0.5）
+    #[serde(rename = "vectorWeight")]
+    pub vector_weight: Option<f32>,
+    /// 关键词搜索权重（默认 0.3）
+    #[serde(rename = "keywordWeight")]
+    pub keyword_weight: Option<f32>,
+    /// 知识图谱搜索权重（默认 0.2）
+    #[serde(rename = "graphWeight")]
+    pub graph_weight: Option<f32>,
+    #[serde(rename = "enableRerank")]
+    pub enable_rerank: Option<bool>,
+    #[serde(rename = "minScore")]
+    pub min_score: Option<f32>,
+}
+
+/// 三路混合搜索响应
+#[derive(Serialize, ToSchema)]
+pub struct TripleHybridSearchResponse {
+    pub results: Vec<SearchResult>,
+}
+
 /// 搜索短期记忆
 pub async fn search_stm(Json(req): Json<SearchSTMRequest>) -> JsonResult<SearchSTMResponse> {
     req.validate()?;
@@ -160,6 +187,32 @@ pub async fn search_by_entity(
     let results = MemorySearchService::search_by_entity(&req.entity, req.limit).await?;
 
     json_ok(SearchByEntityResponse { results })
+}
+
+/// 三路混合搜索（向量 + 关键词 + 知识图谱）
+pub async fn triple_hybrid_search(
+    Json(req): Json<TripleHybridSearchRequest>,
+) -> JsonResult<TripleHybridSearchResponse> {
+    req.validate()?;
+
+    info!(
+        "Triple hybrid search: query_length={}, top_k={:?}",
+        req.query.len(),
+        req.top_k
+    );
+
+    let results = MemorySearchService::triple_hybrid_search(
+        &req.query,
+        req.top_k.unwrap_or(10),
+        req.vector_weight,
+        req.keyword_weight,
+        req.graph_weight,
+        req.enable_rerank,
+        req.min_score,
+    )
+    .await?;
+
+    json_ok(TripleHybridSearchResponse { results })
 }
 
 /// 获取所有知识条目列表

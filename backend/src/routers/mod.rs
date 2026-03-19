@@ -128,7 +128,8 @@ pub fn root() -> Router {
                 .route("/kg/{entity_id}/at", get(memory_search::get_kg_entity_at_time))
                 .route("/kg/{entity_id}/history", get(memory_search::get_kg_entity_history))
                 .route("/hybrid", post(memory_search::hybrid_search))
-                .route("/entity", post(memory_search::search_by_entity)),
+                .route("/entity", post(memory_search::search_by_entity))
+                .route("/triple", post(memory_search::triple_hybrid_search)),
         )
         .merge(memory_config_routes)
         // Snapshot routes (Oris Integration)
