@@ -67,6 +67,13 @@ async fn main() {
     crate::services::information_guard::init_write_journal();
     crate::services::information_guard::init_integrity_scanner();
 
+    // Issue #55: start adaptive strategy mutation daemon
+    if crate::services::strategy_mutator::MutationConfig::default().auto_mutate {
+        crate::services::strategy_mutator::StrategyMutator::init_mutation_daemon(
+            crate::services::strategy_mutator::MutationConfig::default(),
+        );
+    }
+
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");
