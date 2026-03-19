@@ -42,6 +42,7 @@ pub mod usage_tracker;
 pub mod weight_adjuster;
 #[allow(dead_code)]
 pub mod weight_strategy;
+pub mod write_queue;
 
 pub use analyzer::*;
 pub use memory_storage::*;

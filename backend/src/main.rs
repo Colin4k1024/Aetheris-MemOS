@@ -44,6 +44,11 @@ async fn main() {
         .await
         .expect("Database initialization failed");
 
+    // Issue #57: start the SQLite write-queue to coalesce concurrent writes
+    if crate::db::is_sqlite() {
+        crate::services::write_queue::init_write_queue();
+    }
+
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");

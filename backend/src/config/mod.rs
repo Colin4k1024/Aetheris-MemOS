@@ -23,36 +23,89 @@ pub use neo4j_config::Neo4jConfig;
 
 pub static CONFIG: OnceLock<ServerConfig> = OnceLock::new();
 
+/// Discover a config file by probing multiple candidate paths.
+///
+/// Resolution order:
+/// 1. `APP_CONFIG` env var (explicit override)
+/// 2. `config.toml` in the current directory
+/// 3. `local.toml` in the current directory
+/// 4. `~/.adaptive-memory/config.toml` (user-level config)
+fn discover_config_file() -> Option<String> {
+    // 1. Explicit env var override
+    if let Ok(path) = std::env::var("APP_CONFIG") {
+        if !path.is_empty() && std::path::Path::new(&path).exists() {
+            eprintln!("[config] Using config file from APP_CONFIG: {}", path);
+            return Some(path);
+        }
+    }
+
+    // 2. Standard candidates in current directory
+    for candidate in &["config.toml", "local.toml"] {
+        if std::path::Path::new(candidate).exists() {
+            eprintln!("[config] Found config file: {}", candidate);
+            return Some(candidate.to_string());
+        }
+    }
+
+    // 3. User-level config
+    let home_candidates: Vec<_> = [
+        std::env::var("HOME").ok(),
+        std::env::var("USERPROFILE").ok(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|h| format!("{}/.adaptive-memory/config.toml", h))
+    .collect();
+
+    for path in home_candidates {
+        if std::path::Path::new(&path).exists() {
+            eprintln!("[config] Found user config file: {}", path);
+            return Some(path);
+        }
+    }
+
+    None
+}
+
 pub fn init() {
+    let config_file = discover_config_file()
+        .unwrap_or_else(|| std::env::var("APP_CONFIG").unwrap_or_else(|_| "config.toml".to_string()));
+
     let raw_config = Figment::new()
-        .merge(Toml::file(
-            Env::var("APP_CONFIG").as_deref().unwrap_or("config.toml"),
-        ))
+        .merge(Toml::file(&config_file))
         .merge(Env::prefixed("APP_").global());
 
     let mut config = match raw_config.extract::<ServerConfig>() {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("It looks like your config is invalid. The following error occurred: {e}");
+            eprintln!("Config error (file: {}): {}", config_file, e);
             std::process::exit(1);
         }
     };
+
+    // DATABASE_URL env var takes precedence over config file
     if let Ok(url) = std::env::var("DATABASE_URL") {
         if !url.is_empty() {
             config.db.url = url;
         }
     }
+
+    // Graceful fallback: if no database URL configured, use a local SQLite database
     if config.db.url.is_empty() {
-        config.db.url = std::env::var("DATABASE_URL").unwrap_or_default();
+        let storage = crate::config::StorageConfig::resolve_local_sqlite("adaptive_memory.db");
+        eprintln!(
+            "[config] DATABASE_URL not set. Falling back to local SQLite: {}",
+            storage.url
+        );
+        config.db.url = storage.url;
+        config.db.backend = crate::config::DatabaseBackend::Sqlite;
     }
-    if config.db.url.is_empty() {
-        eprintln!("DATABASE_URL is not set and db.url is empty in config");
-        std::process::exit(1);
-    }
+
     crate::config::CONFIG
         .set(config)
         .expect("config should be set");
 }
+
 pub fn get() -> &'static ServerConfig {
     CONFIG.get().expect("config should be set")
 }

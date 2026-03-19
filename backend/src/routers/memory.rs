@@ -566,6 +566,8 @@ pub struct ComponentStatus {
     pub monitor: String,
     #[serde(rename = "weight_adjuster")]
     pub weight_adjuster: String,
+    pub database: String,
+    pub database_backend: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -589,8 +591,12 @@ pub struct HealthResponse {
 pub async fn health_check() -> JsonResult<HealthResponse> {
     use time::OffsetDateTime;
 
+    // Probe the actual database connection
+    let (db_status, db_backend) = check_database_health().await;
+    let overall = if db_status == "healthy" { "healthy" } else { "degraded" };
+
     json_ok(HealthResponse {
-        status: "healthy".to_string(),
+        status: overall.to_string(),
         timestamp: OffsetDateTime::now_utc().to_string(),
         components: ComponentStatus {
             scheduler: "healthy".to_string(),
@@ -598,13 +604,35 @@ pub async fn health_check() -> JsonResult<HealthResponse> {
             predictor: "healthy".to_string(),
             monitor: "healthy".to_string(),
             weight_adjuster: "healthy".to_string(),
+            database: db_status,
+            database_backend: db_backend,
         },
         performance: SystemPerformance {
-            avg_response_time_ms: 850,
-            success_rate: 0.98,
-            error_rate: 0.02,
+            avg_response_time_ms: 0,
+            success_rate: 1.0,
+            error_rate: 0.0,
         },
     })
+}
+
+/// Probe the database pool and return (status, backend_name).
+async fn check_database_health() -> (String, String) {
+    use crate::db::DatabasePool;
+    match crate::db::DATABASE_POOL.get() {
+        Some(DatabasePool::Postgres(pool)) => {
+            match sqlx::query("SELECT 1").fetch_optional(pool).await {
+                Ok(_) => ("healthy".to_string(), "postgres".to_string()),
+                Err(e) => (format!("error: {}", e), "postgres".to_string()),
+            }
+        }
+        Some(DatabasePool::Sqlite(pool)) => {
+            match sqlx::query("SELECT 1").fetch_optional(pool).await {
+                Ok(_) => ("healthy".to_string(), "sqlite".to_string()),
+                Err(e) => (format!("error: {}", e), "sqlite".to_string()),
+            }
+        }
+        None => ("not_initialized".to_string(), "unknown".to_string()),
+    }
 }
 
 #[derive(Serialize, ToSchema)]
