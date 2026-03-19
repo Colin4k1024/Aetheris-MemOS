@@ -52,6 +52,12 @@ async fn main() {
     // Issue #49: detect hardware capabilities (CUDA / Metal / CPU) once at startup
     crate::services::hardware_detector::init();
 
+    // Issue #59: validate vector-space signature (abort if dimension mismatch)
+    if let Err(e) = crate::services::vector_guard::init() {
+        eprintln!("[startup] Vector guard error: {}", e);
+        std::process::exit(1);
+    }
+
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");

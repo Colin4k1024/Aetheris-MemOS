@@ -73,6 +73,14 @@ impl QdrantClient {
     pub async fn ensure_collection(&self) -> Result<()> {
         info!("Ensuring collection exists: {}", self.collection_name);
 
+        // Issue #59: initialise the vector-space guard (signature check).
+        // This is a no-op (cheap OnceLock check) after the first call.
+        if let Err(e) = crate::services::vector_guard::init() {
+            // Propagate dimension-mismatch as a hard error; model-change warnings
+            // are already logged inside init() and do not return Err.
+            return Err(e);
+        }
+
         // 检查集合是否存在
         if self.collection_exists().await? {
             info!("Collection already exists: {}", self.collection_name);
@@ -142,6 +150,9 @@ impl QdrantClient {
     ) -> Result<()> {
         let vector_count = vectors.len();
         info!("Inserting {} vectors into collection", vector_count);
+
+        // Issue #59: validate that every vector has the expected dimension.
+        crate::services::vector_guard::validate_write(&vectors)?;
 
         // 确保集合存在
         self.ensure_collection().await?;
@@ -232,6 +243,9 @@ impl QdrantClient {
             top_k,
             filter.is_some()
         );
+
+        // Issue #59: validate query vector dimension before sending to Qdrant.
+        crate::services::vector_guard::validate_read(&query_vector)?;
 
         // 构建搜索请求
         let search_points = SearchPoints {

@@ -45,6 +45,7 @@ pub mod weight_strategy;
 pub mod write_queue;
 pub mod hardware_detector;
 pub mod model_router;
+pub mod vector_guard;
 
 pub use analyzer::*;
 pub use memory_storage::*;

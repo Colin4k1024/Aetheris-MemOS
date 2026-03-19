@@ -10,6 +10,9 @@ mod db_config;
 pub use db_config::{DatabaseBackend, DbConfig};
 mod storage;
 pub use storage::{StorageBackend, StorageConfig};
+pub mod storage_utils {
+    pub use super::storage::resolve_data_directory;
+}
 mod llm_config;
 pub use llm_config::LLMConfig;
 mod embedding_config;
