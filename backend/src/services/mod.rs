@@ -49,6 +49,7 @@ pub mod vector_guard;
 pub mod memory_ingestion;
 pub mod information_guard;
 pub mod bitemporal_kg;
+pub mod confidence_scorer;
 
 pub use analyzer::*;
 pub use memory_storage::*;

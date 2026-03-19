@@ -215,6 +215,90 @@ pub async fn triple_hybrid_search(
     json_ok(TripleHybridSearchResponse { results })
 }
 
+/// 带置信度评分的搜索请求（Issue #53）
+#[derive(Deserialize, ToSchema, Validate)]
+pub struct ScoredSearchRequest {
+    pub query: String,
+    #[serde(rename = "topK")]
+    pub top_k: Option<usize>,
+    /// 向量权重（默认 0.5）
+    #[serde(rename = "vectorWeight")]
+    pub vector_weight: Option<f32>,
+    /// 关键词权重（默认 0.3）
+    #[serde(rename = "keywordWeight")]
+    pub keyword_weight: Option<f32>,
+    /// 图谱权重（默认 0.2）
+    #[serde(rename = "graphWeight")]
+    pub graph_weight: Option<f32>,
+    #[serde(rename = "enableRerank")]
+    pub enable_rerank: Option<bool>,
+    #[serde(rename = "minScore")]
+    pub min_score: Option<f32>,
+    /// 置信度配置（选填，使用默认值时可省略）
+    pub confidence_config: Option<ConfidenceConfigInput>,
+}
+
+/// 置信度权重输入
+#[derive(Deserialize, ToSchema)]
+pub struct ConfidenceConfigInput {
+    pub quality_weight: Option<f32>,
+    pub relevance_weight: Option<f32>,
+    pub recency_weight: Option<f32>,
+    pub access_weight: Option<f32>,
+    pub completeness_weight: Option<f32>,
+    pub recency_half_life_days: Option<f32>,
+}
+
+/// 带置信度搜索响应
+#[derive(Serialize, ToSchema)]
+pub struct ScoredSearchResponse {
+    pub results: Vec<crate::services::confidence_scorer::ScoredSearchResult>,
+}
+
+/// 带置信度的三路混合搜索（向量 + 关键词 + KG + 置信度评分）
+pub async fn scored_search(
+    Json(req): Json<ScoredSearchRequest>,
+) -> JsonResult<ScoredSearchResponse> {
+    req.validate()?;
+
+    info!(
+        "Scored search: query_length={}, top_k={:?}",
+        req.query.len(),
+        req.top_k
+    );
+
+    // 先执行三路混合搜索
+    let raw_results = MemorySearchService::triple_hybrid_search(
+        &req.query,
+        req.top_k.unwrap_or(10),
+        req.vector_weight,
+        req.keyword_weight,
+        req.graph_weight,
+        req.enable_rerank,
+        req.min_score,
+    )
+    .await?;
+
+    // 构建置信度评分配置
+    let mut cfg = crate::services::confidence_scorer::ConfidenceScorerConfig::default();
+    if let Some(cc) = req.confidence_config {
+        if let Some(v) = cc.quality_weight { cfg.quality_weight = v; }
+        if let Some(v) = cc.relevance_weight { cfg.relevance_weight = v; }
+        if let Some(v) = cc.recency_weight { cfg.recency_weight = v; }
+        if let Some(v) = cc.access_weight { cfg.access_weight = v; }
+        if let Some(v) = cc.completeness_weight { cfg.completeness_weight = v; }
+        if let Some(v) = cc.recency_half_life_days { cfg.recency_half_life_days = v; }
+    }
+
+    let results = crate::services::confidence_scorer::ConfidenceScorer::score_search_results(
+        &raw_results,
+        &cfg,
+    )
+    .await;
+
+    json_ok(ScoredSearchResponse { results })
+}
+
 /// 获取所有知识条目列表
 pub async fn list_ltm_entries() -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
     let result = crate::db::ltm::LTMRepository::list_entries(None, None, Some(20), Some(0)).await?;
