@@ -63,6 +63,10 @@ async fn main() {
         crate::services::memory_ingestion::IngestionConfig::default(),
     );
 
+    // Issue #58: initialise the write journal and integrity scanner
+    crate::services::information_guard::init_write_journal();
+    crate::services::information_guard::init_integrity_scanner();
+
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;
     tracing::info!("Neo4j connection initialized successfully");

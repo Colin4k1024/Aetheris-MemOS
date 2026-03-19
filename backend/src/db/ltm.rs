@@ -91,12 +91,8 @@ impl LTMRepository {
         let entry_id = entry_id.unwrap_or_else(|| Ulid::new().to_string());
         let pool = pool();
 
-        // 计算内容哈希
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        content.hash(&mut hasher);
-        let content_hash = format!("{:x}", hasher.finish());
+        // 计算内容哈希（使用 SHA-256 确保可移植性和完整性验证，Issue #58）
+        let content_hash = crate::services::information_guard::compute_sha256(content);
 
         // 将向量转换为 JSON 字符串
         let embedding_json = serde_json::to_string(embedding_vector).map_err(|e| {
@@ -471,12 +467,8 @@ impl LTMRepository {
         }
         let current = current.unwrap();
 
-        // 计算内容哈希
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        new_content.hash(&mut hasher);
-        let content_hash = format!("{:x}", hasher.finish());
+        // 计算内容哈希（SHA-256，Issue #58）
+        let content_hash = crate::services::information_guard::compute_sha256(new_content);
 
         // 将当前条目标记为被替换
         sqlx::query(

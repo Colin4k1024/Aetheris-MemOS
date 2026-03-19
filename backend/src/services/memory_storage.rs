@@ -189,6 +189,21 @@ impl MemoryStorageService {
         }
 
         info!("LTM stored successfully: entry_id={}", entry_id);
+
+        // Issue #58: record the successful write in the write journal.
+        crate::services::information_guard::record_write(
+            &crate::services::information_guard::WriteRecord {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                operation: "create".to_string(),
+                entry_id: entry_id.clone(),
+                source_id: source_id.to_string(),
+                content_hash: crate::services::information_guard::compute_sha256(
+                    &extraction.summary,
+                ),
+                status: "ok".to_string(),
+            },
+        );
+
         Ok(entry_id)
     }
 
