@@ -211,3 +211,67 @@ pub struct ListSessionsQuery {
 pub struct GetSessionMessagesQuery {
     pub limit: Option<i32>,
 }
+
+// ============ 上下文压缩端点（Issue #54）============
+
+/// 压缩会话请求
+#[derive(Deserialize, ToSchema)]
+pub struct CompressSessionRequest {
+    pub session_id: String,
+    /// 压缩策略（sliding_window / llm_summary / importance_prune / hierarchical）
+    pub strategy: Option<crate::services::context_compressor::CompressionStrategy>,
+    /// Token 预算（默认 4096）
+    pub token_budget: Option<usize>,
+    /// 窗口大小（默认 20）
+    pub window_size: Option<usize>,
+    /// 分层压缩保留最近条数（默认 10）
+    pub hierarchical_recent_k: Option<usize>,
+}
+
+/// 压缩任意消息列表请求
+#[derive(Deserialize, ToSchema)]
+pub struct CompressMessagesRequest {
+    pub messages: Vec<crate::services::context_compressor::MessageEntry>,
+    pub strategy: Option<crate::services::context_compressor::CompressionStrategy>,
+    pub token_budget: Option<usize>,
+    pub window_size: Option<usize>,
+    pub hierarchical_recent_k: Option<usize>,
+}
+
+fn build_compression_cfg(
+    strategy: Option<crate::services::context_compressor::CompressionStrategy>,
+    token_budget: Option<usize>,
+    window_size: Option<usize>,
+    hierarchical_recent_k: Option<usize>,
+) -> crate::services::context_compressor::CompressionConfig {
+    let mut cfg = crate::services::context_compressor::CompressionConfig::default();
+    if let Some(s) = strategy { cfg.strategy = s; }
+    if let Some(t) = token_budget { cfg.token_budget = t; }
+    if let Some(w) = window_size { cfg.window_size = w; }
+    if let Some(k) = hierarchical_recent_k { cfg.hierarchical_recent_k = k; }
+    cfg
+}
+
+/// 压缩指定会话的消息
+pub async fn compress_session(
+    Json(req): Json<CompressSessionRequest>,
+) -> crate::JsonResult<crate::services::context_compressor::CompressionResult> {
+    info!("Compressing session: session_id={}", req.session_id);
+    let cfg = build_compression_cfg(req.strategy, req.token_budget, req.window_size, req.hierarchical_recent_k);
+    let result = crate::services::context_compressor::ContextCompressor::compress_session(
+        &req.session_id,
+        &cfg,
+    )
+    .await?;
+    crate::json_ok(result)
+}
+
+/// 压缩任意消息列表（无需存入 DB）
+pub async fn compress_messages(
+    Json(req): Json<CompressMessagesRequest>,
+) -> crate::JsonResult<crate::services::context_compressor::CompressionResult> {
+    info!("Compressing {} messages", req.messages.len());
+    let cfg = build_compression_cfg(req.strategy, req.token_budget, req.window_size, req.hierarchical_recent_k);
+    let result = crate::services::context_compressor::ContextCompressor::compress(req.messages, &cfg).await?;
+    crate::json_ok(result)
+}

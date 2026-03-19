@@ -110,7 +110,9 @@ pub fn root() -> Router {
                 )
                 .route("/ltm", post(memory_storage::store_ltm))
                 .route("/transfer", post(memory_storage::transfer_stm_to_ltm))
-                .route("/batch-ltm", post(memory_storage::batch_store_ltm)),
+                .route("/batch-ltm", post(memory_storage::batch_store_ltm))
+                .route("/compress/session", post(memory_storage::compress_session))
+                .route("/compress/messages", post(memory_storage::compress_messages)),
         )
         .nest(
             "/search",
