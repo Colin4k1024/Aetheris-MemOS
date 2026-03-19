@@ -26,6 +26,8 @@ mod metrics;
 #[allow(dead_code)]
 mod multimodal;
 #[allow(dead_code)]
+mod multi_tenant_router;
+#[allow(dead_code)]
 mod snapshot;
 #[allow(dead_code)]
 mod tenant;
@@ -281,6 +283,14 @@ pub fn root() -> Router {
                     get(multimodal::get_by_modality),
                 )
                 .route("/list", get(multimodal::list_mm)),
+        )
+        .nest(
+            "/tenants",
+            Router::new()
+                .route("/", get(multi_tenant_router::list_tenants).post(multi_tenant_router::register_tenant))
+                .route("/:tenant_id/search", post(multi_tenant_router::tenant_search))
+                .route("/:tenant_id/sessions", get(multi_tenant_router::tenant_sessions))
+                .route("/access/check", post(multi_tenant_router::check_access)),
         )
         .route_layer(auth_layer);
 

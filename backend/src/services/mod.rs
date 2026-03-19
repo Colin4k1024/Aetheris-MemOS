@@ -52,6 +52,7 @@ pub mod bitemporal_kg;
 pub mod confidence_scorer;
 pub mod context_compressor;
 pub mod strategy_mutator;
+pub mod multi_tenant;
 
 pub use analyzer::*;
 pub use memory_storage::*;
