@@ -25,7 +25,7 @@ This roadmap aligns implementation and documentation with the 2026 architecture 
 
 Plans:
 - [x] 01-01-PLAN.md — Define evidence graph contracts, append-only schema, and Wave 0 tests.
-- [ ] 01-02-PLAN.md — Implement append-only evidence persistence and hash-chain verification.
+- [x] 01-02-PLAN.md — Implement append-only evidence persistence and hash-chain verification.
 - [ ] 01-03-PLAN.md — Expose live evidence API, deterministic export, and compliance docs.
 
 ### Phase 2: Security Hardening for MCP and Multi-Tenant Runtime
@@ -58,6 +58,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Evidence Graph & Decision Snapshots Completeness | 1/3 | In Progress | 01-01 |
+| 1. Evidence Graph & Decision Snapshots Completeness | 2/3 | In Progress | 01-01, 01-02 |
 | 2. Security Hardening for MCP and Multi-Tenant Runtime | 0/0 | Not started | - |
 | 3. MemOS Deep Fusion and Self-Healing Runtime | 0/0 | Not started | - |
