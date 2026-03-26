@@ -1,13 +1,17 @@
 //! Memory routes - with business logic
 
 use axum::{
-    extract::Json,
+    extract::{Json, Path, Query},
     response::IntoResponse,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+use crate::models::WorkflowEvidenceResponse;
+use crate::services::evidence_graph::list_workflow_evidence;
+use crate::{json_ok, JsonResult};
 
 /// Health check
 #[utoipa::path(get, path = "/api/v1/memory/health", tag = "Memory")]
@@ -55,6 +59,29 @@ async fn select_memory_config(Json(_req): Json<SelectMemoryConfigRequest>) -> im
 #[utoipa::path(get, path = "/api/v1/memory/traces", tag = "Memory")]
 async fn get_decision_traces() -> impl IntoResponse {
     "[]"
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub struct WorkflowEvidenceQuery {}
+
+/// Get workflow evidence
+#[utoipa::path(
+    get,
+    path = "/api/v1/workflows/{id}/evidence",
+    tag = "Memory",
+    params(
+        ("id" = String, Path, description = "Workflow identifier")
+    ),
+    responses(
+        (status = 200, description = "Workflow evidence returned"),
+        (status = 404, description = "Workflow evidence not found")
+    )
+)]
+async fn get_workflow_evidence(
+    Path(workflow_id): Path<String>,
+    Query(_query): Query<WorkflowEvidenceQuery>,
+) -> JsonResult<WorkflowEvidenceResponse> {
+    json_ok(list_workflow_evidence(&workflow_id).await?)
 }
 
 /// Get memory config
@@ -227,6 +254,7 @@ async fn select_memory_config_trace() -> impl IntoResponse {
 /// Create memory routes
 pub fn router() -> Router {
     Router::new()
+        .route("/api/v1/workflows/{id}/evidence", get(get_workflow_evidence))
         .route("/api/v1/memory/adaptive", post(select_memory_config))
         .route("/api/v1/memory/adaptive", get(get_memory_status))
         .route("/api/v1/memory/adaptive/trace", post(select_memory_config_trace))

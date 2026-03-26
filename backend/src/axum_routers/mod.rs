@@ -16,7 +16,6 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
-    Json,
     Router,
 };
 
@@ -60,6 +59,7 @@ use crate::web::cors_layer;
         memory::get_memory_status,
         memory::select_memory_config,
         memory::get_decision_traces,
+        memory::get_workflow_evidence,
         memory::get_memory_config,
         memory::list_memory_configs,
         memory::create_memory_config,
