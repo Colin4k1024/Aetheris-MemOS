@@ -8,7 +8,7 @@ See also: [adaptive_memory_algorithm_design.md](adaptive_memory_algorithm_design
 
 ## High-level layer diagram
 
-Request flow follows clear layer boundaries. **Decision Trace** is the explainability core: the trace API and UI expose the full pipeline (analyzer → predictor → weight adjuster → result) so every memory selection can be inspected.
+Request flow follows clear layer boundaries. **Decision Trace** is the explainability core, and the **Evidence Graph** is its audit-grade persistence model: the live API stores append-only workflow runs, nodes, and edges for the analyzer → predictor → weight adjuster → result pipeline so every memory selection can be inspected after the fact.
 
 ```
 Client  →  Router (API)  →  Service  →  Agent (orchestration)  →  Strategy (pluggable)  →  Decision Trace  →  DB
@@ -18,7 +18,8 @@ Client  →  Router (API)  →  Service  →  Agent (orchestration)  →  Strate
 - **Service**: Coordinates request lifecycle, calls scheduler/agents, persists config.
 - **Agent**: Orchestrates observe → decide → act (Analyzer, Predictor, Scheduler).
 - **Strategy**: Pluggable policies (e.g. weight adjustment strategies).
-- **Decision Trace**: Captures and exposes the decision pipeline for explainability (API + UI).
+- **Decision Trace**: Captures the in-process decision pipeline for explainability.
+- **Evidence Graph**: Persists a tamper-evident workflow record for audit retrieval and offline review.
 
 ---
 
@@ -110,6 +111,47 @@ flowchart LR
 5. **Scheduler** — Acts: composes analyzer, predictor, monitor, and weight adjuster; produces the final `MemorySelectionResult` (config, prediction, resource requirements, adjustment reasons).
 
 **Planned:** OpenTelemetry tracing export and memory decision trace visualization for full observability of this pipeline.
+
+---
+
+## Evidence Graph
+
+The shipped evidence model turns each persisted workflow decision into:
+
+- One append-only workflow run record with workflow metadata (`workflow_id`, `attempt_id`, timestamp, aggregate context).
+- Ordered evidence nodes for each scheduler stage, including locked audit fields: `timestamp`, `attempt_id`, `llm_input_hash`, `llm_output_hash`, `tool_invocations`, and `context_snapshot`.
+- Directed evidence edges linking the stage transitions in sequence order.
+
+The live audit surface is `GET /api/v1/workflows/{id}/evidence`. The response returns:
+
+- `run`: workflow-level metadata for the latest stored run of that workflow.
+- `nodes`: ordered evidence nodes.
+- `edges`: ordered evidence edges.
+- `verification`: the replay result for the stored hash chain, including `verified`, `root_hash`, and any violations.
+
+### Integrity Guarantees
+
+- Evidence rows are append-only once written.
+- Node verification replays the stored chain in sequence order and recomputes canonical SHA-256 hashes over the stored payload.
+- The export snapshot is versioned and deterministic. Its canonical hashed body contains `schema_version`, `hash_algorithm`, `workflow_id`, `attempt_id`, `root_hash`, `chain_verified`, `nodes`, and `edges`.
+- `exported_at` is kept outside the canonical export hash so the same stored workflow can be re-exported without changing the canonical body bytes.
+
+### EU AI Act Reporting Example
+
+For an audit request covering a high-risk workflow decision, the exported evidence snapshot can support the technical record by showing:
+
+- Which workflow was reviewed: `workflow_id` and `attempt_id`.
+- What the system observed and produced at each stage: `context_snapshot`, `tool_invocations`, `llm_input_hash`, and `llm_output_hash`.
+- Whether the stored chain still matches the recorded state: `chain_verified` and `root_hash`.
+
+This supports an audit narrative such as: "Workflow `wf-123` attempt `attempt-456` selected an adaptive memory profile after analyzer, predictor, weight adjustment, and final-result stages; the stored evidence chain verified successfully at export time."
+
+### Limitations
+
+- The system is tamper-evident for stored evidence, not tamper-proof for external systems.
+- `chain_verified` confirms the integrity of stored data; it does not prove that external tool outputs were truthful.
+- The evidence graph does not by itself define retention policy, organizational review process, or legal sufficiency under the EU AI Act.
+- Planned observability work such as OpenTelemetry export and richer UI visualization remains separate from this shipped evidence API.
 
 ---
 
