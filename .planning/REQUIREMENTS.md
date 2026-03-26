@@ -10,12 +10,12 @@
 - [x] **EVID-01**: Decision trace storage must represent workflow decisions as graph-compatible nodes and relationships.
 - [x] **EVID-02**: Every decision node must store integrity-critical fields (`timestamp`, `attempt_id`, `llm_input_hash`, `llm_output_hash`, `tool_invocations`, `context_snapshot`).
 - [x] **EVID-03**: Hash-chain verification must detect tampering by validating previous-hash linkage across node sequences.
-- [ ] **EVID-04**: Workflow evidence must be queryable through an API suitable for audit tooling.
-- [ ] **EVID-05**: Decision snapshots must be serializable and exportable for offline compliance review.
+- [x] **EVID-04**: Workflow evidence must be queryable through an API suitable for audit tooling.
+- [x] **EVID-05**: Decision snapshots must be serializable and exportable for offline compliance review.
 
 ### Compliance and Documentation
 
-- [ ] **COMP-01**: Architecture docs must define the evidence graph model, integrity guarantees, and EU AI Act reporting examples.
+- [x] **COMP-01**: Architecture docs must define the evidence graph model, integrity guarantees, and EU AI Act reporting examples.
 
 ### Security Foundations
 
@@ -50,9 +50,9 @@
 | EVID-01 | Phase 1 | Complete |
 | EVID-02 | Phase 1 | Complete |
 | EVID-03 | Phase 1 | Complete |
-| EVID-04 | Phase 1 | Pending |
-| EVID-05 | Phase 1 | Pending |
-| COMP-01 | Phase 1 | Pending |
+| EVID-04 | Phase 1 | Complete |
+| EVID-05 | Phase 1 | Complete |
+| COMP-01 | Phase 1 | Complete |
 | SEC-01 | Phase 2 | Pending |
 | SEC-02 | Phase 2 | Pending |
 | SEC-03 | Phase 2 | Pending |

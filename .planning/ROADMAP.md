@@ -6,7 +6,7 @@ This roadmap aligns implementation and documentation with the 2026 architecture 
 
 ## Phases
 
-- [ ] **Phase 1: Evidence Graph & Decision Snapshots Completeness** - Close the gap between architecture claims and implementation for auditable decision traces.
+- [x] **Phase 1: Evidence Graph & Decision Snapshots Completeness** - Close the gap between architecture claims and implementation for auditable decision traces.
 - [ ] **Phase 2: Security Hardening for MCP and Multi-Tenant Runtime** - Build stronger supply-chain, isolation, and runtime safeguards.
 - [ ] **Phase 3: MemOS Deep Fusion and Self-Healing Runtime** - Deliver memory graph fusion and autonomous resilience capabilities.
 
@@ -26,7 +26,7 @@ This roadmap aligns implementation and documentation with the 2026 architecture 
 Plans:
 - [x] 01-01-PLAN.md — Define evidence graph contracts, append-only schema, and Wave 0 tests.
 - [x] 01-02-PLAN.md — Implement append-only evidence persistence and hash-chain verification.
-- [ ] 01-03-PLAN.md — Expose live evidence API, deterministic export, and compliance docs.
+- [x] 01-03-PLAN.md — Expose live evidence API, deterministic export, and compliance docs.
 
 ### Phase 2: Security Hardening for MCP and Multi-Tenant Runtime
 **Goal**: Reduce runtime and supply-chain risk for MCP integrations and tenant-isolation boundaries.
@@ -58,6 +58,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Evidence Graph & Decision Snapshots Completeness | 2/3 | In Progress | 01-01, 01-02 |
+| 1. Evidence Graph & Decision Snapshots Completeness | 3/3 | Complete | 01-01, 01-02, 01-03 |
 | 2. Security Hardening for MCP and Multi-Tenant Runtime | 0/0 | Not started | - |
 | 3. MemOS Deep Fusion and Self-Healing Runtime | 0/0 | Not started | - |
