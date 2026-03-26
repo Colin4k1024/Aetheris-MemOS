@@ -36,9 +36,23 @@ npm test
 ## Submitting changes
 
 1. **Fork** the repository and create a branch from `main` or `dev`.
-2. **Implement** your change; keep commits focused.
-3. **Test** — run `cargo test` and frontend tests.
-4. **Open a Pull Request** with a clear title and description. Reference any related issue.
+2. **Open or link an issue** before large changes so scope is clear.
+3. **Use root issue templates** in `.github/ISSUE_TEMPLATE/`:
+   - `bug_report.md`
+   - `feature_request.md`
+   - `security_report.md`
+   - `architecture_proposal.md`
+   - `question.md`
+4. **Tag your issue for triage** with available labels:
+   - Priority: `priority:P0`, `priority:P1`, `priority:P2`
+   - Area: `area:backend`, `area:frontend`, `area:docs`, `area:architecture`, `area:security`
+   - Phase (roadmap alignment): `phase:1`, `phase:2`, `phase:3`
+5. **Align with roadmap** by linking the relevant section from [ROADMAP.md](docs/ROADMAP.md) in your issue or PR.
+6. **Implement** your change; keep commits focused.
+7. **Test** — run `cargo test` and frontend tests.
+8. **Open a Pull Request** with a clear title and description. Reference any related issue.
+
+Note: legacy Ant Design Pro templates under `frontend/ant-design-pro-template/.github/` are archived and should not be used for project issue intake.
 
 ## Extension points
 
