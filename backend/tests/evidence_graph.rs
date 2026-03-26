@@ -1,186 +1,162 @@
-use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::OnceLock;
 
+use backend::config::{DatabaseBackend, DbConfig};
 use backend::models::{
-    WorkflowEvidenceEdge, WorkflowEvidenceExport, WorkflowEvidenceNode, WorkflowEvidenceResponse,
-    WorkflowEvidenceRun, WorkflowEvidenceToolInvocation, WorkflowEvidenceVerification,
+    Modality, ReasoningDepth, ResourceConstraints, TaskContext, TaskPreferences, TaskType,
+    TemporalScope,
 };
-use serde_json::json;
+use backend::services::evidence_graph::{list_workflow_evidence, record_decision_trace_as_evidence};
+use backend::services::AdaptiveMemoryScheduler;
 
-fn sample_tool_invocation() -> WorkflowEvidenceToolInvocation {
-    let mut inputs = BTreeMap::new();
-    inputs.insert("query".to_string(), json!("memory policy"));
+static DB_PATH: OnceLock<String> = OnceLock::new();
+static INIT_DB: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
-    let mut outputs = BTreeMap::new();
-    outputs.insert("status".to_string(), json!("ok"));
+async fn init_test_db() {
+    let db_path = DB_PATH
+        .get_or_init(|| {
+            let mut path = std::env::temp_dir();
+            path.push(format!(
+                "adaptive-memory-evidence-graph-{}.db",
+                std::process::id()
+            ));
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+            path_to_string(path)
+        })
+        .clone();
 
-    WorkflowEvidenceToolInvocation {
-        tool_name: "policy_lookup".to_string(),
-        invocation_id: Some("tool-1".to_string()),
-        inputs,
-        outputs,
+    INIT_DB
+        .get_or_init(|| async move {
+            backend::db::init(&DbConfig {
+                backend: DatabaseBackend::Sqlite,
+                url: db_path.clone(),
+                path: Some(db_path),
+                pool_size: 1,
+                min_idle: Some(1),
+                tcp_timeout: 5,
+                connection_timeout: 5,
+                statement_timeout: 5,
+                helper_threads: 1,
+                enforce_tls: false,
+            })
+            .await
+            .expect("initialize sqlite test database");
+        })
+        .await;
+}
+
+fn path_to_string(path: PathBuf) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn sample_task_context(task_id: &str) -> TaskContext {
+    TaskContext {
+        task_id: task_id.to_string(),
+        task_type: TaskType::Task,
+        complexity: 0.7,
+        modality_requirements: vec![Modality::Text],
+        temporal_scope: TemporalScope::Medium,
+        reasoning_depth: ReasoningDepth::Medium,
+        context_dependency: 0.5,
+        user_id: "u_evidence".to_string(),
+        agent_id: "a_evidence".to_string(),
     }
 }
 
-fn sample_run() -> WorkflowEvidenceRun {
-    let mut context_snapshot = BTreeMap::new();
-    context_snapshot.insert("active_task".to_string(), json!("task-1"));
-    context_snapshot.insert("memory_budget_mb".to_string(), json!(512));
-
-    let mut metadata = BTreeMap::new();
-    metadata.insert("environment".to_string(), json!("test"));
-
-    WorkflowEvidenceRun {
-        run_id: "run-1".to_string(),
-        workflow_id: "workflow-1".to_string(),
-        task_id: "task-1".to_string(),
-        attempt_id: "attempt-1".to_string(),
-        timestamp: "2026-03-26T00:00:00Z".to_string(),
-        sequence_number: 0,
-        prev_hash: None,
-        node_hash: "run-hash-1".to_string(),
-        tool_invocations: vec![sample_tool_invocation()],
-        context_snapshot,
-        metadata,
+fn sample_constraints() -> ResourceConstraints {
+    ResourceConstraints {
+        max_memory_usage_mb: 1024,
+        max_cpu_usage_percent: 80,
+        max_response_time_ms: 2000,
+        storage_quota_percent: 90,
     }
 }
 
-fn sample_node(sequence_number: i64, prev_hash: Option<&str>, node_hash: &str) -> WorkflowEvidenceNode {
-    let mut context_snapshot = BTreeMap::new();
-    context_snapshot.insert("step".to_string(), json!(sequence_number));
-    context_snapshot.insert("window".to_string(), json!("planner"));
-
-    let mut metadata = BTreeMap::new();
-    metadata.insert("confidence".to_string(), json!(0.9));
-
-    WorkflowEvidenceNode {
-        node_id: format!("node-{sequence_number}"),
-        run_id: "run-1".to_string(),
-        workflow_id: "workflow-1".to_string(),
-        task_id: "task-1".to_string(),
-        attempt_id: "attempt-1".to_string(),
-        sequence_number,
-        node_kind: "decision".to_string(),
-        timestamp: format!("2026-03-26T00:00:0{sequence_number}Z"),
-        llm_input_hash: format!("input-hash-{sequence_number}"),
-        llm_output_hash: format!("output-hash-{sequence_number}"),
-        tool_invocations: vec![sample_tool_invocation()],
-        context_snapshot,
-        metadata,
-        prev_hash: prev_hash.map(str::to_string),
-        node_hash: node_hash.to_string(),
+fn sample_preferences() -> TaskPreferences {
+    TaskPreferences {
+        prioritize_efficiency: true,
+        prioritize_coherence: false,
+        enable_multimodal: true,
+        enable_reasoning: true,
     }
 }
 
-fn sample_edge(
-    sequence_number: i64,
-    source_node_id: &str,
-    target_node_id: &str,
-    prev_hash: Option<&str>,
-    node_hash: &str,
-) -> WorkflowEvidenceEdge {
-    let mut context_snapshot = BTreeMap::new();
-    context_snapshot.insert("transition".to_string(), json!("selected"));
-
-    let mut metadata = BTreeMap::new();
-    metadata.insert("reason".to_string(), json!("append-only"));
-
-    WorkflowEvidenceEdge {
-        edge_id: format!("edge-{sequence_number}"),
-        run_id: "run-1".to_string(),
-        workflow_id: "workflow-1".to_string(),
-        task_id: "task-1".to_string(),
-        attempt_id: "attempt-1".to_string(),
-        sequence_number,
-        source_node_id: source_node_id.to_string(),
-        target_node_id: target_node_id.to_string(),
-        edge_kind: "follows".to_string(),
-        timestamp: format!("2026-03-26T00:01:0{sequence_number}Z"),
-        tool_invocations: vec![sample_tool_invocation()],
-        context_snapshot,
-        metadata,
-        prev_hash: prev_hash.map(str::to_string),
-        node_hash: node_hash.to_string(),
-    }
+async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTrace {
+    AdaptiveMemoryScheduler::new()
+        .adaptive_memory_selection_trace(
+            &sample_task_context(task_id),
+            &sample_constraints(),
+            &sample_preferences(),
+        )
+        .await
+        .expect("build scheduler decision trace")
 }
 
-#[test]
-fn workflow_evidence_response_round_trips_through_json() {
-    let run = sample_run();
-    let nodes = vec![
-        sample_node(0, None, "node-hash-0"),
-        sample_node(1, Some("node-hash-0"), "node-hash-1"),
-    ];
-    let edges = vec![
-        sample_edge(0, "node-0", "node-1", None, "edge-hash-0"),
-        sample_edge(1, "node-1", "node-2", Some("edge-hash-0"), "edge-hash-1"),
-    ];
-    let verification = WorkflowEvidenceVerification {
-        workflow_id: "workflow-1".to_string(),
-        run_id: "run-1".to_string(),
-        checked_at: "2026-03-26T00:02:00Z".to_string(),
-        verified: true,
-        expected_node_count: nodes.len(),
-        verified_node_count: nodes.len(),
-        root_hash: Some("node-hash-1".to_string()),
-        violations: Vec::new(),
-        metadata: BTreeMap::new(),
-    };
-    let response = WorkflowEvidenceResponse {
-        run,
-        nodes,
-        edges,
-        verification,
-    };
-    let export = WorkflowEvidenceExport {
-        schema_version: "2026-03-26".to_string(),
-        hash_algorithm: "sha256".to_string(),
-        exported_at: "2026-03-26T00:03:00Z".to_string(),
-        response,
-        metadata: BTreeMap::new(),
-    };
+#[tokio::test]
+async fn record_decision_trace_as_evidence_persists_locked_fields() {
+    init_test_db().await;
 
-    let value = serde_json::to_value(&export).expect("serialize export");
-    assert_eq!(value["response"]["run"]["attempt_id"], "attempt-1");
-    assert!(value["response"]["nodes"][0].get("context_snapshot").is_some());
-    assert!(value["response"]["edges"][0].get("node_hash").is_some());
+    let trace = sample_trace("workflow-evidence-locked-fields").await;
+    let recorded = record_decision_trace_as_evidence(&trace)
+        .await
+        .expect("persist evidence graph");
 
-    let round_trip: WorkflowEvidenceExport =
-        serde_json::from_value(value).expect("deserialize export");
-    assert_eq!(round_trip.response.nodes[0].llm_input_hash, "input-hash-0");
+    assert_eq!(recorded.run.workflow_id, trace.task_id);
+    assert!(!recorded.run.run_id.is_empty());
+    assert!(recorded.verification.verified);
+    assert!(!recorded.nodes.is_empty());
     assert_eq!(
-        round_trip.response.edges[1].prev_hash.as_deref(),
-        Some("edge-hash-0")
+        recorded
+            .nodes
+            .iter()
+            .map(|node| node.sequence_number)
+            .collect::<Vec<_>>(),
+        (0..recorded.nodes.len() as i64).collect::<Vec<_>>()
     );
+    assert!(recorded.nodes.iter().all(|node| {
+        !node.attempt_id.is_empty()
+            && !node.timestamp.is_empty()
+            && !node.llm_input_hash.is_empty()
+            && !node.llm_output_hash.is_empty()
+            && !node.tool_invocations.is_empty()
+            && !node.context_snapshot.is_empty()
+            && !node.node_hash.is_empty()
+    }));
 }
 
-#[test]
-fn workflow_evidence_sequences_are_append_only_and_monotonic() {
-    let nodes = vec![
-        sample_node(0, None, "node-hash-0"),
-        sample_node(1, Some("node-hash-0"), "node-hash-1"),
-        sample_node(2, Some("node-hash-1"), "node-hash-2"),
-    ];
-    let edges = vec![
-        sample_edge(0, "node-0", "node-1", None, "edge-hash-0"),
-        sample_edge(1, "node-1", "node-2", Some("edge-hash-0"), "edge-hash-1"),
-    ];
+#[tokio::test]
+async fn list_workflow_evidence_returns_nodes_and_edges_in_sequence_order() {
+    init_test_db().await;
 
-    assert!(nodes.windows(2).all(|pair| {
-        pair[1].sequence_number == pair[0].sequence_number + 1
-            && pair[1].attempt_id == pair[0].attempt_id
-    }));
-    assert!(edges.windows(2).all(|pair| {
-        pair[1].sequence_number == pair[0].sequence_number + 1
-            && pair[1].prev_hash.as_deref() == Some(pair[0].node_hash.as_str())
-    }));
-    assert!(nodes
-        .iter()
-        .all(|node| node.context_snapshot.contains_key("step") && !node.attempt_id.is_empty()));
-}
+    let trace = sample_trace("workflow-evidence-listing").await;
+    let recorded = record_decision_trace_as_evidence(&trace)
+        .await
+        .expect("persist evidence graph");
+    // This covers the public behavior produced by memory_orchestrator::persist_trace_record.
+    let listed = list_workflow_evidence(&trace.task_id)
+        .await
+        .expect("list workflow evidence");
 
-#[test]
-#[ignore = "Database-backed append-only repository coverage lands in plan 01-02."]
-fn repository_append_only_behavior_is_reserved_for_next_plan() {
-    let run = sample_run();
-    assert_eq!(run.sequence_number, 0);
+    assert_eq!(listed.run.run_id, recorded.run.run_id);
+    assert_eq!(
+        listed
+            .nodes
+            .iter()
+            .map(|node| node.sequence_number)
+            .collect::<Vec<_>>(),
+        (0..listed.nodes.len() as i64).collect::<Vec<_>>()
+    );
+    assert!(listed.edges.iter().all(|edge| {
+        listed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == edge.source_node_id)
+            && listed
+                .nodes
+                .iter()
+                .any(|node| node.node_id == edge.target_node_id)
+    }));
+    assert_eq!(listed.verification.expected_node_count, listed.nodes.len());
 }
