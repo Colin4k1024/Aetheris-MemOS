@@ -6,6 +6,7 @@ use backend::models::{
     TemporalScope,
 };
 use backend::services::evidence_graph::{list_workflow_evidence, record_decision_trace_as_evidence};
+use backend::services::memory_orchestrator::{list_decision_traces, select_memory_trace};
 use backend::services::AdaptiveMemoryScheduler;
 
 static DB_PATH: OnceLock<String> = OnceLock::new();
@@ -42,6 +43,21 @@ async fn init_test_db() {
         .execute(backend::db::sqlite_pool())
         .await
         .expect("apply evidence graph sqlite schema");
+    sqlx::raw_sql(
+        r#"
+        CREATE TABLE IF NOT EXISTS decision_trace (
+            trace_id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            trace_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_decision_trace_task_id ON decision_trace (task_id);
+        CREATE INDEX IF NOT EXISTS idx_decision_trace_created_at ON decision_trace (created_at);
+        "#,
+    )
+    .execute(backend::db::sqlite_pool())
+    .await
+    .expect("apply decision_trace sqlite schema");
 }
 
 fn sample_task_context(task_id: &str) -> TaskContext {
@@ -154,4 +170,36 @@ async fn list_workflow_evidence_returns_nodes_and_edges_in_sequence_order() {
                 .any(|node| node.node_id == edge.target_node_id)
     }));
     assert_eq!(listed.verification.expected_node_count, listed.nodes.len());
+}
+
+#[tokio::test]
+async fn select_memory_trace_persist_trace_record_keeps_legacy_blob_and_workflow_evidence() {
+    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    init_test_db().await;
+
+    let scheduler = AdaptiveMemoryScheduler::new();
+    let task_context = sample_task_context("workflow-evidence-live-path");
+    let trace = select_memory_trace(
+        &scheduler,
+        &task_context,
+        &sample_constraints(),
+        &sample_preferences(),
+        true,
+    )
+    .await
+    .expect("persist trace through memory orchestrator");
+
+    let traces = list_decision_traces(Some(&trace.task_id), Some(10))
+        .await
+        .expect("list legacy decision traces");
+    let evidence = list_workflow_evidence(&trace.task_id)
+        .await
+        .expect("list workflow evidence after persist_trace_record");
+
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].task_id, trace.task_id);
+    assert!(!traces[0].trace_id.is_empty());
+    assert_eq!(evidence.run.workflow_id, trace.task_id);
+    assert!(evidence.verification.verified);
+    assert!(!evidence.run.run_id.is_empty());
 }
