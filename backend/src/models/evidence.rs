@@ -111,8 +111,13 @@ pub struct WorkflowEvidenceResponse {
 pub struct WorkflowEvidenceExport {
     pub schema_version: String,
     pub hash_algorithm: String,
-    pub exported_at: String,
-    pub response: WorkflowEvidenceResponse,
+    pub workflow_id: String,
+    pub attempt_id: String,
+    pub root_hash: String,
+    pub chain_verified: bool,
     #[serde(default)]
-    pub metadata: WorkflowEvidenceMap,
+    pub nodes: Vec<WorkflowEvidenceNode>,
+    #[serde(default)]
+    pub edges: Vec<WorkflowEvidenceEdge>,
+    pub exported_at: String,
 }

@@ -8,11 +8,15 @@ use ulid::Ulid;
 
 use crate::db::evidence_graph::{EvidenceGraphRepository, StoredWorkflowEvidence};
 use crate::models::{
-    WorkflowEvidenceEdge, WorkflowEvidenceMap, WorkflowEvidenceNode, WorkflowEvidenceResponse,
-    WorkflowEvidenceRun, WorkflowEvidenceToolInvocation, WorkflowEvidenceVerification,
+    WorkflowEvidenceEdge, WorkflowEvidenceExport, WorkflowEvidenceMap, WorkflowEvidenceNode,
+    WorkflowEvidenceResponse, WorkflowEvidenceRun, WorkflowEvidenceToolInvocation,
+    WorkflowEvidenceVerification,
 };
 use crate::services::scheduler::DecisionTrace;
 use crate::AppError;
+
+pub const WORKFLOW_EVIDENCE_EXPORT_SCHEMA_VERSION: &str = "workflow-evidence-export.v1";
+pub const WORKFLOW_EVIDENCE_HASH_ALGORITHM: &str = "sha256";
 
 pub fn build_evidence_nodes(trace: &DecisionTrace) -> Result<Vec<WorkflowEvidenceNode>, AppError> {
     let run_id = Ulid::new().to_string();
@@ -108,10 +112,58 @@ pub fn verify_chain(
         root_hash: nodes.last().map(|node| node.node_hash.clone()),
         violations,
         metadata: BTreeMap::from([
-            ("hash_algorithm".to_string(), json!("sha256")),
+            (
+                "hash_algorithm".to_string(),
+                json!(WORKFLOW_EVIDENCE_HASH_ALGORITHM),
+            ),
             ("verification_mode".to_string(), json!("canonical-replay")),
         ]),
     })
+}
+
+pub fn build_workflow_evidence_export(
+    response: &WorkflowEvidenceResponse,
+    exported_at: chrono::DateTime<Utc>,
+) -> WorkflowEvidenceExport {
+    WorkflowEvidenceExport {
+        schema_version: WORKFLOW_EVIDENCE_EXPORT_SCHEMA_VERSION.to_string(),
+        hash_algorithm: WORKFLOW_EVIDENCE_HASH_ALGORITHM.to_string(),
+        workflow_id: response.run.workflow_id.clone(),
+        attempt_id: response.run.attempt_id.clone(),
+        root_hash: response
+            .verification
+            .root_hash
+            .clone()
+            .unwrap_or_else(|| response.run.node_hash.clone()),
+        chain_verified: response.verification.verified,
+        nodes: response.nodes.clone(),
+        edges: response.edges.clone(),
+        exported_at: exported_at.to_rfc3339(),
+    }
+}
+
+pub fn canonical_export_body_bytes(
+    export: &WorkflowEvidenceExport,
+) -> Result<Vec<u8>, AppError> {
+    let body = CanonicalWorkflowEvidenceExport {
+        schema_version: &export.schema_version,
+        hash_algorithm: &export.hash_algorithm,
+        workflow_id: &export.workflow_id,
+        attempt_id: &export.attempt_id,
+        root_hash: &export.root_hash,
+        chain_verified: export.chain_verified,
+        nodes: &export.nodes,
+        edges: &export.edges,
+    };
+    serde_json::to_vec(&body)
+        .map_err(|err| AppError::Serialization(format!("serialize canonical export body: {err}")))
+}
+
+pub fn hash_workflow_evidence_export_body(
+    export: &WorkflowEvidenceExport,
+) -> Result<String, AppError> {
+    let bytes = canonical_export_body_bytes(export)?;
+    Ok(sha256_hex(&bytes))
 }
 
 fn build_evidence_nodes_for_run(
@@ -503,4 +555,16 @@ struct CanonicalEdgeHash<'a> {
     context_snapshot: &'a WorkflowEvidenceMap,
     metadata: &'a WorkflowEvidenceMap,
     prev_hash: &'a Option<String>,
+}
+
+#[derive(Serialize)]
+struct CanonicalWorkflowEvidenceExport<'a> {
+    schema_version: &'a str,
+    hash_algorithm: &'a str,
+    workflow_id: &'a str,
+    attempt_id: &'a str,
+    root_hash: &'a str,
+    chain_verified: bool,
+    nodes: &'a [WorkflowEvidenceNode],
+    edges: &'a [WorkflowEvidenceEdge],
 }
