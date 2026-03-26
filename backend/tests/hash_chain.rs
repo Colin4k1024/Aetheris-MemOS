@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use backend::config::{DatabaseBackend, DbConfig};
@@ -12,19 +11,12 @@ use serde_json::json;
 
 static DB_PATH: OnceLock<String> = OnceLock::new();
 static INIT_DB: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+static TEST_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
 
 async fn init_test_db() {
     let db_path = DB_PATH
         .get_or_init(|| {
-            let mut path = std::env::temp_dir();
-            path.push(format!(
-                "adaptive-memory-hash-chain-{}.db",
-                std::process::id()
-            ));
-            if path.exists() {
-                let _ = std::fs::remove_file(&path);
-            }
-            path_to_string(path)
+            "file:hash-chain-tests?mode=memory&cache=shared".to_string()
         })
         .clone();
 
@@ -46,10 +38,11 @@ async fn init_test_db() {
             .expect("initialize sqlite test database");
         })
         .await;
-}
 
-fn path_to_string(path: PathBuf) -> String {
-    path.to_string_lossy().into_owned()
+    sqlx::raw_sql(include_str!("../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"))
+        .execute(backend::db::sqlite_pool())
+        .await
+        .expect("apply evidence graph sqlite schema");
 }
 
 fn sample_task_context(task_id: &str) -> TaskContext {
@@ -97,6 +90,7 @@ async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTr
 
 #[tokio::test]
 async fn verify_chain_accepts_the_unmodified_persisted_nodes() {
+    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-hash-chain-valid").await;
@@ -117,6 +111,7 @@ async fn verify_chain_accepts_the_unmodified_persisted_nodes() {
 
 #[tokio::test]
 async fn verify_chain_rejects_prev_hash_and_node_hash_tampering() {
+    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-hash-chain-prev-hash").await;
@@ -149,6 +144,7 @@ async fn verify_chain_rejects_prev_hash_and_node_hash_tampering() {
 
 #[tokio::test]
 async fn verify_chain_rejects_context_snapshot_byte_changes() {
+    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-hash-chain-context").await;

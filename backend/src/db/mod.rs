@@ -24,6 +24,7 @@ pub mod adapters;
 pub mod agent;
 
 pub mod decision_trace;
+pub mod evidence_graph;
 pub mod kg;
 #[allow(dead_code)]
 pub mod ltm;

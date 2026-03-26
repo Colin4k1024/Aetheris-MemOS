@@ -8,6 +8,7 @@ pub mod consolidation;
 pub mod context_snapshot;
 #[allow(dead_code)]
 pub mod embedding;
+pub mod evidence_graph;
 #[allow(dead_code)]
 pub mod enterprise;
 #[allow(dead_code)]
