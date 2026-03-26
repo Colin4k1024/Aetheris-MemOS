@@ -100,6 +100,7 @@ Each task was committed atomically:
 ## Issues Encountered
 
 - Parallel `git add` calls briefly produced `.git/index.lock` contention while staging the task 1 implementation. I verified the lock was stale, retried staging sequentially, and completed the commit without losing changes.
+- The GSD metadata commit helper later failed with a git index-lock permission error, so I recovered with plain non-interactive `git add` and `git commit` for the summary/state update commit as instructed.
 
 ## User Setup Required
 
