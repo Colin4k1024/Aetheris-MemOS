@@ -30,8 +30,6 @@ use crate::web::cors_layer;
         demo::hello,
         auth::register,
         auth::post_login,
-        auth::post_login_with_token,
-        auth::get_login_with_token,
         auth::get_current_user,
         user::list_users,
         user::create_user,

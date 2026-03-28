@@ -1,7 +1,6 @@
 //! Auth routes
 
 use axum::{
-    extract::Query,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json,
@@ -160,12 +159,11 @@ async fn post_login(Json(idata): Json<LoginInData>) -> Result<Response, AuthErro
         exp,
     };
 
-    // Create response with cookie
+    // Create response with secure cookie (httpOnly + Secure + SameSite=Strict)
     let mut response = Json(odata).into_response();
 
-    // Add cookie
     let cookie = format!(
-        "jwt_token={}; Path=/; HttpOnly; SameSite=None",
+        "jwt_token={}; Path=/; HttpOnly; Secure; SameSite=Strict",
         token
     );
     response.headers_mut().append(
@@ -176,51 +174,6 @@ async fn post_login(Json(idata): Json<LoginInData>) -> Result<Response, AuthErro
     Ok(response)
 }
 
-/// Login with token (query param only for now)
-#[utoipa::path(post, path = "/api/login/account", tag = "Auth")]
-async fn post_login_with_token(
-    Query(params): Query<LoginInData>,
-) -> Result<Response, AuthError> {
-    // Check query parameter token
-    if !params.username.is_empty() {
-        let token = &params.username;
-        let valid = jwt::decode_token(token);
-        if !valid {
-            return Err(AuthError("Token is invalid or expired.".to_string()));
-        }
-
-        let response = Json(LoginOutData {
-            id: "".to_string(),
-            username: "".to_string(),
-            token: token.to_string(),
-            exp: 0,
-        }).into_response();
-
-        return Ok(response);
-    }
-
-    Err(AuthError("Invalid request. Provide token or username/password.".to_string()))
-}
-
-/// Verify token and set cookie
-#[utoipa::path(get, path = "/api/login/account", tag = "Auth")]
-async fn get_login_with_token(Query(params): Query<LoginInData>) -> Result<Json<TokenVerifyResponse>, AuthError> {
-    let token = params.username;
-
-    if token.is_empty() {
-        return Ok(Json(TokenVerifyResponse {
-            valid: false,
-            message: "Token parameter is required".to_string(),
-        }));
-    }
-
-    let valid = jwt::decode_token(&token);
-
-    Ok(Json(TokenVerifyResponse {
-        valid,
-        message: if valid { "Token is valid".to_string() } else { "Token is invalid or expired".to_string() },
-    }))
-}
 
 /// Get current user (requires auth)
 #[utoipa::path(get, path = "/api/currentUser", tag = "Auth")]
@@ -260,7 +213,5 @@ pub fn router() -> Router {
         .route("/login", get(login_page))
         .route("/register", post(register))
         .route("/api/login", post(post_login))
-        .route("/api/login/account", post(post_login_with_token))
-        .route("/api/login/account", get(get_login_with_token))
         .route("/api/currentUser", get(get_current_user))
 }

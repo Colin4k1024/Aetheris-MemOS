@@ -1,7 +1,9 @@
 use anyhow::Result;
-use axum::extract::Request;
-use axum::middleware::Next;
-use axum::response::Response;
+use axum::{
+    extract::Request,
+    middleware::Next,
+    response::Response,
+};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, EncodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
@@ -26,13 +28,48 @@ pub fn decode_token_claims(token: &str) -> Option<JwtClaims> {
     .map(|d| d.claims)
 }
 
-pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, AppError> {
-    let token = req
-        .headers()
+/// Extract JWT token from request.
+///
+/// Priority:
+/// 1. `jwt_token` httpOnly cookie (primary - eliminates XSS vector)
+/// 2. `Authorization: Bearer <token>` header (fallback for API clients)
+///
+/// Query string tokens are explicitly rejected.
+fn extract_token(req: &Request) -> Option<String> {
+    // 1. Try httpOnly cookie first
+    if let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE) {
+        if let Ok(cookie_str) = cookie_header.to_str() {
+            for pair in cookie_str.split(';') {
+                let pair = pair.trim();
+                if let Some((key, value)) = pair.split_once('=') {
+                    if key == "jwt_token" {
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fall back to Authorization header for API clients (Brave, curl, etc.)
+    req.headers()
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::to_string)
+}
+
+pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, AppError> {
+    // Reject tokens in query strings (security: prevent token leakage in logs/referrer)
+    if let Some(query) = req.uri().query() {
+        if query.contains("token=") || query.contains("jwt_token=") {
+            return Err(AppError::Unauthorized(
+                "Token query parameter not supported. Use httpOnly cookie or Authorization header."
+                    .to_string(),
+            ));
+        }
+    }
+
+    let token = extract_token(&req)
         .ok_or_else(|| AppError::Unauthorized("Missing authentication token".to_string()))?;
 
     let claims = decode_token_claims(&token)
