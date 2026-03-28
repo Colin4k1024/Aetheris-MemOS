@@ -39,7 +39,7 @@ Plans:
 **Plans**: 4 plans (Wave 0: Foundation, Wave 1: MCP Signing + Input Validation, Wave 2: Multi-Tenant Isolation)
 
 Plans:
-- [ ] 02-01-PLAN.md — Auth foundation: JWT cookie security, route-level auth middleware, tenant context propagation (Wave 0)
+- [x] 02-01-PLAN.md — Auth foundation: JWT cookie security, route-level auth middleware, tenant context propagation (Wave 0)
 - [ ] 02-02-PLAN.md — MCP component signing verification with SHA-256 hash validation (Wave 1)
 - [ ] 02-03-PLAN.md — Input validation layer with schema-based validation and injection detection (Wave 1)
 - [ ] 02-04-PLAN.md — Multi-tenant isolation enforcement with tenant-scoped repositories and monitoring hooks (Wave 2)
@@ -62,5 +62,5 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Evidence Graph & Decision Snapshots Completeness | 3/3 | Complete | 01-01, 01-02, 01-03 |
-| 2. Security Hardening for MCP and Multi-Tenant Runtime | 0/4 | Not started | - |
+| 2. Security Hardening for MCP and Multi-Tenant Runtime | 1/4 | Wave 0 in progress | 02-01 |
 | 3. MemOS Deep Fusion and Self-Healing Runtime | 0/0 | Not started | - |

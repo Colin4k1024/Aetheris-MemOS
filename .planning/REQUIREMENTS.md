@@ -19,9 +19,9 @@
 
 ### Security Foundations
 
-- [ ] **SEC-01**: MCP integrations must enforce signing or provenance checks for trusted components.
-- [ ] **SEC-02**: High-risk input paths must implement explicit validation and sanitization boundaries.
-- [ ] **SEC-03**: Multi-tenant execution paths must enforce isolation controls and monitoring hooks.
+- [x] **SEC-01**: MCP integrations must enforce signing or provenance checks for trusted components.
+- [x] **SEC-02**: High-risk input paths must implement explicit validation and sanitization boundaries.
+- [x] **SEC-03**: Multi-tenant execution paths must enforce isolation controls and monitoring hooks.
 
 ### MemOS Evolution
 
@@ -53,9 +53,9 @@
 | EVID-04 | Phase 1 | Complete |
 | EVID-05 | Phase 1 | Complete |
 | COMP-01 | Phase 1 | Complete |
-| SEC-01 | Phase 2 | Pending |
-| SEC-02 | Phase 2 | Pending |
-| SEC-03 | Phase 2 | Pending |
+| SEC-01 | Phase 2 | Complete |
+| SEC-02 | Phase 2 | Complete |
+| SEC-03 | Phase 2 | Complete |
 | MEM-01 | Phase 3 | Pending |
 | MEM-02 | Phase 3 | Pending |
 | MEM-03 | Phase 3 | Pending |
