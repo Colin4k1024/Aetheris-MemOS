@@ -6,6 +6,8 @@ Thank you for your interest in contributing to the Adaptive Memory Management Sy
 
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** — System design, layer diagram, and decision pipeline.
 - **[ROADMAP.md](docs/ROADMAP.md)** — Version plan and what's done vs planned.
+- **[roadmap-2026.md](docs/roadmap-2026.md)** — 2026+ strategic roadmap and phase planning.
+- **[Evidence Graph And Decision Snapshots](docs/architecture/evidence-graph-and-decision-snapshots.md)** — current baseline vs planned audit architecture.
 - **[USE_CASES.md](docs/USE_CASES.md)** — LLM agent memory, multi-modal, cost-aware routing.
 - **[EXTENSION_GUIDE.md](docs/EXTENSION_GUIDE.md)** — How to add new strategies and agents.
 
@@ -47,7 +49,7 @@ npm test
    - Priority: `priority:P0`, `priority:P1`, `priority:P2`
    - Area: `area:backend`, `area:frontend`, `area:docs`, `area:architecture`, `area:security`
    - Phase (roadmap alignment): `phase:1`, `phase:2`, `phase:3`
-5. **Align with roadmap** by linking the relevant section from [ROADMAP.md](docs/ROADMAP.md) in your issue or PR.
+5. **Align with roadmap** by linking the relevant section from [ROADMAP.md](docs/ROADMAP.md) or [roadmap-2026.md](docs/roadmap-2026.md) in your issue or PR.
 6. **Implement** your change; keep commits focused.
 7. **Test** — run `cargo test` and frontend tests.
 8. **Open a Pull Request** with a clear title and description. Reference any related issue.

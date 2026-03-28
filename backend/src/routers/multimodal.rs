@@ -16,6 +16,8 @@ pub struct StoreMMRequest {
     pub session_id: Option<String>,
     #[serde(rename = "sourceId")]
     pub source_id: String,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
     #[serde(rename = "modalityType")]
     pub modality_type: String,
     pub title: Option<String>,
@@ -96,6 +98,7 @@ pub async fn store_mm(Json(body): Json<StoreMMRequest>) -> JsonResult<StoreMMRes
         body.image_url.as_deref(),
         body.audio_url.as_deref(),
         None, // video_url
+        body.tenant_id.as_deref(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to store multimodal: {}", e)))?;
@@ -104,8 +107,11 @@ pub async fn store_mm(Json(body): Json<StoreMMRequest>) -> JsonResult<StoreMMRes
 }
 
 /// 获取多模态记忆
-pub async fn get_mm(Path(entry_id): Path<String>) -> JsonResult<Option<MMEntryInfo>> {
-    let entry = MMRepository::get_entry_by_id(&entry_id)
+pub async fn get_mm(
+    Path(entry_id): Path<String>,
+    Query(query): Query<LimitQuery>,
+) -> JsonResult<Option<MMEntryInfo>> {
+    let entry = MMRepository::get_entry_by_id(&entry_id, query.tenant_id.as_deref())
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get multimodal: {}", e)))?;
 
@@ -128,11 +134,12 @@ pub async fn get_session_mm(
 ) -> JsonResult<Vec<MMEntryInfo>> {
     let limit = query.limit.unwrap_or(20) as i32;
 
-    let entries = MMRepository::get_entries_by_session(&session_id, Some(limit))
-        .await
-        .map_err(|e| {
-            crate::AppError::Internal(format!("Failed to get session multimodal: {}", e))
-        })?;
+    let entries =
+        MMRepository::get_entries_by_session(&session_id, Some(limit), query.tenant_id.as_deref())
+            .await
+            .map_err(|e| {
+                crate::AppError::Internal(format!("Failed to get session multimodal: {}", e))
+            })?;
 
     let infos: Vec<MMEntryInfo> = entries
         .into_iter()
@@ -156,9 +163,13 @@ pub async fn get_by_modality(
 ) -> JsonResult<Vec<MMEntryInfo>> {
     let limit = query.limit.unwrap_or(20) as i32;
 
-    let entries = MMRepository::get_entries_by_modality(&modality_type, Some(limit))
-        .await
-        .map_err(|e| crate::AppError::Internal(format!("Failed to get by modality: {}", e)))?;
+    let entries = MMRepository::get_entries_by_modality(
+        &modality_type,
+        Some(limit),
+        query.tenant_id.as_deref(),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to get by modality: {}", e)))?;
 
     let infos: Vec<MMEntryInfo> = entries
         .into_iter()
@@ -190,7 +201,13 @@ pub async fn list_mm(Query(query): Query<ListMMQuery>) -> JsonResult<MMEntryList
     let offset = query.offset.unwrap_or(0) as i32;
     let modality_filter = normalized_modality_filter(query.modality_type.as_deref());
 
-    let result = MMRepository::list_entries(modality_filter, Some(limit), Some(offset)).await?;
+    let result = MMRepository::list_entries(
+        modality_filter,
+        Some(limit),
+        Some(offset),
+        query.tenant_id.as_deref(),
+    )
+    .await?;
     let infos: Vec<MMEntryInfo> = result
         .entries
         .into_iter()
@@ -214,6 +231,8 @@ pub async fn list_mm(Query(query): Query<ListMMQuery>) -> JsonResult<MMEntryList
 #[derive(Debug, Deserialize, Default)]
 pub struct LimitQuery {
     pub limit: Option<usize>,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -221,6 +240,8 @@ pub struct ListMMQuery {
     pub modality_type: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
 }
 
 fn normalized_modality_filter(modality_type: Option<&str>) -> Option<&str> {

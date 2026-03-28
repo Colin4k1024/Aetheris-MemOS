@@ -19,6 +19,8 @@ pub struct CreateEntityRequest {
     pub entity_type: String,
     pub description: Option<String>,
     pub aliases: Option<Vec<String>>,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
 }
 
 /// 创建实体响应
@@ -39,6 +41,8 @@ pub struct CreateRelationRequest {
     pub relation_type: String,
     pub weight: Option<f32>,
     pub confidence: Option<f32>,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
 }
 
 /// 创建关系响应
@@ -54,6 +58,8 @@ pub struct SearchEntitiesRequest {
     pub query: String,
     #[serde(default = "default_limit")]
     pub limit: i32,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
 }
 
 fn default_limit() -> i32 {
@@ -104,6 +110,7 @@ pub async fn create_entity(
         None,
         None,
         1.0,
+        body.tenant_id.as_deref(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to create entity: {}", e)))?;
@@ -122,6 +129,7 @@ pub async fn create_relation(
         body.weight.unwrap_or(1.0) as f64,
         body.confidence.unwrap_or(1.0) as f64,
         None,
+        body.tenant_id.as_deref(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to create relation: {}", e)))?;
@@ -130,8 +138,11 @@ pub async fn create_relation(
 }
 
 /// 根据名称获取实体
-pub async fn get_entity_by_name(Path(name): Path<String>) -> JsonResult<Option<EntityInfo>> {
-    let entity = KGRepository::get_entity_by_name(&name, None)
+pub async fn get_entity_by_name(
+    Path(name): Path<String>,
+    Query(query): Query<TenantScopeQuery>,
+) -> JsonResult<Option<EntityInfo>> {
+    let entity = KGRepository::get_entity_by_name(&name, None, query.tenant_id.as_deref())
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get entity: {}", e)))?;
 
@@ -152,9 +163,14 @@ pub async fn get_related_entities(
 ) -> JsonResult<Vec<RelationInfo>> {
     let limit = query.limit.unwrap_or(10) as i32;
 
-    let relations = KGRepository::get_related_entities(&entity_id, None, Some(limit))
-        .await
-        .map_err(|e| crate::AppError::Internal(format!("Failed to get related entities: {}", e)))?;
+    let relations = KGRepository::get_related_entities(
+        &entity_id,
+        None,
+        Some(limit),
+        query.tenant_id.as_deref(),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to get related entities: {}", e)))?;
 
     let infos: Vec<RelationInfo> = relations
         .into_iter()
@@ -176,9 +192,14 @@ pub async fn search_by_entity(
     Json(body): Json<SearchEntitiesRequest>,
 ) -> JsonResult<Vec<EntityInfo>> {
     let pool = pool();
-    let entities = KGRepository::search_knowledge_by_entity(pool, &body.query, Some(body.limit))
-        .await
-        .map_err(|e| crate::AppError::Internal(format!("Failed to search: {}", e)))?;
+    let entities = KGRepository::search_knowledge_by_entity(
+        pool,
+        &body.query,
+        Some(body.limit),
+        body.tenant_id.as_deref(),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to search: {}", e)))?;
 
     let infos: Vec<EntityInfo> = entities
         .into_iter()
@@ -209,10 +230,14 @@ pub async fn list_entities(
     let limit = query.limit.unwrap_or(20) as i32;
     let offset = query.offset.unwrap_or(0) as i32;
 
-    let response =
-        KGRepository::list_entities(query.entity_type.as_deref(), Some(limit), Some(offset))
-            .await
-            .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
+    let response = KGRepository::list_entities(
+        query.entity_type.as_deref(),
+        Some(limit),
+        Some(offset),
+        query.tenant_id.as_deref(),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
 
     let entities: Vec<EntityInfo> = response
         .entities
@@ -236,6 +261,14 @@ pub async fn list_entities(
 #[derive(Debug, Deserialize, Default)]
 pub struct RelatedEntitiesQuery {
     pub limit: Option<usize>,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TenantScopeQuery {
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -243,4 +276,6 @@ pub struct ListEntitiesQuery {
     pub entity_type: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
 }

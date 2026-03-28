@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use utoipa::ToSchema;
 
-use crate::db::ltm::LTMRepository;
 use crate::db::kg::KGRepository;
+use crate::db::ltm::LTMRepository;
 use crate::{json_ok, JsonResult};
 
 /// Timeline entry for visualization
@@ -71,9 +71,7 @@ pub struct TimelineQuery {
 }
 
 /// Get timeline data for visualization
-pub async fn get_timeline(
-    Query(query): Query<TimelineQuery>,
-) -> JsonResult<Vec<TimelineEntry>> {
+pub async fn get_timeline(Query(query): Query<TimelineQuery>) -> JsonResult<Vec<TimelineEntry>> {
     info!("Getting timeline data");
 
     let limit = query.limit.unwrap_or(50);
@@ -106,7 +104,7 @@ pub async fn get_graph_visualization(
     let limit = query.limit.unwrap_or(100) as i32;
 
     // Get entities from KG
-    let entities = KGRepository::list_entities(None, Some(limit), Some(0))
+    let entities = KGRepository::list_entities(None, Some(limit), Some(0), None)
         .await?
         .entities;
 
@@ -128,9 +126,7 @@ pub async fn get_graph_visualization(
 }
 
 /// Get importance heatmap data
-pub async fn get_heatmap(
-    Query(query): Query<TimelineQuery>,
-) -> JsonResult<HeatmapData> {
+pub async fn get_heatmap(Query(query): Query<TimelineQuery>) -> JsonResult<HeatmapData> {
     info!("Getting heatmap data");
 
     let limit = query.limit.unwrap_or(100) as i32;
@@ -148,7 +144,7 @@ pub async fn get_heatmap(
     for (i, entry) in entries.iter().enumerate() {
         let importance = entry.quality_score.unwrap_or(0.5) as f64;
         let x = (i / 24) as i32 % 7; // Day of week
-        let y = (i % 24) as i32;      // Hour of day
+        let y = (i % 24) as i32; // Hour of day
 
         cells.push(HeatmapCell {
             x,

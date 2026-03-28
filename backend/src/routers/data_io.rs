@@ -95,7 +95,7 @@ async fn export_as_json(layer: &str, limit: i32) -> JsonResult<serde_json::Value
 
     match layer {
         "kg" | "all" => {
-            let response = KGRepository::list_entities(None, Some(limit), Some(0)).await?;
+            let response = KGRepository::list_entities(None, Some(limit), Some(0), None).await?;
             data["kg"] = serde_json::json!({
                 "entities": response.entities,
                 "count": response.entities.len()
@@ -106,7 +106,7 @@ async fn export_as_json(layer: &str, limit: i32) -> JsonResult<serde_json::Value
 
     match layer {
         "mm" | "all" => {
-            let response = MMRepository::list_entries(None, Some(limit), Some(0)).await?;
+            let response = MMRepository::list_entries(None, Some(limit), Some(0), None).await?;
             data["mm"] = serde_json::json!({
                 "entries": response.entries,
                 "count": response.entries.len()
@@ -128,7 +128,10 @@ async fn export_as_markdown(layer: &str, limit: i32) -> JsonResult<serde_json::V
     let mut content = String::new();
 
     content.push_str("# Adaptive Memory System Export\n\n");
-    content.push_str(&format!("Exported at: {}\n\n", chrono::Utc::now().to_rfc3339()));
+    content.push_str(&format!(
+        "Exported at: {}\n\n",
+        chrono::Utc::now().to_rfc3339()
+    ));
 
     if layer == "stm" || layer == "all" {
         content.push_str("## Short-Term Memory (STM)\n\n");
@@ -160,7 +163,7 @@ async fn export_as_markdown(layer: &str, limit: i32) -> JsonResult<serde_json::V
 
     if layer == "kg" || layer == "all" {
         content.push_str("## Knowledge Graph (KG)\n\n");
-        let response = KGRepository::list_entities(None, Some(limit), Some(0)).await?;
+        let response = KGRepository::list_entities(None, Some(limit), Some(0), None).await?;
         for entity in response.entities {
             content.push_str(&format!(
                 "### {} ({})\n{}\n\n",
@@ -173,7 +176,7 @@ async fn export_as_markdown(layer: &str, limit: i32) -> JsonResult<serde_json::V
 
     if layer == "mm" || layer == "all" {
         content.push_str("## Multimodal Memory (MM)\n\n");
-        let response = MMRepository::list_entries(None, Some(limit), Some(0)).await?;
+        let response = MMRepository::list_entries(None, Some(limit), Some(0), None).await?;
         for entry in response.entries {
             content.push_str(&format!(
                 "### {} ({})\nType: {}\nQuality: {:.2}\n\n",

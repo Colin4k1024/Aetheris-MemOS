@@ -11,6 +11,8 @@ use crate::{json_ok, JsonResult};
 /// 存储短期记忆请求
 #[derive(Deserialize, ToSchema, Validate)]
 pub struct StoreSTMRequest {
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
     #[serde(rename = "userId")]
     pub user_id: String,
     #[serde(rename = "agentId")]
@@ -37,6 +39,8 @@ pub struct StoreSTMResponse {
 /// 存储长期记忆请求
 #[derive(Deserialize, ToSchema, Validate)]
 pub struct StoreLTMRequest {
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
     #[serde(rename = "sourceId")]
     pub source_id: String,
     #[serde(rename = "sourceType")]
@@ -76,6 +80,8 @@ pub struct BatchStoreLTMRequest {
 
 #[derive(Deserialize, ToSchema, Validate)]
 pub struct BatchStoreEntry {
+    #[serde(rename = "tenantId")]
+    pub tenant_id: Option<String>,
     #[serde(rename = "sourceId")]
     pub source_id: String,
     #[serde(rename = "sourceType")]
@@ -100,16 +106,30 @@ pub async fn store_stm(Json(req): Json<StoreSTMRequest>) -> JsonResult<StoreSTMR
         req.user_id, req.agent_id, req.session_type
     );
 
-    let (session_id, message_id) = MemoryStorageService::store_stm(
-        &req.user_id,
-        &req.agent_id,
-        &req.session_type,
-        &req.role,
-        &req.content,
-        req.max_context_length.unwrap_or(4096),
-        req.retention_hours.unwrap_or(24),
-    )
-    .await?;
+    let (session_id, message_id) = if req.tenant_id.as_deref().is_some() {
+        MemoryStorageService::store_stm_with_tenant(
+            req.tenant_id.as_deref(),
+            &req.user_id,
+            &req.agent_id,
+            &req.session_type,
+            &req.role,
+            &req.content,
+            req.max_context_length.unwrap_or(4096),
+            req.retention_hours.unwrap_or(24),
+        )
+        .await?
+    } else {
+        MemoryStorageService::store_stm(
+            &req.user_id,
+            &req.agent_id,
+            &req.session_type,
+            &req.role,
+            &req.content,
+            req.max_context_length.unwrap_or(4096),
+            req.retention_hours.unwrap_or(24),
+        )
+        .await?
+    };
 
     json_ok(StoreSTMResponse {
         session_id,
@@ -128,7 +148,8 @@ pub async fn store_ltm(Json(req): Json<StoreLTMRequest>) -> JsonResult<StoreLTMR
         req.content.len()
     );
 
-    let entry_id = MemoryStorageService::store_ltm(
+    let entry_id = MemoryStorageService::store_ltm_with_tenant(
+        req.tenant_id.as_deref(),
         &req.source_id,
         &req.source_type,
         &req.content,
@@ -162,13 +183,19 @@ pub async fn batch_store_ltm(
 
     info!("Batch storing LTM: count={}", req.entries.len());
 
-    let entries: Vec<(String, String, String, Option<String>)> = req
+    let entries: Vec<crate::services::memory_storage::LtmWriteRequest> = req
         .entries
         .into_iter()
-        .map(|e| (e.source_id, e.source_type, e.content, e.title))
+        .map(|e| crate::services::memory_storage::LtmWriteRequest {
+            tenant_id: e.tenant_id,
+            source_id: e.source_id,
+            source_type: e.source_type,
+            content: e.content,
+            title: e.title,
+        })
         .collect();
 
-    let entry_ids = MemoryStorageService::batch_store_ltm(entries).await?;
+    let entry_ids = MemoryStorageService::batch_store_ltm_with_tenant(entries).await?;
 
     json_ok(BatchStoreLTMResponse { entry_ids })
 }
@@ -245,10 +272,18 @@ fn build_compression_cfg(
     hierarchical_recent_k: Option<usize>,
 ) -> crate::services::context_compressor::CompressionConfig {
     let mut cfg = crate::services::context_compressor::CompressionConfig::default();
-    if let Some(s) = strategy { cfg.strategy = s; }
-    if let Some(t) = token_budget { cfg.token_budget = t; }
-    if let Some(w) = window_size { cfg.window_size = w; }
-    if let Some(k) = hierarchical_recent_k { cfg.hierarchical_recent_k = k; }
+    if let Some(s) = strategy {
+        cfg.strategy = s;
+    }
+    if let Some(t) = token_budget {
+        cfg.token_budget = t;
+    }
+    if let Some(w) = window_size {
+        cfg.window_size = w;
+    }
+    if let Some(k) = hierarchical_recent_k {
+        cfg.hierarchical_recent_k = k;
+    }
     cfg
 }
 
@@ -257,7 +292,12 @@ pub async fn compress_session(
     Json(req): Json<CompressSessionRequest>,
 ) -> crate::JsonResult<crate::services::context_compressor::CompressionResult> {
     info!("Compressing session: session_id={}", req.session_id);
-    let cfg = build_compression_cfg(req.strategy, req.token_budget, req.window_size, req.hierarchical_recent_k);
+    let cfg = build_compression_cfg(
+        req.strategy,
+        req.token_budget,
+        req.window_size,
+        req.hierarchical_recent_k,
+    );
     let result = crate::services::context_compressor::ContextCompressor::compress_session(
         &req.session_id,
         &cfg,
@@ -271,7 +311,14 @@ pub async fn compress_messages(
     Json(req): Json<CompressMessagesRequest>,
 ) -> crate::JsonResult<crate::services::context_compressor::CompressionResult> {
     info!("Compressing {} messages", req.messages.len());
-    let cfg = build_compression_cfg(req.strategy, req.token_budget, req.window_size, req.hierarchical_recent_k);
-    let result = crate::services::context_compressor::ContextCompressor::compress(req.messages, &cfg).await?;
+    let cfg = build_compression_cfg(
+        req.strategy,
+        req.token_budget,
+        req.window_size,
+        req.hierarchical_recent_k,
+    );
+    let result =
+        crate::services::context_compressor::ContextCompressor::compress(req.messages, &cfg)
+            .await?;
     crate::json_ok(result)
 }

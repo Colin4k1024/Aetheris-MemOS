@@ -7,6 +7,61 @@ use crate::services::{
 };
 use crate::AppError;
 
+#[derive(Debug, Clone)]
+pub struct LtmWriteRequest {
+    pub tenant_id: Option<String>,
+    pub source_id: String,
+    pub source_type: String,
+    pub content: String,
+    pub title: Option<String>,
+}
+
+fn normalized_tenant_id(tenant_id: Option<&str>) -> Option<&str> {
+    tenant_id.filter(|tenant_id| !tenant_id.is_empty())
+}
+
+fn tenant_prefix(tenant_id: &str) -> String {
+    crate::services::multi_tenant::TenantId::new(tenant_id).prefix()
+}
+
+fn scope_actor_id(tenant_id: Option<&str>, actor_kind: &str, actor_id: &str) -> String {
+    let Some(tenant_id) = normalized_tenant_id(tenant_id) else {
+        return actor_id.to_string();
+    };
+
+    let prefix = tenant_prefix(tenant_id);
+    if actor_id.starts_with(&prefix) {
+        return actor_id.to_string();
+    }
+
+    format!("{}:{}:{}", prefix, actor_kind, actor_id)
+}
+
+fn scope_source_id(tenant_id: Option<&str>, source_id: &str) -> String {
+    let Some(tenant_id) = normalized_tenant_id(tenant_id) else {
+        return source_id.to_string();
+    };
+
+    let prefix = tenant_prefix(tenant_id);
+    if source_id.starts_with(&prefix) {
+        return source_id.to_string();
+    }
+
+    format!("{}:{}", prefix, source_id)
+}
+
+fn extract_tenant_id_from_actor_id(actor_id: &str, actor_kind: &str) -> Option<String> {
+    let rest = actor_id.strip_prefix("t:")?;
+    let marker = format!(":{}:", actor_kind);
+    let tenant_end = rest.find(&marker)?;
+    Some(rest[..tenant_end].to_string())
+}
+
+fn infer_session_tenant_id(session: &crate::db::stm::Session) -> Option<String> {
+    extract_tenant_id_from_actor_id(&session.user_id, "user")
+        .or_else(|| extract_tenant_id_from_actor_id(&session.agent_id, "agent"))
+}
+
 /// 记忆存储服务
 pub struct MemoryStorageService;
 
@@ -22,15 +77,43 @@ impl MemoryStorageService {
         max_context_length: i32,
         retention_hours: i32,
     ) -> Result<(String, String), AppError> {
+        Self::store_stm_with_tenant(
+            None,
+            user_id,
+            agent_id,
+            session_type,
+            role,
+            content,
+            max_context_length,
+            retention_hours,
+        )
+        .await
+    }
+
+    /// 存储短期记忆，并在需要时写入租户前缀。
+    #[instrument]
+    pub async fn store_stm_with_tenant(
+        tenant_id: Option<&str>,
+        user_id: &str,
+        agent_id: &str,
+        session_type: &str,
+        role: &str,
+        content: &str,
+        max_context_length: i32,
+        retention_hours: i32,
+    ) -> Result<(String, String), AppError> {
+        let scoped_user_id = scope_actor_id(tenant_id, "user", user_id);
+        let scoped_agent_id = scope_actor_id(tenant_id, "agent", agent_id);
+
         info!(
-            "Storing STM: user_id={}, agent_id={}, session_type={}",
-            user_id, agent_id, session_type
+            "Storing STM: tenant_id={:?}, user_id={}, agent_id={}, session_type={}",
+            tenant_id, scoped_user_id, scoped_agent_id, session_type
         );
 
         // 创建或获取会话
         let session_id = STMRepository::create_session(
-            user_id,
-            agent_id,
+            &scoped_user_id,
+            &scoped_agent_id,
             session_type,
             max_context_length,
             retention_hours,
@@ -62,6 +145,20 @@ impl MemoryStorageService {
         content: &str,
         title: Option<&str>,
     ) -> Result<String, AppError> {
+        Self::store_ltm_with_tenant(None, source_id, source_type, content, title).await
+    }
+
+    /// 存储长期记忆，并在需要时写入租户信息。
+    #[instrument]
+    pub async fn store_ltm_with_tenant(
+        tenant_id: Option<&str>,
+        source_id: &str,
+        source_type: &str,
+        content: &str,
+        title: Option<&str>,
+    ) -> Result<String, AppError> {
+        let scoped_source_id = scope_source_id(tenant_id, source_id);
+
         // 验证和规范化 source_type
         // 数据库约束只允许：'document', 'api', 'database', 'web', 'user_input'
         let normalized_source_type = match source_type {
@@ -83,8 +180,9 @@ impl MemoryStorageService {
         };
 
         info!(
-            "Storing LTM: source_id={}, source_type={} (normalized from {}), content_length={}",
-            source_id,
+            "Storing LTM: tenant_id={:?}, source_id={}, source_type={} (normalized from {}), content_length={}",
+            tenant_id,
+            scoped_source_id,
             normalized_source_type,
             source_type,
             content.len()
@@ -128,6 +226,9 @@ impl MemoryStorageService {
 
         let entry_id = ulid::Ulid::new().to_string();
         let metadata = serde_json::json!({
+            "tenant_id": tenant_id,
+            "source_id": scoped_source_id,
+            "source_type": normalized_source_type,
             "title": title,
             "summary": extraction.summary.clone(),
             "entities": extraction.entities.clone(),
@@ -153,7 +254,7 @@ impl MemoryStorageService {
         let quality_score = Some(0.8); // 可以根据实际情况计算质量分数
         if let Err(db_err) = LTMRepository::create_knowledge_entry_with_id(
             Some(entry_id.clone()),
-            source_id,
+            &scoped_source_id,
             normalized_source_type,
             title,
             &extraction.summary,
@@ -196,7 +297,7 @@ impl MemoryStorageService {
                 timestamp: chrono::Utc::now().to_rfc3339(),
                 operation: "create".to_string(),
                 entry_id: entry_id.clone(),
-                source_id: source_id.to_string(),
+                source_id: scoped_source_id,
                 content_hash: crate::services::information_guard::compute_sha256(
                     &extraction.summary,
                 ),
@@ -234,8 +335,14 @@ impl MemoryStorageService {
             .collect::<Vec<_>>()
             .join("\n\n");
 
+        let tenant_id = STMRepository::get_session(session_id)
+            .await?
+            .as_ref()
+            .and_then(infer_session_tenant_id);
+
         // 存储为长期记忆
-        let entry_id = Self::store_ltm(
+        let entry_id = Self::store_ltm_with_tenant(
+            tenant_id.as_deref(),
             session_id,
             "session",
             &combined_content,
@@ -252,17 +359,44 @@ impl MemoryStorageService {
     pub async fn batch_store_ltm(
         entries: Vec<(String, String, String, Option<String>)>, // (source_id, source_type, content, title)
     ) -> Result<Vec<String>, AppError> {
+        let writes = entries
+            .into_iter()
+            .map(|(source_id, source_type, content, title)| LtmWriteRequest {
+                tenant_id: None,
+                source_id,
+                source_type,
+                content,
+                title,
+            })
+            .collect();
+
+        Self::batch_store_ltm_with_tenant(writes).await
+    }
+
+    /// 批量存储长期记忆，并在每个条目上携带可选租户信息。
+    #[instrument]
+    pub async fn batch_store_ltm_with_tenant(
+        entries: Vec<LtmWriteRequest>,
+    ) -> Result<Vec<String>, AppError> {
         let total_count = entries.len();
         info!("Batch storing LTM: count={}", total_count);
 
         let mut entry_ids = Vec::new();
-        for (source_id, source_type, content, title) in entries {
-            match Self::store_ltm(&source_id, &source_type, &content, title.as_deref()).await {
+        for entry in entries {
+            match Self::store_ltm_with_tenant(
+                entry.tenant_id.as_deref(),
+                &entry.source_id,
+                &entry.source_type,
+                &entry.content,
+                entry.title.as_deref(),
+            )
+            .await
+            {
                 Ok(entry_id) => entry_ids.push(entry_id),
                 Err(e) => {
                     error!(
                         "Failed to store LTM entry: source_id={}, error={}",
-                        source_id, e
+                        entry.source_id, e
                     );
                     // 继续处理其他条目
                 }
@@ -275,5 +409,50 @@ impl MemoryStorageService {
             total_count
         );
         Ok(entry_ids)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scopes_actor_ids_for_tenant() {
+        assert_eq!(
+            scope_actor_id(Some("tenant_a"), "user", "alice"),
+            "t:tenant_a:user:alice"
+        );
+        assert_eq!(
+            scope_actor_id(Some("tenant_a"), "agent", "writer"),
+            "t:tenant_a:agent:writer"
+        );
+    }
+
+    #[test]
+    fn keeps_existing_scoped_actor_ids() {
+        assert_eq!(
+            scope_actor_id(Some("tenant_a"), "user", "t:tenant_a:user:alice"),
+            "t:tenant_a:user:alice"
+        );
+    }
+
+    #[test]
+    fn scopes_source_ids_for_tenant() {
+        assert_eq!(
+            scope_source_id(Some("tenant_a"), "session_123"),
+            "t:tenant_a:session_123"
+        );
+    }
+
+    #[test]
+    fn extracts_tenant_id_from_scoped_actor_ids() {
+        assert_eq!(
+            extract_tenant_id_from_actor_id("t:tenant_a:user:alice", "user").as_deref(),
+            Some("tenant_a")
+        );
+        assert_eq!(
+            extract_tenant_id_from_actor_id("t:tenant_b:agent:writer", "agent").as_deref(),
+            Some("tenant_b")
+        );
     }
 }

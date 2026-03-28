@@ -10,6 +10,51 @@ use crate::AppError;
 /// 知识图谱仓库
 pub struct KGRepository;
 
+fn normalize_tenant_id(tenant_id: Option<&str>) -> Option<&str> {
+    tenant_id.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+fn merge_entity_attributes(
+    attributes: Option<&Value>,
+    tenant_id: Option<&str>,
+) -> Result<String, AppError> {
+    let mut attributes_value = attributes
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Default::default()));
+
+    if !attributes_value.is_object() {
+        attributes_value = Value::Object(Default::default());
+    }
+
+    if let Some(tenant_id) = normalize_tenant_id(tenant_id) {
+        if let Some(map) = attributes_value.as_object_mut() {
+            map.insert(
+                "tenant_id".to_string(),
+                Value::String(tenant_id.to_string()),
+            );
+        }
+    }
+
+    serde_json::to_string(&attributes_value).map_err(|e| {
+        error!("Failed to serialize attributes: {}", e);
+        AppError::Internal(format!("Failed to serialize attributes: {}", e))
+    })
+}
+
+fn tenant_filter_sql(json_column: &str, param_index: i32) -> String {
+    format!(
+        "(${0}::text IS NULL OR COALESCE(NULLIF({1}, ''), '{{}}')::jsonb ->> 'tenant_id' = ${0})",
+        param_index, json_column
+    )
+}
+
 /// 实体列表响应
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct EntityListResponse {
@@ -74,19 +119,13 @@ impl KGRepository {
         embedding_vector: Option<&[f32]>,
         embedding_model: Option<&str>,
         confidence_score: f64,
+        tenant_id: Option<&str>,
     ) -> Result<String, AppError> {
         let entity_id = Ulid::new().to_string();
         let pool = pool();
 
         // 处理属性
-        let attributes_json = if let Some(attrs) = attributes {
-            serde_json::to_string(attrs).map_err(|e| {
-                error!("Failed to serialize attributes: {}", e);
-                AppError::Internal(format!("Failed to serialize attributes: {}", e))
-            })?
-        } else {
-            "{}".to_string()
-        };
+        let attributes_json = merge_entity_attributes(attributes, tenant_id)?;
 
         // 处理别名
         let aliases_json = if let Some(alias_list) = aliases {
@@ -142,8 +181,10 @@ impl KGRepository {
     pub async fn get_entity_by_name(
         entity_name: &str,
         entity_type: Option<&str>,
+        tenant_id: Option<&str>,
     ) -> Result<Option<Entity>, AppError> {
         let pool = pool();
+        let tenant_id = normalize_tenant_id(tenant_id);
 
         let query = if let Some(et) = entity_type {
             sqlx::query_as::<_, Entity>(
@@ -153,12 +194,16 @@ impl KGRepository {
                        created_at, updated_at, confidence_score, popularity_score,
                        relation_count, mention_count, status
                 FROM entities
-                WHERE entity_name = $1 AND entity_type = $2 AND status = 'active'
+                WHERE entity_name = $1
+                  AND entity_type = $2
+                  AND status = 'active'
+                  AND ($3::text IS NULL OR COALESCE(NULLIF(attributes, ''), '{}')::jsonb ->> 'tenant_id' = $3)
                 LIMIT 1
                 "#,
             )
             .bind(entity_name)
             .bind(et)
+            .bind(tenant_id)
         } else {
             sqlx::query_as::<_, Entity>(
                 r#"
@@ -167,11 +212,14 @@ impl KGRepository {
                        created_at, updated_at, confidence_score, popularity_score,
                        relation_count, mention_count, status
                 FROM entities
-                WHERE entity_name = $1 AND status = 'active'
+                WHERE entity_name = $1
+                  AND status = 'active'
+                  AND ($2::text IS NULL OR COALESCE(NULLIF(attributes, ''), '{}')::jsonb ->> 'tenant_id' = $2)
                 LIMIT 1
                 "#,
             )
             .bind(entity_name)
+            .bind(tenant_id)
         };
 
         let entity = query.fetch_optional(pool).await.map_err(|e| {
@@ -183,8 +231,12 @@ impl KGRepository {
     }
 
     /// 根据实体ID获取实体
-    pub async fn get_entity_by_id(entity_id: &str) -> Result<Option<Entity>, AppError> {
+    pub async fn get_entity_by_id(
+        entity_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<Entity>, AppError> {
         let pool = pool();
+        let tenant_id = normalize_tenant_id(tenant_id);
 
         let entity = sqlx::query_as::<_, Entity>(
             r#"
@@ -193,11 +245,14 @@ impl KGRepository {
                    created_at, updated_at, confidence_score, popularity_score,
                    relation_count, mention_count, status
             FROM entities
-            WHERE entity_id = $1 AND status = 'active'
+            WHERE entity_id = $1
+              AND status = 'active'
+              AND ($2::text IS NULL OR COALESCE(NULLIF(attributes, ''), '{}')::jsonb ->> 'tenant_id' = $2)
             LIMIT 1
             "#,
         )
         .bind(entity_id)
+        .bind(tenant_id)
         .fetch_optional(pool)
         .await
         .map_err(|e| {
@@ -216,7 +271,28 @@ impl KGRepository {
         weight: f64,
         confidence: f64,
         properties: Option<&Value>,
+        tenant_id: Option<&str>,
     ) -> Result<String, AppError> {
+        if Self::get_entity_by_id(source_entity_id, tenant_id)
+            .await?
+            .is_none()
+        {
+            return Err(AppError::NotFound(format!(
+                "Source entity {} not found",
+                source_entity_id
+            )));
+        }
+
+        if Self::get_entity_by_id(target_entity_id, tenant_id)
+            .await?
+            .is_none()
+        {
+            return Err(AppError::NotFound(format!(
+                "Target entity {} not found",
+                target_entity_id
+            )));
+        }
+
         let relation_id = Ulid::new().to_string();
         let pool = pool();
 
@@ -279,9 +355,17 @@ impl KGRepository {
         entity_id: &str,
         relation_type: Option<&str>,
         limit: Option<i32>,
+        tenant_id: Option<&str>,
     ) -> Result<Vec<(Entity, Relation)>, AppError> {
         let pool = pool();
         let limit = limit.unwrap_or(10);
+
+        if Self::get_entity_by_id(entity_id, tenant_id)
+            .await?
+            .is_none()
+        {
+            return Ok(Vec::new());
+        }
 
         // 分别查询实体和关系，避免字段冲突
         let relation_query = if let Some(rt) = relation_type {
@@ -323,7 +407,9 @@ impl KGRepository {
         let mut result = Vec::new();
         for relation in relations {
             // 查询对应的目标实体
-            if let Some(entity) = Self::get_entity_by_id(&relation.target_entity_id).await? {
+            if let Some(entity) =
+                Self::get_entity_by_id(&relation.target_entity_id, tenant_id).await?
+            {
                 result.push((entity, relation));
             }
         }
@@ -336,8 +422,10 @@ impl KGRepository {
         pool: &sqlx::PgPool,
         entity_name: &str,
         limit: Option<i32>,
+        tenant_id: Option<&str>,
     ) -> Result<Vec<Entity>, AppError> {
         let limit = limit.unwrap_or(10);
+        let tenant_id = normalize_tenant_id(tenant_id);
 
         // 搜索与该实体相关的知识条目
         // 通过关系表找到相关的 source/target 实体，然后搜索知识条目
@@ -349,15 +437,19 @@ impl KGRepository {
             FROM entities e
             LEFT JOIN relations r ON e.entity_id = r.source_entity_id OR e.entity_id = r.target_entity_id
             LEFT JOIN knowledge_entries ke ON ke.content LIKE '%' || e.entity_name || '%'
-            WHERE e.entity_name LIKE '%' || $1 || '%'
-               OR r.source_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
-               OR r.target_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
+                        WHERE (
+                                     e.entity_name LIKE '%' || $1 || '%'
+                                OR r.source_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
+                                OR r.target_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
+                        )
+                            AND ($3::text IS NULL OR COALESCE(NULLIF(e.attributes, ''), '{}')::jsonb ->> 'tenant_id' = $3)
             ORDER BY e.popularity_score DESC, e.mention_count DESC
             LIMIT $2
             "#,
         )
         .bind(entity_name)
         .bind(limit)
+        .bind(tenant_id)
         .fetch_all(pool)
         .await
         .map_err(|e| {
@@ -373,7 +465,10 @@ impl KGRepository {
         pool: &sqlx::PgPool,
         entity_name: &str,
         top_k: i32,
+        tenant_id: Option<&str>,
     ) -> Result<Vec<Entity>, AppError> {
+        let tenant_id = normalize_tenant_id(tenant_id);
+
         // 搜索包含该实体名称的知识条目
         let rows = sqlx::query_as::<_, Entity>(
             r#"
@@ -381,8 +476,9 @@ impl KGRepository {
                    e.attributes, e.aliases, e.embedding_vector, e.confidence_score,
                    e.popularity_score, e.relation_count, e.mention_count, e.status
             FROM entities e
-            WHERE e.entity_name LIKE '%' || $1 || '%'
-               OR e.entity_name IN (
+            WHERE (
+                   e.entity_name LIKE '%' || $1 || '%'
+                OR e.entity_name IN (
                    SELECT entity_name FROM entities
                    WHERE entity_id IN (
                        SELECT source_entity_id FROM relations WHERE target_entity_id IN (
@@ -394,12 +490,14 @@ impl KGRepository {
                        )
                    )
                )
+              AND ($3::text IS NULL OR COALESCE(NULLIF(e.attributes, ''), '{}')::jsonb ->> 'tenant_id' = $3)
             ORDER BY e.popularity_score DESC, e.mention_count DESC
             LIMIT $2
             "#,
         )
         .bind(entity_name)
         .bind(top_k)
+        .bind(tenant_id)
         .fetch_all(pool)
         .await
         .map_err(|e| {
@@ -415,10 +513,12 @@ impl KGRepository {
         entity_type: Option<&str>,
         limit: Option<i32>,
         offset: Option<i32>,
+        tenant_id: Option<&str>,
     ) -> Result<EntityListResponse, AppError> {
         let pool = pool();
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
+        let tenant_id = normalize_tenant_id(tenant_id);
 
         let (entities, total): (Vec<Entity>, (i64,)) = if let Some(et) = entity_type {
             let entities = sqlx::query_as::<_, Entity>(
@@ -428,12 +528,15 @@ impl KGRepository {
                        created_at::text as created_at, updated_at::text as updated_at,
                        confidence_score, popularity_score, relation_count, mention_count, status
                 FROM entities
-                WHERE status = 'active' AND entity_type = $1
+                                WHERE status = 'active'
+                                    AND entity_type = $1
+                                    AND ($2::text IS NULL OR COALESCE(NULLIF(attributes, ''), '{}')::jsonb ->> 'tenant_id' = $2)
                 ORDER BY created_at DESC
-                LIMIT $2 OFFSET $3
+                                LIMIT $3 OFFSET $4
                 "#,
             )
             .bind(et)
+                        .bind(tenant_id)
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
@@ -444,9 +547,10 @@ impl KGRepository {
             })?;
 
             let total = sqlx::query_as::<_, (i64,)>(
-                "SELECT COUNT(*) FROM entities WHERE status = 'active' AND entity_type = $1",
+                "SELECT COUNT(*) FROM entities WHERE status = 'active' AND entity_type = $1 AND ($2::text IS NULL OR COALESCE(NULLIF(attributes, ''), '{}')::jsonb ->> 'tenant_id' = $2)",
             )
             .bind(et)
+            .bind(tenant_id)
             .fetch_one(pool)
             .await
             .map_err(|e| {
@@ -462,11 +566,13 @@ impl KGRepository {
                        created_at::text as created_at, updated_at::text as updated_at,
                        confidence_score, popularity_score, relation_count, mention_count, status
                 FROM entities
-                WHERE status = 'active'
+                                WHERE status = 'active'
+                                    AND ($1::text IS NULL OR COALESCE(NULLIF(attributes, ''), '{}')::jsonb ->> 'tenant_id' = $1)
                 ORDER BY created_at DESC
-                LIMIT $1 OFFSET $2
+                                LIMIT $2 OFFSET $3
                 "#,
             )
+                        .bind(tenant_id)
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
@@ -477,8 +583,9 @@ impl KGRepository {
             })?;
 
             let total = sqlx::query_as::<_, (i64,)>(
-                "SELECT COUNT(*) FROM entities WHERE status = 'active'",
+                "SELECT COUNT(*) FROM entities WHERE status = 'active' AND ($1::text IS NULL OR COALESCE(NULLIF(attributes, ''), '{}')::jsonb ->> 'tenant_id' = $1)",
             )
+            .bind(tenant_id)
             .fetch_one(pool)
             .await
             .map_err(|e| {
@@ -533,9 +640,7 @@ impl KGRepository {
     }
 
     /// 获取实体的版本历史
-    pub async fn get_entity_history(
-        entity_id: &str,
-    ) -> Result<Vec<Entity>, AppError> {
+    pub async fn get_entity_history(entity_id: &str) -> Result<Vec<Entity>, AppError> {
         let pool = pool();
 
         let entities = sqlx::query_as::<_, Entity>(
@@ -574,9 +679,12 @@ impl KGRepository {
         let new_entity_id = Ulid::new().to_string();
 
         // 获取当前实体
-        let current = Self::get_entity_by_id(entity_id).await?;
+        let current = Self::get_entity_by_id(entity_id, None).await?;
         if current.is_none() {
-            return Err(AppError::NotFound(format!("Entity {} not found", entity_id)));
+            return Err(AppError::NotFound(format!(
+                "Entity {} not found",
+                entity_id
+            )));
         }
         let current = current.unwrap();
 
@@ -630,7 +738,10 @@ impl KGRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Superseded entity {} with new version {}", entity_id, new_entity_id);
+        info!(
+            "Superseded entity {} with new version {}",
+            entity_id, new_entity_id
+        );
         Ok(new_entity_id)
     }
 }

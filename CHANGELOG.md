@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Root `LICENSE` file (MIT) for the project.
 - `SECURITY.md` with supported versions and vulnerability reporting instructions.
 - `CHANGELOG.md` for release history.
+- `docs/roadmap-2026.md` to track the 2026+ four-phase architecture plan separately from shipped version history.
+- `docs/architecture/evidence-graph-and-decision-snapshots.md` to document the current decision-trace baseline and the planned evidence-graph model.
 
 ### Changed
 

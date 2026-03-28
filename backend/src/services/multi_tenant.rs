@@ -6,10 +6,9 @@
 /// - 支持**跨智能体知识共享**：同一租户内的 Agent 可以访问共享知识库
 /// - 提供租户级配额管理（最大 STM 会话数、最大 LTM 条目数）
 /// - 跨租户访问控制：只有 super-admin 角色可执行跨租户查询
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use tracing::{info, warn};
 
 use crate::AppError;
@@ -158,16 +157,16 @@ impl TenantIsolationLayer {
     }
 
     /// 为租户生成带前缀的 source_id。
-    pub fn create_tenant_query(
-        &self,
-        tenant_id: &TenantId,
-        agent_id: &str,
-    ) -> String {
+    pub fn create_tenant_query(&self, tenant_id: &TenantId, agent_id: &str) -> String {
         format!("{}:agent:{}", tenant_id.prefix(), agent_id)
     }
 
     /// 判断是否允许跨租户访问（仅 SuperAdmin 允许）。
-    pub fn can_access_cross_tenant(&self, _tenant_id: &TenantId, _target_tenant_id: &TenantId) -> bool {
+    pub fn can_access_cross_tenant(
+        &self,
+        _tenant_id: &TenantId,
+        _target_tenant_id: &TenantId,
+    ) -> bool {
         // 本层不携带角色信息，由调用方在 AccessController 中校验
         false
     }
@@ -258,9 +257,7 @@ impl AccessController {
                 {
                     return AccessDecision {
                         allowed: true,
-                        reason: format!(
-                            "Cross-tenant read allowed via shared knowledge config"
-                        ),
+                        reason: format!("Cross-tenant read allowed via shared knowledge config"),
                     };
                 }
             }
@@ -301,21 +298,14 @@ impl CrossAgentMemoryQuery {
         .await?;
 
         let isolation = TenantIsolationLayer::new();
-        let prefix = tenant_id.prefix();
         let filtered: Vec<_> = raw
             .into_iter()
             .filter(|r| {
-                // 通过 entry_id 前缀来匹配租户（写入时需要用 scoped source_id）
-                // 若未使用前缀写入（单租户部署），则 isolation.enforce=false 时直接放行
                 if !isolation.config.enforce {
                     return true;
                 }
-                // 尝试从 metadata 中读取 tenant_id
-                r.metadata
-                    .get("tenant_id")
-                    .and_then(|v| v.as_str())
-                    .map(|t| t == tenant_id.as_str())
-                    .unwrap_or(true) // 无 tenant_id 元数据时不过滤（兼容旧数据）
+
+                search_result_matches_tenant(r, tenant_id)
             })
             .take(top_k)
             .collect();
@@ -342,13 +332,39 @@ impl CrossAgentMemoryQuery {
         let tenant_sessions: Vec<_> = all_sessions
             .sessions
             .into_iter()
-            .filter(|s| {
-                s.user_id.starts_with(&prefix) || s.agent_id.starts_with(&prefix)
-            })
+            .filter(|s| s.user_id.starts_with(&prefix) || s.agent_id.starts_with(&prefix))
             .collect();
 
         Ok(tenant_sessions)
     }
+}
+
+fn search_result_matches_tenant(
+    result: &crate::services::memory_search::SearchResult,
+    tenant_id: &TenantId,
+) -> bool {
+    let prefix = tenant_id.prefix();
+
+    tenant_field_matches(&result.metadata, "tenant_id", tenant_id.as_str())
+        || tenant_field_has_prefix(&result.metadata, "source_id", &prefix)
+        || tenant_field_has_prefix(&result.metadata, "user_id", &prefix)
+        || tenant_field_has_prefix(&result.metadata, "agent_id", &prefix)
+}
+
+fn tenant_field_matches(metadata: &serde_json::Value, field: &str, expected: &str) -> bool {
+    metadata
+        .get(field)
+        .and_then(|value| value.as_str())
+        .map(|value| value == expected)
+        .unwrap_or(false)
+}
+
+fn tenant_field_has_prefix(metadata: &serde_json::Value, field: &str, prefix: &str) -> bool {
+    metadata
+        .get(field)
+        .and_then(|value| value.as_str())
+        .map(|value| value.starts_with(prefix))
+        .unwrap_or(false)
 }
 
 // ============ 配额检查 ============
@@ -369,7 +385,6 @@ impl QuotaEnforcer {
         };
 
         // 粗略统计：查询带前缀的条目数（实际应走缓存计数器）
-        let prefix = format!("t:{}:", tenant_id);
         let result =
             crate::db::ltm::LTMRepository::list_entries(None, None, Some(1), Some(0)).await?;
         // 注：完整实现需要 tenant-scoped COUNT；此处保守地检查总量
@@ -385,5 +400,61 @@ impl QuotaEnforcer {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn search_result(metadata: serde_json::Value) -> crate::services::memory_search::SearchResult {
+        crate::services::memory_search::SearchResult {
+            entry_id: "entry_1".to_string(),
+            score: 0.9,
+            content: "test".to_string(),
+            title: None,
+            metadata,
+        }
+    }
+
+    #[test]
+    fn search_result_matches_explicit_tenant_id() {
+        let tenant = TenantId::new("tenant_a");
+        let result = search_result(serde_json::json!({
+            "tenant_id": "tenant_a"
+        }));
+
+        assert!(search_result_matches_tenant(&result, &tenant));
+    }
+
+    #[test]
+    fn search_result_matches_prefixed_source_id() {
+        let tenant = TenantId::new("tenant_a");
+        let result = search_result(serde_json::json!({
+            "source_id": "t:tenant_a:agent:writer"
+        }));
+
+        assert!(search_result_matches_tenant(&result, &tenant));
+    }
+
+    #[test]
+    fn search_result_rejects_missing_tenant_metadata() {
+        let tenant = TenantId::new("tenant_a");
+        let result = search_result(serde_json::json!({
+            "source_id": "legacy_source"
+        }));
+
+        assert!(!search_result_matches_tenant(&result, &tenant));
+    }
+
+    #[test]
+    fn search_result_rejects_other_tenant() {
+        let tenant = TenantId::new("tenant_a");
+        let result = search_result(serde_json::json!({
+            "tenant_id": "tenant_b",
+            "source_id": "t:tenant_b:agent:writer"
+        }));
+
+        assert!(!search_result_matches_tenant(&result, &tenant));
     }
 }

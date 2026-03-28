@@ -35,6 +35,7 @@ impl MultimodalMemoryService {
             image_url,
             audio_url,
             video_url,
+            None,
         )
         .await?;
 
@@ -82,7 +83,7 @@ impl MultimodalMemoryService {
     ) -> Result<Option<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!("Getting multimodal memory: entry_id={}", entry_id);
 
-        let entry = MMRepository::get_entry_by_id(entry_id).await?;
+        let entry = MMRepository::get_entry_by_id(entry_id, None).await?;
 
         if let Some(e) = &entry {
             info!(
@@ -107,7 +108,7 @@ impl MultimodalMemoryService {
             session_id
         );
 
-        let entries = MMRepository::get_entries_by_session(session_id, limit).await?;
+        let entries = MMRepository::get_entries_by_session(session_id, limit, None).await?;
 
         info!(
             "Retrieved {} multimodal memories for session: session_id={}",
@@ -128,7 +129,7 @@ impl MultimodalMemoryService {
             modality_type
         );
 
-        let entries = MMRepository::get_entries_by_modality(modality_type, limit).await?;
+        let entries = MMRepository::get_entries_by_modality(modality_type, limit, None).await?;
 
         info!(
             "Retrieved {} multimodal memories for modality: modality_type={}",
@@ -152,7 +153,7 @@ impl MultimodalMemoryService {
     > {
         info!("Getting related multimodal memories: entry_id={}", entry_id);
 
-        let related_entries = MMRepository::get_related_entries(entry_id, limit).await?;
+        let related_entries = MMRepository::get_related_entries(entry_id, limit, None).await?;
 
         info!(
             "Retrieved {} related multimodal memories: entry_id={}",
@@ -184,6 +185,7 @@ impl MultimodalMemoryService {
             relation_strength,
             relation_confidence,
             description,
+            None,
         )
         .await?;
 

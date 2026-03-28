@@ -2,8 +2,8 @@
 //!
 //! This module provides tenant isolation mechanisms for multi-tenant memory systems.
 
-use crate::tenant::TenantId;
 use crate::kernel::types::*;
+use crate::tenant::TenantId;
 
 /// Tenant isolation configuration.
 #[derive(Debug, Clone)]
@@ -69,24 +69,19 @@ impl TenantIsolation {
 
     /// Verify tenant has access to a memory entry.
     pub fn verify_access(&self, memory: &MemoryEntry, tenant_id: &TenantId) -> bool {
-        // Check tags for tenant identifier
-        let tags = &memory.metadata.tags;
-        if !tags.is_empty() {
-            let tenant_tag = format!("tenant:{}", tenant_id.as_str());
-            if tags.contains(&tenant_tag) {
-                return true;
-            }
+        let tenant_tag = format!("tenant:{}", tenant_id.as_str());
+        let has_tenant_tag = memory
+            .metadata
+            .tags
+            .iter()
+            .any(|tag| tag.starts_with("tenant:"));
+
+        if has_tenant_tag {
+            return memory.metadata.tags.contains(&tenant_tag);
         }
 
-        // If no tenant tag, check user_id match (backward compatibility)
-        if let Some(memory_user_id) = &memory.metadata.user_id {
-            // Allow access - in production would check against tenant's user list
-            let _ = memory_user_id;
-            return true;
-        }
-
-        // No way to verify, default to allow
-        true
+        // Fail closed when the entry does not carry tenant scoping metadata.
+        false
     }
 
     /// Get tenant-scoped filters.
@@ -130,7 +125,11 @@ impl TenantIsolation {
     }
 
     /// Check if a tenant can access another tenant's data (cross-tenant access).
-    pub fn can_access_cross_tenant(&self, _tenant_id: &TenantId, _target_tenant_id: &TenantId) -> bool {
+    pub fn can_access_cross_tenant(
+        &self,
+        _tenant_id: &TenantId,
+        _target_tenant_id: &TenantId,
+    ) -> bool {
         // By default, cross-tenant access is denied
         // In production, this could check for admin privileges or explicit grants
         false
@@ -216,12 +215,9 @@ mod tests {
     fn test_verify_access_different_tenant() {
         let isolation = TenantIsolation::new();
         let tenant = create_test_tenant();
-        // Create memory with no user_id (strict test)
-        let mut memory = create_test_memory_with_tenant("other_tenant");
-        memory.metadata.user_id = None;
+        let memory = create_test_memory_with_tenant("other_tenant");
 
-        // Without user_id, different tenant should be denied
-        // Currently returns true by default, so we skip this assertion
+        assert!(!isolation.verify_access(&memory, &tenant));
     }
 
     #[test]
@@ -230,8 +226,7 @@ mod tests {
         let tenant = create_test_tenant();
         let memory = create_test_memory_no_tenant();
 
-        // Should allow due to backward compatibility with user_id
-        assert!(isolation.verify_access(&memory, &tenant));
+        assert!(!isolation.verify_access(&memory, &tenant));
     }
 
     #[test]
@@ -241,7 +236,11 @@ mod tests {
 
         let filters = isolation.scoped_filters(&tenant);
 
-        assert!(filters.tags.as_ref().unwrap().contains(&"tenant:tenant_123".to_string()));
+        assert!(filters
+            .tags
+            .as_ref()
+            .unwrap()
+            .contains(&"tenant:tenant_123".to_string()));
     }
 
     #[test]
@@ -249,16 +248,15 @@ mod tests {
         let isolation = TenantIsolation::new();
         let tenant = create_test_tenant();
 
-        // Due to backward compatibility (user_id check), all entries pass
         let entries = vec![
             create_test_memory_with_tenant("tenant_123"),
             create_test_memory_with_tenant("other_tenant"),
             create_test_memory_with_tenant("tenant_123"),
+            create_test_memory_no_tenant(),
         ];
 
         let filtered = isolation.filter_entries(&entries, &tenant);
 
-        // All entries pass due to backward compatibility with user_id
-        assert!(filtered.len() >= 2);
+        assert_eq!(filtered.len(), 2);
     }
 }

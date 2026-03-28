@@ -168,6 +168,29 @@ impl STMRepository {
         Ok(messages)
     }
 
+    /// 获取单个会话
+    pub async fn get_session(session_id: &str) -> Result<Option<Session>, AppError> {
+        let pool = pool();
+
+        let session = sqlx::query_as::<_, Session>(
+            r#"
+            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                   session_type, context_length, max_context_length, status, priority
+            FROM context_sessions
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get session: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        Ok(session)
+    }
+
     /// 获取最近会话
     pub async fn get_recent_sessions(
         user_id: &str,

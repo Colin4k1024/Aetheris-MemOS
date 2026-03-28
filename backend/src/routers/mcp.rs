@@ -25,6 +25,48 @@ use crate::protocol::mcp::{
 use crate::services::{memory_search::MemorySearchService, memory_storage::MemoryStorageService};
 use crate::{json_ok, AppError, JsonResult};
 
+fn normalize_tenant_id(tenant_id: Option<&str>) -> Option<&str> {
+    tenant_id.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+fn session_matches_tenant(session: &crate::db::stm::Session, tenant_id: &str) -> bool {
+    let user_prefix = format!("t:{}:user:", tenant_id);
+    let agent_prefix = format!("t:{}:agent:", tenant_id);
+    session.user_id.starts_with(&user_prefix) || session.agent_id.starts_with(&agent_prefix)
+}
+
+fn parse_resource_uri(uri: &str) -> (String, Option<String>, Option<String>) {
+    let trimmed = uri.strip_prefix("memory://").unwrap_or(uri);
+    let mut uri_parts = trimmed.splitn(2, '?');
+    let path = uri_parts.next().unwrap_or("");
+    let query = uri_parts.next();
+
+    let path_parts: Vec<&str> = path.split('/').collect();
+    let layer = path_parts.first().copied().unwrap_or("").to_string();
+    let id = path_parts.get(1).map(|value| (*value).to_string());
+    let tenant_id = query.and_then(|query| {
+        query.split('&').find_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            let key = parts.next()?;
+            let value = parts.next().unwrap_or("").trim();
+            if matches!(key, "tenantId" | "tenant_id") && !value.is_empty() {
+                Some(value.to_string())
+            } else {
+                None
+            }
+        })
+    });
+
+    (layer, id, tenant_id)
+}
+
 /// MCP Router State
 #[derive(Clone)]
 pub struct McpState {
@@ -131,6 +173,7 @@ async fn handle_memory_write(
         .to_lowercase();
 
     let user_id = args["user_id"].as_str().unwrap_or("default").to_string();
+    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
     let session_id = args["session_id"].as_str().map(|s| s.to_string());
     let agent_id = args["agent_id"].as_str().map(|s| s.to_string());
 
@@ -138,7 +181,8 @@ async fn handle_memory_write(
         "stm" => {
             let agent = agent_id.unwrap_or_else(|| "mcp_agent".to_string());
 
-            let (session_id, message_id) = MemoryStorageService::store_stm(
+            let (session_id, message_id) = MemoryStorageService::store_stm_with_tenant(
+                tenant_id,
                 &user_id,
                 &agent,
                 "mcp_session",
@@ -161,8 +205,14 @@ async fn handle_memory_write(
         }
         "ltm" => {
             let source_id = format!("mcp_{}", ulid::Ulid::new());
-            let entry_id =
-                MemoryStorageService::store_ltm(&source_id, "user_input", &content, None).await?;
+            let entry_id = MemoryStorageService::store_ltm_with_tenant(
+                tenant_id,
+                &source_id,
+                "user_input",
+                &content,
+                None,
+            )
+            .await?;
 
             Ok(vec![crate::protocol::mcp::ToolContent::Text(
                 serde_json::json!({
@@ -176,11 +226,11 @@ async fn handle_memory_write(
         "kg" => {
             let entity_name = args["entity_name"]
                 .as_str()
-                .ok_or_else(|| AppError::BadRequest("Missing 'entity_name' parameter for KG".to_string()))?
+                .ok_or_else(|| {
+                    AppError::BadRequest("Missing 'entity_name' parameter for KG".to_string())
+                })?
                 .to_string();
-            let entity_type = args["entity_type"]
-                .as_str()
-                .unwrap_or("concept");
+            let entity_type = args["entity_type"].as_str().unwrap_or("concept");
             let description = args["description"].as_str();
 
             let entity_id = KGRepository::create_entity(
@@ -192,7 +242,9 @@ async fn handle_memory_write(
                 None,
                 None,
                 1.0,
-            ).await?;
+                tenant_id,
+            )
+            .await?;
 
             Ok(vec![crate::protocol::mcp::ToolContent::Text(
                 serde_json::json!({
@@ -206,9 +258,7 @@ async fn handle_memory_write(
             )])
         }
         "mm" => {
-            let modality_type = args["modality_type"]
-                .as_str()
-                .unwrap_or("text");
+            let modality_type = args["modality_type"].as_str().unwrap_or("text");
             let session_id = session_id.or(Some("mcp_session".to_string()));
             let source_id = format!("mcp_{}", ulid::Ulid::new());
 
@@ -221,7 +271,9 @@ async fn handle_memory_write(
                 None,
                 None,
                 None,
-            ).await?;
+                tenant_id,
+            )
+            .await?;
 
             Ok(vec![crate::protocol::mcp::ToolContent::Text(
                 serde_json::json!({
@@ -250,7 +302,7 @@ async fn handle_memory_search(
     let layer = args["layer"].as_str().unwrap_or("ltm").to_lowercase();
     let limit = args["limit"].as_u64().unwrap_or(10) as i32;
     let user_id = args["user_id"].as_str();
-    let session_id = args["session_id"].as_str();
+    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
 
     let results = match layer.as_str() {
         "stm" => {
@@ -289,7 +341,8 @@ async fn handle_memory_search(
         }
         "kg" => {
             // Search in knowledge graph entities
-            let entities = KGRepository::list_entities(Some(&query), Some(limit), Some(0)).await?;
+            let entities =
+                KGRepository::list_entities(Some(&query), Some(limit), Some(0), tenant_id).await?;
             let results_json: Vec<serde_json::Value> = entities
                 .entities
                 .iter()
@@ -307,12 +360,15 @@ async fn handle_memory_search(
         }
         "mm" => {
             // Search in multimodal memories by modality type
-            let entries = MMRepository::get_entries_by_modality("text", Some(limit)).await?;
+            let entries =
+                MMRepository::get_entries_by_modality("text", Some(limit), tenant_id).await?;
             // Filter by query if possible
             let results_json: Vec<serde_json::Value> = entries
                 .iter()
                 .filter(|e| {
-                    e.text_content.as_ref().map_or(false, |t| t.contains(&query))
+                    e.text_content
+                        .as_ref()
+                        .map_or(false, |t| t.contains(&query))
                 })
                 .map(|e| {
                     serde_json::json!({
@@ -346,6 +402,19 @@ async fn handle_memory_recall(
         .ok_or_else(|| AppError::BadRequest("Missing 'session_id' parameter".to_string()))?
         .to_string();
     let limit = args["limit"].as_u64().unwrap_or(10) as i32;
+    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
+
+    if let Some(tenant_id) = tenant_id {
+        let session = STMRepository::get_session(&session_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Session not found: {}", session_id)))?;
+
+        if !session_matches_tenant(&session, tenant_id) {
+            return Err(AppError::Forbidden(
+                "Session does not belong to the requested tenant".to_string(),
+            ));
+        }
+    }
 
     // Recall memories from a session
     let messages = STMRepository::get_session_messages(&session_id, Some(limit)).await?;
@@ -407,6 +476,7 @@ async fn handle_memory_list(
     let limit = args["limit"].as_u64().unwrap_or(20) as i32;
     let offset = args["offset"].as_u64().unwrap_or(0) as i32;
     let user_id = args["user_id"].as_str();
+    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
 
     let entries = match layer.as_str() {
         "stm" => {
@@ -453,7 +523,8 @@ async fn handle_memory_list(
             // List KG entities
             let entity_type = args["entity_type"].as_str();
             let response =
-                KGRepository::list_entities(entity_type, Some(limit), Some(offset)).await?;
+                KGRepository::list_entities(entity_type, Some(limit), Some(offset), tenant_id)
+                    .await?;
 
             serde_json::json!({
                 "type": "kg_entities",
@@ -475,7 +546,8 @@ async fn handle_memory_list(
             // List MM entries
             let modality_type = args["modality_type"].as_str();
             let response =
-                MMRepository::list_entries(modality_type, Some(limit), Some(offset)).await?;
+                MMRepository::list_entries(modality_type, Some(limit), Some(offset), tenant_id)
+                    .await?;
 
             serde_json::json!({
                 "type": "mm_entries",
@@ -521,22 +593,13 @@ async fn read_resource(
 ) -> JsonResult<ResourceContentResponse> {
     info!("MCP resource read: {}", req.uri);
 
-    // Parse URI: memory://layer/id
-    let parts: Vec<&str> = req
-        .uri
-        .strip_prefix("memory://")
-        .unwrap_or(&req.uri)
-        .split('/')
-        .collect();
+    let (layer, id, tenant_id) = parse_resource_uri(&req.uri);
 
-    if parts.is_empty() {
+    if layer.is_empty() {
         return Err(AppError::BadRequest("Invalid resource URI".to_string()));
     }
 
-    let layer = parts[0];
-    let id = parts.get(1).map(|s| s.to_string());
-
-    let content = match layer {
+    let content = match layer.as_str() {
         "stm" => {
             if let Some(session_id) = id {
                 let messages = STMRepository::get_session_messages(&session_id, Some(50)).await?;
@@ -586,20 +649,30 @@ async fn read_resource(
         "kg" => {
             // Knowledge graph resources
             if let Some(entity_id) = id {
-                let entity = KGRepository::get_entity_by_id(&entity_id).await?;
+                let entity =
+                    KGRepository::get_entity_by_id(&entity_id, tenant_id.as_deref()).await?;
 
                 match entity {
                     Some(e) => {
                         // Get related entities
-                        let related = KGRepository::get_related_entities(&entity_id, None, Some(5)).await?;
-                        let relations: Vec<serde_json::Value> = related.iter().map(|(ent, rel)| {
-                            serde_json::json!({
-                                "entityId": ent.entity_id,
-                                "entityName": ent.entity_name,
-                                "relationType": rel.relation_type,
-                                "weight": rel.weight
+                        let related = KGRepository::get_related_entities(
+                            &entity_id,
+                            None,
+                            Some(5),
+                            tenant_id.as_deref(),
+                        )
+                        .await?;
+                        let relations: Vec<serde_json::Value> = related
+                            .iter()
+                            .map(|(ent, rel)| {
+                                serde_json::json!({
+                                    "entityId": ent.entity_id,
+                                    "entityName": ent.entity_name,
+                                    "relationType": rel.relation_type,
+                                    "weight": rel.weight
+                                })
                             })
-                        }).collect();
+                            .collect();
 
                         serde_json::json!({
                             "entity": {
@@ -618,12 +691,17 @@ async fn read_resource(
                         .to_string()
                     }
                     None => {
-                        return Err(AppError::NotFound(format!("Entity {} not found", entity_id)));
+                        return Err(AppError::NotFound(format!(
+                            "Entity {} not found",
+                            entity_id
+                        )));
                     }
                 }
             } else {
                 // List all entities
-                let response = KGRepository::list_entities(None, Some(20), Some(0)).await?;
+                let response =
+                    KGRepository::list_entities(None, Some(20), Some(0), tenant_id.as_deref())
+                        .await?;
 
                 serde_json::json!({
                     "entities": response.entities.iter().map(|e| {
@@ -642,20 +720,28 @@ async fn read_resource(
         "mm" => {
             // Multimodal resources
             if let Some(entry_id) = id {
-                let entry = MMRepository::get_entry_by_id(&entry_id).await?;
+                let entry = MMRepository::get_entry_by_id(&entry_id, tenant_id.as_deref()).await?;
 
                 match entry {
                     Some(e) => {
                         // Get related entries
-                        let related = MMRepository::get_related_entries(&entry_id, Some(5)).await?;
-                        let relations: Vec<serde_json::Value> = related.iter().map(|(ent, rel)| {
-                            serde_json::json!({
-                                "entryId": ent.entry_id,
-                                "modalityType": ent.modality_type,
-                                "relationType": rel.relation_type,
-                                "strength": rel.relation_strength
+                        let related = MMRepository::get_related_entries(
+                            &entry_id,
+                            Some(5),
+                            tenant_id.as_deref(),
+                        )
+                        .await?;
+                        let relations: Vec<serde_json::Value> = related
+                            .iter()
+                            .map(|(ent, rel)| {
+                                serde_json::json!({
+                                    "entryId": ent.entry_id,
+                                    "modalityType": ent.modality_type,
+                                    "relationType": rel.relation_type,
+                                    "strength": rel.relation_strength
+                                })
                             })
-                        }).collect();
+                            .collect();
 
                         serde_json::json!({
                             "entry": {
@@ -682,7 +768,9 @@ async fn read_resource(
                 }
             } else {
                 // List all entries
-                let response = MMRepository::list_entries(None, Some(20), Some(0)).await?;
+                let response =
+                    MMRepository::list_entries(None, Some(20), Some(0), tenant_id.as_deref())
+                        .await?;
 
                 serde_json::json!({
                     "entries": response.entries.iter().map(|e| {
