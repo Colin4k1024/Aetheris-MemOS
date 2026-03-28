@@ -8,12 +8,14 @@ pub mod memory;
 pub mod performance;
 pub mod resource;
 pub mod task;
+pub mod validation;
 
 pub use evidence::*;
 pub use memory::*;
 pub use performance::*;
 pub use resource::*;
 pub use task::*;
+pub use validation::*;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct User {
