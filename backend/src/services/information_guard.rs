@@ -30,6 +30,9 @@ use sha2::{Digest, Sha256};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
+use crate::db::pool;
+use crate::tenant::get_default_tenant;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -189,7 +192,7 @@ async fn run_scan_cycle() -> anyhow::Result<()> {
     use crate::db::ltm::LTMRepository;
 
     // Fetch a random sample of LTM entries.
-    let entries = LTMRepository::list_entries(None, None, Some(SAMPLE_BATCH), Some(0)).await?;
+    let entries = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(SAMPLE_BATCH), Some(0)).await?;
     let mut checked = 0u64;
     let mut violations = 0u64;
 

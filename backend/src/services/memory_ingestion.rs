@@ -39,8 +39,10 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
+use crate::db::pool;
 use crate::db::stm::STMRepository;
 use crate::services::memory_storage::MemoryStorageService;
+use crate::tenant::get_default_tenant;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -195,20 +197,20 @@ async fn run_reflection_cycle(cfg: &IngestionConfig) -> anyhow::Result<()> {
 
     for user_id in &user_ids {
         // Fetch active agent IDs for this user
-        let agent_ids = match STMRepository::get_active_agent_ids(user_id).await {
+        let agent_ids = match STMRepository::get_active_agent_ids(pool(), &get_default_tenant(), user_id).await {
             Ok(ids) => ids,
             Err(_) => continue,
         };
 
         for agent_id in &agent_ids {
             // Fetch recent sessions (limit 50 per agent to keep cycles bounded)
-            let sessions = match STMRepository::get_recent_sessions(user_id, agent_id, Some(50)).await {
+            let sessions = match STMRepository::get_recent_sessions(pool(), &get_default_tenant(), user_id, agent_id, Some(50)).await {
                 Ok(s) => s,
                 Err(_) => continue,
             };
 
             for session in &sessions {
-                let msgs = match STMRepository::get_session_messages(&session.session_id, Some(1000)).await {
+                let msgs = match STMRepository::get_session_messages(pool(), &get_default_tenant(), &session.session_id, Some(1000)).await {
                     Ok(m) => m,
                     Err(_) => continue,
                 };

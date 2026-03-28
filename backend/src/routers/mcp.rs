@@ -19,7 +19,9 @@ use crate::mcp::signing::{verify_component, verify_unsigned, ComponentSignature,
 use crate::db::kg::KGRepository;
 use crate::db::ltm::LTMRepository;
 use crate::db::mm::MMRepository;
+use crate::db::pool;
 use crate::db::stm::STMRepository;
+use crate::tenant::get_default_tenant;
 use crate::protocol::mcp::{
     get_memory_resources, get_memory_tools, Resource as McpResource, ResourceContent,
     ResourceContentResponse, ServerCapabilities, Tool as McpTool, ToolCallResponse, ToolsListResponse,
@@ -312,6 +314,7 @@ async fn handle_memory_write(
             let description = args["description"].as_str();
 
             let entity_id = KGRepository::create_entity(
+                &get_default_tenant(),
                 &entity_name,
                 entity_type,
                 description,
@@ -417,7 +420,7 @@ async fn handle_memory_search(
         }
         "kg" => {
             // Search in knowledge graph entities
-            let entities = KGRepository::list_entities(Some(&query), Some(limit), Some(0)).await?;
+            let entities = KGRepository::list_entities(pool(), &get_default_tenant(), Some(&query), Some(limit), Some(0)).await?;
             let results_json: Vec<serde_json::Value> = entities
                 .entities
                 .iter()
@@ -476,7 +479,7 @@ async fn handle_memory_recall(
     let limit = args["limit"].as_u64().unwrap_or(10) as i32;
 
     // Recall memories from a session
-    let messages = STMRepository::get_session_messages(&session_id, Some(limit)).await?;
+    let messages = STMRepository::get_session_messages(pool(), &get_default_tenant(), &session_id, Some(limit)).await?;
 
     let text = serde_json::json!({
         "success": true,
@@ -540,7 +543,7 @@ async fn handle_memory_list(
         "stm" => {
             // List STM sessions
             let response =
-                STMRepository::list_sessions(user_id, None, Some(limit), Some(offset)).await?;
+                STMRepository::list_sessions(pool(), &get_default_tenant(), user_id, None, Some(limit), Some(offset)).await?;
 
             serde_json::json!({
                 "type": "stm_sessions",
@@ -561,7 +564,7 @@ async fn handle_memory_list(
         "ltm" => {
             // List LTM entries
             let response =
-                LTMRepository::list_entries(None, None, Some(limit), Some(offset)).await?;
+                LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(limit), Some(offset)).await?;
 
             serde_json::json!({
                 "type": "ltm_entries",
@@ -581,7 +584,7 @@ async fn handle_memory_list(
             // List KG entities
             let entity_type = args["entity_type"].as_str();
             let response =
-                KGRepository::list_entities(entity_type, Some(limit), Some(offset)).await?;
+                KGRepository::list_entities(pool(), &get_default_tenant(), entity_type, Some(limit), Some(offset)).await?;
 
             serde_json::json!({
                 "type": "kg_entities",
@@ -709,7 +712,7 @@ async fn read_resource(
     let content = match layer {
         "stm" => {
             if let Some(session_id) = id {
-                let messages = STMRepository::get_session_messages(&session_id, Some(50)).await?;
+                let messages = STMRepository::get_session_messages(pool(), &get_default_tenant(), &session_id, Some(50)).await?;
 
                 serde_json::json!({
                     "sessionId": session_id,
@@ -718,7 +721,7 @@ async fn read_resource(
                 .to_string()
             } else {
                 // List all sessions
-                let response = STMRepository::list_sessions(None, None, Some(20), Some(0)).await?;
+                let response = STMRepository::list_sessions(pool(), &get_default_tenant(), None, None, Some(20), Some(0)).await?;
 
                 serde_json::json!({
                     "sessions": response.sessions
@@ -728,7 +731,7 @@ async fn read_resource(
         }
         "ltm" => {
             if let Some(entry_id) = id {
-                let entry = LTMRepository::get_entry_by_id(&entry_id).await?;
+                let entry = LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id).await?;
 
                 match entry {
                     Some(e) => serde_json::json!({
@@ -745,7 +748,7 @@ async fn read_resource(
                     }
                 }
             } else {
-                let response = LTMRepository::list_entries(None, None, Some(20), Some(0)).await?;
+                let response = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(20), Some(0)).await?;
 
                 serde_json::json!({
                     "entries": response.entries
@@ -756,12 +759,12 @@ async fn read_resource(
         "kg" => {
             // Knowledge graph resources
             if let Some(entity_id) = id {
-                let entity = KGRepository::get_entity_by_id(&entity_id).await?;
+                let entity = KGRepository::get_entity_by_id(pool(), &get_default_tenant(), &entity_id).await?;
 
                 match entity {
                     Some(e) => {
                         // Get related entities
-                        let related = KGRepository::get_related_entities(&entity_id, None, Some(5)).await?;
+                        let related = KGRepository::get_related_entities(pool(), &get_default_tenant(), &entity_id, None, Some(5)).await?;
                         let relations: Vec<serde_json::Value> = related.iter().map(|(ent, rel)| {
                             serde_json::json!({
                                 "entityId": ent.entity_id,
@@ -793,7 +796,7 @@ async fn read_resource(
                 }
             } else {
                 // List all entities
-                let response = KGRepository::list_entities(None, Some(20), Some(0)).await?;
+                let response = KGRepository::list_entities(pool(), &get_default_tenant(), None, Some(20), Some(0)).await?;
 
                 serde_json::json!({
                     "entities": response.entities.iter().map(|e| {

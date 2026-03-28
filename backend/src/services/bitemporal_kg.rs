@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::db::kg::{Entity, KGRepository, Relation};
+use crate::db::pool;
+use crate::tenant::get_default_tenant;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -127,7 +129,7 @@ pub async fn snapshot_at(valid_at: &str) -> Result<KgSnapshot> {
     // For each entity collect its current relations
     let mut relations: Vec<RelationVersion> = Vec::new();
     for entity in &entities {
-        match KGRepository::get_related_entities(&entity.entity_id, None, Some(500)).await {
+        match KGRepository::get_related_entities(pool(), &get_default_tenant(), &entity.entity_id, None, Some(500)).await {
             Ok(pairs) => {
                 for (_related_entity, rel) in pairs {
                     relations.push(rel.into());
@@ -236,7 +238,7 @@ pub async fn diff_intervals(from_time: &str, to_time: &str) -> Result<TemporalDi
 /// this function works with the *current* relations and flags logical-type
 /// conflicts (e.g. an entity having two `is_a` relations for the same target).
 pub async fn detect_contradictions(entity_id: &str) -> Result<Vec<TemporalContradiction>> {
-    let relation_pairs = KGRepository::get_related_entities(entity_id, None, Some(1000)).await?;
+    let relation_pairs = KGRepository::get_related_entities(pool(), &get_default_tenant(), entity_id, None, Some(1000)).await?;
 
     // Group by (target_entity_id, relation_type)
     let mut groups: std::collections::HashMap<(String, String), Vec<Relation>> =
@@ -290,7 +292,7 @@ pub async fn supersede_entity(
     new_type: &str,
     new_description: Option<&str>,
 ) -> Result<String> {
-    let new_id = KGRepository::supersede_entity(entity_id, new_name, new_type, new_description)
+    let new_id = KGRepository::supersede_entity(&get_default_tenant(), entity_id, new_name, new_type, new_description)
         .await
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     info!(
@@ -314,7 +316,7 @@ pub async fn supersede_entity(
 async fn fetch_entities_at(valid_at: &str) -> Result<Vec<Entity>> {
     // `get_entity_at_time` takes a single id — we need a global snapshot.
     // Use `list_entities` with no filter and then post-filter by valid window.
-    let all = crate::db::kg::KGRepository::list_entities(None, Some(10000), Some(0)).await
+    let all = crate::db::kg::KGRepository::list_entities(pool(), &get_default_tenant(), None, Some(10000), Some(0)).await
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let filtered: Vec<Entity> = all

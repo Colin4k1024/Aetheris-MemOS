@@ -16,6 +16,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
+use crate::db::pool;
+use crate::tenant::get_default_tenant;
+
 /// 置信度评分配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfidenceScorerConfig {
@@ -167,7 +170,7 @@ impl ConfidenceScorer {
         for r in results {
             // 尝试从 LTM 获取完整条目元数据
             let breakdown = if let Ok(Some(entry)) =
-                crate::db::ltm::LTMRepository::get_entry_by_id(&r.entry_id).await
+                crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &r.entry_id).await
             {
                 Self::score(
                     r.score,

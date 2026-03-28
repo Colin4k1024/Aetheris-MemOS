@@ -12,6 +12,8 @@
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
+use crate::db::pool;
+use crate::tenant::get_default_tenant;
 use crate::AppError;
 
 /// 压缩策略
@@ -336,7 +338,7 @@ impl ContextCompressor {
         session_id: &str,
         cfg: &CompressionConfig,
     ) -> Result<CompressionResult, AppError> {
-        let messages = crate::db::stm::STMRepository::get_session_messages(session_id, None)
+        let messages = crate::db::stm::STMRepository::get_session_messages(pool(), &get_default_tenant(), session_id, None)
             .await?
             .into_iter()
             .map(|m| MessageEntry {

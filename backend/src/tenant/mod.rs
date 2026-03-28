@@ -52,3 +52,10 @@ impl TenantId {
         format!("t:{}", self.0)
     }
 }
+
+/// Get the default tenant ID for fallback use.
+/// This is used when no tenant context is available.
+#[allow(unused)]
+pub fn get_default_tenant() -> TenantId {
+    TenantId::from_string("default")
+}

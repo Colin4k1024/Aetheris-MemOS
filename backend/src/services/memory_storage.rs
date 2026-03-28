@@ -1,10 +1,11 @@
 use anyhow::Result;
 use tracing::{error, info, instrument, warn};
 
-use crate::db::{ltm::LTMRepository, stm::STMRepository};
+use crate::db::{ltm::LTMRepository, pool, stm::STMRepository};
 use crate::services::{
     embedding::get_embedding_service, llm::get_llm_service, qdrant::get_qdrant_client,
 };
+use crate::tenant::get_default_tenant;
 use crate::AppError;
 
 /// 记忆存储服务
@@ -29,6 +30,7 @@ impl MemoryStorageService {
 
         // 创建或获取会话
         let session_id = STMRepository::create_session(
+            &get_default_tenant(),
             user_id,
             agent_id,
             session_type,
@@ -39,6 +41,8 @@ impl MemoryStorageService {
 
         // 添加消息到会话
         let message_id = STMRepository::add_message(
+            pool(),
+            &get_default_tenant(),
             &session_id,
             role,
             content,
@@ -153,6 +157,7 @@ impl MemoryStorageService {
         let quality_score = Some(0.8); // 可以根据实际情况计算质量分数
         if let Err(db_err) = LTMRepository::create_knowledge_entry_with_id(
             Some(entry_id.clone()),
+            &get_default_tenant(),
             source_id,
             normalized_source_type,
             title,
@@ -216,7 +221,7 @@ impl MemoryStorageService {
         info!("Auto transferring STM to LTM: session_id={}", session_id);
 
         // 获取会话消息
-        let messages = STMRepository::get_session_messages(session_id, Some(1000)).await?;
+        let messages = STMRepository::get_session_messages(pool(), &get_default_tenant(), session_id, Some(1000)).await?;
 
         if messages.len() < message_count_threshold as usize {
             info!(

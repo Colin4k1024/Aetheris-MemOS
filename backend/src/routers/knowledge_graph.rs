@@ -8,6 +8,7 @@ use validator::Validate;
 
 use crate::db::kg::KGRepository;
 use crate::db::pool;
+use crate::tenant::get_default_tenant;
 use crate::{json_ok, JsonResult};
 
 /// 创建实体请求
@@ -96,6 +97,7 @@ pub async fn create_entity(
         .as_deref()
         .map(|v| v.iter().map(|s| s.as_str()).collect());
     let entity_id = KGRepository::create_entity(
+        &get_default_tenant(),
         &body.entity_name,
         &body.entity_type,
         body.description.as_deref(),
@@ -131,7 +133,7 @@ pub async fn create_relation(
 
 /// 根据名称获取实体
 pub async fn get_entity_by_name(Path(name): Path<String>) -> JsonResult<Option<EntityInfo>> {
-    let entity = KGRepository::get_entity_by_name(&name, None)
+    let entity = KGRepository::get_entity_by_name(pool(), &get_default_tenant(), &name, None)
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get entity: {}", e)))?;
 
@@ -152,7 +154,7 @@ pub async fn get_related_entities(
 ) -> JsonResult<Vec<RelationInfo>> {
     let limit = query.limit.unwrap_or(10) as i32;
 
-    let relations = KGRepository::get_related_entities(&entity_id, None, Some(limit))
+    let relations = KGRepository::get_related_entities(pool(), &get_default_tenant(), &entity_id, None, Some(limit))
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get related entities: {}", e)))?;
 
@@ -210,7 +212,7 @@ pub async fn list_entities(
     let offset = query.offset.unwrap_or(0) as i32;
 
     let response =
-        KGRepository::list_entities(query.entity_type.as_deref(), Some(limit), Some(offset))
+        KGRepository::list_entities(pool(), &get_default_tenant(), query.entity_type.as_deref(), Some(limit), Some(offset))
             .await
             .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
 
