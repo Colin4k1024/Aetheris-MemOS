@@ -13,7 +13,7 @@ use thiserror::Error;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Component signature containing SHA-256 hash and issuer metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ComponentSignature {
     /// Unique identifier for the component
     pub component_id: String,

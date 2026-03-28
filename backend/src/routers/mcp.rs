@@ -9,18 +9,21 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use tracing::{error, info};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{error, info, warn};
 
 use crate::hoops::jwt::auth_middleware;
+use crate::mcp::signing::{verify_component, verify_unsigned, ComponentSignature, TrustedKeyBundle};
 
 use crate::db::kg::KGRepository;
 use crate::db::ltm::LTMRepository;
 use crate::db::mm::MMRepository;
 use crate::db::stm::STMRepository;
 use crate::protocol::mcp::{
-    get_memory_resources, get_memory_tools, ResourceContent, ResourceContentResponse,
-    ServerCapabilities, ToolCallResponse, ToolsListResponse, TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST,
-    TOOL_MEMORY_RECALL, TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
+    get_memory_resources, get_memory_tools, Resource as McpResource, ResourceContent,
+    ResourceContentResponse, ServerCapabilities, Tool as McpTool, ToolCallResponse, ToolsListResponse,
+    TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST, TOOL_MEMORY_RECALL, TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
 };
 use crate::services::{memory_search::MemorySearchService, memory_storage::MemoryStorageService};
 use crate::{json_ok, AppError, JsonResult};
@@ -30,6 +33,7 @@ use crate::{json_ok, AppError, JsonResult};
 pub struct McpState {
     pub server_name: String,
     pub server_version: String,
+    pub component_registry: Arc<McpComponentRegistry>,
 }
 
 impl Default for McpState {
@@ -37,7 +41,89 @@ impl Default for McpState {
         Self {
             server_name: "adaptive-memory-system".to_string(),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
+            component_registry: Arc::new(McpComponentRegistry::new()),
         }
+    }
+}
+
+/// MCP Component Registry - holds verified tools and resources
+#[derive(Debug)]
+pub struct McpComponentRegistry {
+    key_bundle: TrustedKeyBundle,
+    verified_tools: RwLock<Vec<(McpTool, ComponentSignature)>>,
+    verified_resources: RwLock<Vec<(McpResource, ComponentSignature)>>,
+}
+
+impl McpComponentRegistry {
+    /// Create new registry with trusted key bundle from environment
+    pub fn new() -> Self {
+        Self {
+            key_bundle: TrustedKeyBundle::load_from_env(),
+            verified_tools: RwLock::new(Vec::new()),
+            verified_resources: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Register a tool with its signature - returns Ok if verified
+    pub async fn register_tool(
+        &self,
+        tool: McpTool,
+        signature: Option<ComponentSignature>,
+    ) -> Result<(), String> {
+        match signature {
+            Some(sig) => {
+                let artifact = serde_json::to_vec(&tool).map_err(|e| e.to_string())?;
+                verify_component(&tool.name, &artifact, &sig, &self.key_bundle)
+                    .map_err(|e| e.to_string())?;
+                self.verified_tools.write().await.push((tool, sig));
+                Ok(())
+            }
+            None => {
+                // D-03: Unsigned components are rejected
+                Err(verify_unsigned(&tool.name).unwrap_err().to_string())
+            }
+        }
+    }
+
+    /// Register a resource with its signature - returns Ok if verified
+    pub async fn register_resource(
+        &self,
+        resource: McpResource,
+        signature: Option<ComponentSignature>,
+    ) -> Result<(), String> {
+        match signature {
+            Some(sig) => {
+                let artifact = serde_json::to_vec(&resource).map_err(|e| e.to_string())?;
+                verify_component(&resource.uri, &artifact, &sig, &self.key_bundle)
+                    .map_err(|e| e.to_string())?;
+                self.verified_resources.write().await.push((resource, sig));
+                Ok(())
+            }
+            None => {
+                // D-03: Unsigned components are rejected
+                Err(verify_unsigned(&resource.uri).unwrap_err().to_string())
+            }
+        }
+    }
+
+    /// Get all verified tools
+    pub async fn get_verified_tools(&self) -> Vec<McpTool> {
+        self.verified_tools
+            .read()
+            .await
+            .iter()
+            .map(|(t, _)| t.clone())
+            .collect()
+    }
+
+    /// Get all verified resources
+    pub async fn get_verified_resources(&self) -> Vec<McpResource> {
+        self.verified_resources
+            .read()
+            .await
+            .iter()
+            .map(|(r, _)| r.clone())
+            .collect()
     }
 }
 
@@ -71,10 +157,52 @@ async fn initialize(State(state): State<McpState>) -> JsonResult<serde_json::Val
     }))
 }
 
-/// List available MCP tools
-async fn list_tools() -> JsonResult<ToolsListResponse> {
-    let tools = get_memory_tools();
-    json_ok(ToolsListResponse { tools })
+/// List available MCP tools - only returns tools with valid signatures
+async fn list_tools(State(state): State<McpState>) -> JsonResult<ToolsListResponse> {
+    let registry = &state.component_registry;
+    let key_bundle = &registry.key_bundle;
+
+    let all_tools = get_memory_tools();
+    let mut verified_tools = Vec::new();
+
+    // Try to load signatures from environment
+    let signatures_json = std::env::var("MCP_TOOL_SIGNATURES").unwrap_or_default();
+    let signatures: Vec<ComponentSignature> = serde_json::from_str(&signatures_json).unwrap_or_default();
+
+    for tool in all_tools {
+        // Find signature for this tool
+        if let Some(sig) = signatures.iter().find(|s| s.component_id == tool.name) {
+            let artifact = match serde_json::to_vec(&tool) {
+                Ok(a) => a,
+                Err(e) => {
+                    warn!("MCP tool {} failed to serialize: {}", tool.name, e);
+                    continue;
+                }
+            };
+
+            // D-01: Verify signature on load
+            if let Err(e) = verify_component(&tool.name, &artifact, sig, key_bundle) {
+                // D-03: Reject unsigned/invalid components with structured log
+                warn!(
+                    component_id = %tool.name,
+                    issuer = %sig.issuer,
+                    error = %e,
+                    "MCP tool rejected: signing verification failed"
+                );
+                continue;
+            }
+
+            verified_tools.push(tool);
+        } else {
+            // No signature found - reject unsigned component (D-03)
+            warn!(
+                component_id = %tool.name,
+                "MCP tool rejected: no signature found"
+            );
+        }
+    }
+
+    json_ok(ToolsListResponse { tools: verified_tools })
 }
 
 /// MCP tool call request
@@ -501,11 +629,53 @@ async fn handle_memory_list(
     Ok(vec![crate::protocol::mcp::ToolContent::Text(entries)])
 }
 
-/// List available MCP resources
-async fn list_resources() -> JsonResult<serde_json::Value> {
-    let resources = get_memory_resources();
+/// List available MCP resources - only returns resources with valid signatures
+async fn list_resources(State(state): State<McpState>) -> JsonResult<serde_json::Value> {
+    let registry = &state.component_registry;
+    let key_bundle = &registry.key_bundle;
+
+    let all_resources = get_memory_resources();
+    let mut verified_resources = Vec::new();
+
+    // Try to load signatures from environment
+    let signatures_json = std::env::var("MCP_RESOURCE_SIGNATURES").unwrap_or_default();
+    let signatures: Vec<ComponentSignature> = serde_json::from_str(&signatures_json).unwrap_or_default();
+
+    for resource in all_resources {
+        // Find signature for this resource
+        if let Some(sig) = signatures.iter().find(|s| s.component_id == resource.uri) {
+            let artifact = match serde_json::to_vec(&resource) {
+                Ok(a) => a,
+                Err(e) => {
+                    warn!("MCP resource {} failed to serialize: {}", resource.uri, e);
+                    continue;
+                }
+            };
+
+            // D-01: Verify signature on load
+            if let Err(e) = verify_component(&resource.uri, &artifact, sig, key_bundle) {
+                // D-03: Reject unsigned/invalid components with structured log
+                warn!(
+                    component_id = %resource.uri,
+                    issuer = %sig.issuer,
+                    error = %e,
+                    "MCP resource rejected: signing verification failed"
+                );
+                continue;
+            }
+
+            verified_resources.push(resource);
+        } else {
+            // No signature found - reject unsigned component (D-03)
+            warn!(
+                component_id = %resource.uri,
+                "MCP resource rejected: no signature found"
+            );
+        }
+    }
+
     json_ok(serde_json::json!({
-        "resources": resources
+        "resources": verified_resources
     }))
 }
 
