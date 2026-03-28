@@ -36,10 +36,13 @@ Plans:
   1. Runtime trust boundaries and signing rules are enforceable and documented.
   2. Input validation and sandbox controls are testable and enabled on critical paths.
   3. Multi-tenant isolation failure modes have explicit mitigations and tests.
-**Plans**: TBD
+**Plans**: 4 plans (Wave 0: Foundation, Wave 1: MCP Signing + Input Validation, Wave 2: Multi-Tenant Isolation)
 
 Plans:
-- [ ] TBD
+- [ ] 02-01-PLAN.md — Auth foundation: JWT cookie security, route-level auth middleware, tenant context propagation (Wave 0)
+- [ ] 02-02-PLAN.md — MCP component signing verification with SHA-256 hash validation (Wave 1)
+- [ ] 02-03-PLAN.md — Input validation layer with schema-based validation and injection detection (Wave 1)
+- [ ] 02-04-PLAN.md — Multi-tenant isolation enforcement with tenant-scoped repositories and monitoring hooks (Wave 2)
 
 ### Phase 3: MemOS Deep Fusion and Self-Healing Runtime
 **Goal**: Implement global memory graph fusion and resilient recovery primitives with measurable operational gains.
@@ -59,5 +62,5 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Evidence Graph & Decision Snapshots Completeness | 3/3 | Complete | 01-01, 01-02, 01-03 |
-| 2. Security Hardening for MCP and Multi-Tenant Runtime | 0/0 | Not started | - |
+| 2. Security Hardening for MCP and Multi-Tenant Runtime | 0/4 | Not started | - |
 | 3. MemOS Deep Fusion and Self-Healing Runtime | 0/0 | Not started | - |
