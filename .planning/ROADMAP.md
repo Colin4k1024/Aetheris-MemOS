@@ -42,7 +42,7 @@ Plans:
 - [x] 02-01-PLAN.md — Auth foundation: JWT cookie security, route-level auth middleware, tenant context propagation (Wave 0)
 - [x] 02-02-PLAN.md — MCP component signing verification with SHA-256 hash validation (Wave 1)
 - [x] 02-03-PLAN.md — Input validation layer with schema-based validation and injection detection (Wave 1)
-- [ ] 02-04-PLAN.md — Multi-tenant isolation enforcement with tenant-scoped repositories and monitoring hooks (Wave 2)
+- [x] 02-04-PLAN.md — Multi-tenant isolation enforcement with tenant-scoped repositories and monitoring hooks (Wave 2)
 
 ### Phase 3: MemOS Deep Fusion and Self-Healing Runtime
 **Goal**: Implement global memory graph fusion and resilient recovery primitives with measurable operational gains.
