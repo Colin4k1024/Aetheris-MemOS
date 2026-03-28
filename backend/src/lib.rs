@@ -9,6 +9,7 @@ pub mod error;
 pub mod hoops;
 pub mod integrations;
 pub mod kernel;
+pub mod mcp;
 pub mod models;
 pub mod protocol;
 pub mod routers;
