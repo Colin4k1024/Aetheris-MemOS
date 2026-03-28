@@ -207,11 +207,16 @@ async fn register_page() -> &'static str {
     "Register page placeholder"
 }
 
-/// Create auth routes
+/// Create public auth routes (no auth required)
 pub fn router() -> Router {
     Router::new()
         .route("/login", get(login_page))
         .route("/register", post(register))
         .route("/api/login", post(post_login))
+}
+
+/// Create protected auth routes (auth required)
+pub fn protected_router() -> Router {
+    Router::new()
         .route("/api/currentUser", get(get_current_user))
 }

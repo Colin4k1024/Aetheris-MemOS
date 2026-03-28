@@ -5,11 +5,12 @@
 pub mod agent;
 pub mod auth;
 pub mod demo;
+pub mod knowledge_graph;
 pub mod memory;
 pub mod memory_search;
 pub mod memory_storage;
-pub mod knowledge_graph;
 pub mod multimodal;
+pub mod protected;
 pub mod user;
 
 use axum::{
@@ -129,23 +130,30 @@ async fn not_found() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, Html("Page not found".to_string()))
 }
 
-/// Create the main Axum router
+/// Create the main Axum router.
+///
+/// ## Public routes (no auth)
+/// - `/api-doc/openapi.json` - OpenAPI spec
+/// - `/scalar`, `/scalar/` - API docs UI
+/// - `/login`, `/register` - Auth page handlers
+/// - `/api/login` - Login API endpoint
+/// - `/` - Demo hello
+///
+/// ## Protected routes (auth required via httpOnly cookie or Bearer header)
+/// All other routes require a valid JWT. The auth middleware is applied
+/// in `protected::protected_router()`.
 pub fn create_router() -> Router {
     let cors = cors_layer();
 
     Router::new()
+        // Public routes - no auth required
         .route("/api-doc/openapi.json", get(|| async { openapi_json().await }))
         .route("/scalar", get(scalar_ui))
         .route("/scalar/", get(scalar_ui))
         .merge(demo::router())
         .merge(auth::router())
-        .merge(user::router())
-        .merge(agent::router())
-        .merge(memory::router())
-        .merge(memory_storage::router())
-        .merge(memory_search::router())
-        .merge(knowledge_graph::router())
-        .merge(multimodal::router())
+        // Protected routes - require auth_middleware
+        .merge(protected::protected_router())
         .layer(cors)
         .fallback(not_found)
 }
