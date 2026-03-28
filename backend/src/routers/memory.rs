@@ -29,6 +29,9 @@ static MONITOR: Lazy<Arc<ResourceMonitor>> = Lazy::new(|| Arc::new(ResourceMonit
 static WEIGHT_ADJUSTER: Lazy<Arc<DynamicWeightAdjuster>> =
     Lazy::new(|| Arc::new(DynamicWeightAdjuster::new()));
 
+static SELF_HEALING: Lazy<Arc<SelfHealingService>> =
+    Lazy::new(|| Arc::new(SelfHealingService::new()));
+
 // ========== 自适应记忆调度器 API ==========
 
 #[derive(Deserialize, ToSchema)]
@@ -557,6 +560,33 @@ pub async fn get_weight_history() -> JsonResult<WeightHistoryResponse> {
     })
 }
 
+// ========== 权重状态 API ==========
+
+use crate::services::weight_decay::WeightDecayService;
+
+#[derive(Serialize, ToSchema)]
+pub struct WeightStatusResponse {
+    #[serde(rename = "decay_lambda")]
+    pub decay_lambda: f64,
+    #[serde(rename = "active_weights")]
+    pub active_weights: crate::models::MemoryWeights,
+}
+
+pub async fn get_weight_status() -> JsonResult<WeightStatusResponse> {
+    let decay_lambda = crate::config::get()
+        .memory_evolution
+        .decay_lambda;
+    json_ok(WeightStatusResponse {
+        decay_lambda,
+        active_weights: crate::models::MemoryWeights {
+            stm: 1.0,
+            ltm: 0.6,
+            kg: 0.0,
+            mm: 0.0,
+        },
+    })
+}
+
 // ========== 系统管理 API ==========
 
 #[derive(Serialize, ToSchema)]
@@ -596,7 +626,11 @@ pub async fn health_check() -> JsonResult<HealthResponse> {
 
     // Probe the actual database connection
     let (db_status, db_backend) = check_database_health().await;
-    let overall = if db_status == "healthy" { "healthy" } else { "degraded" };
+    let overall = if db_status == "healthy" {
+        "healthy"
+    } else {
+        "degraded"
+    };
 
     let compute_backend = crate::services::hardware_detector::get()
         .map(|h| h.best_backend_tag().to_string())
@@ -1128,6 +1162,15 @@ pub async fn batch_importance(
     json_ok(BatchImportanceResponse { results })
 }
 
+// ========== Self-Healing Runtime API ==========
+
+use crate::services::self_healing::{HealthStatus, SelfHealingService};
+
+pub async fn self_healing_health() -> JsonResult<HealthStatus> {
+    let status = SELF_HEALING.check_health();
+    json_ok(status)
+}
+
 // ========== Memory Fusion API ==========
 
 use crate::services::memory_fusion::{FusionResult, FusionStatusResponse, MemoryFusionService};
@@ -1138,9 +1181,7 @@ pub struct FusionQueryRequest {
     pub limit: Option<i32>,
 }
 
-pub async fn fusion_status(
-    ctx: RequestTenantContext,
-) -> JsonResult<FusionStatusResponse> {
+pub async fn fusion_status(ctx: RequestTenantContext) -> JsonResult<FusionStatusResponse> {
     let status = MemoryFusionService::get_status(&ctx.tenant_id).await?;
     json_ok(status)
 }

@@ -56,3 +56,6 @@ port = 7687
 username = "neo4j"
 password = "REPLACE_WITH_YOUR_NEO4J_PASSWORD"
 database = "neo4j"
+
+[memory_evolution]
+decay_lambda = 0.01

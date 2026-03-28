@@ -24,9 +24,9 @@ mod memory_storage;
 #[allow(dead_code)]
 mod metrics;
 #[allow(dead_code)]
-mod multimodal;
-#[allow(dead_code)]
 mod multi_tenant_router;
+#[allow(dead_code)]
+mod multimodal;
 #[allow(dead_code)]
 mod snapshot;
 #[allow(dead_code)]
@@ -97,7 +97,9 @@ pub fn root() -> Router {
         .route("/monitor/optimize", post(memory::optimize))
         .route("/weights/adjust", post(memory::adjust_weights))
         .route("/weights/history", get(memory::get_weight_history))
+        .route("/weights/status", get(memory::get_weight_status))
         .route("/health", get(memory::health_check))
+        .route("/v1/health", get(memory::self_healing_health))
         .route("/config", get(memory::get_config))
         .route("/importance/{entry_id}", get(memory::get_importance))
         .route("/importance/batch", post(memory::batch_importance))
@@ -116,7 +118,10 @@ pub fn root() -> Router {
                 .route("/transfer", post(memory_storage::transfer_stm_to_ltm))
                 .route("/batch-ltm", post(memory_storage::batch_store_ltm))
                 .route("/compress/session", post(memory_storage::compress_session))
-                .route("/compress/messages", post(memory_storage::compress_messages)),
+                .route(
+                    "/compress/messages",
+                    post(memory_storage::compress_messages),
+                ),
         )
         .nest(
             "/search",
@@ -129,10 +134,19 @@ pub fn root() -> Router {
                 .route("/ltm/{entry_id}", get(memory_search::get_ltm_entry))
                 // Bi-temporal tracking endpoints
                 .route("/ltm/{entry_id}/at", get(memory_search::get_ltm_at_time))
-                .route("/ltm/{entry_id}/history", get(memory_search::get_ltm_history))
+                .route(
+                    "/ltm/{entry_id}/history",
+                    get(memory_search::get_ltm_history),
+                )
                 .route("/ltm/time-travel", post(memory_search::search_ltm_at_time))
-                .route("/kg/{entity_id}/at", get(memory_search::get_kg_entity_at_time))
-                .route("/kg/{entity_id}/history", get(memory_search::get_kg_entity_history))
+                .route(
+                    "/kg/{entity_id}/at",
+                    get(memory_search::get_kg_entity_at_time),
+                )
+                .route(
+                    "/kg/{entity_id}/history",
+                    get(memory_search::get_kg_entity_history),
+                )
                 .route("/hybrid", post(memory_search::hybrid_search))
                 .route("/entity", post(memory_search::search_by_entity))
                 .route("/triple", post(memory_search::triple_hybrid_search))
@@ -156,12 +170,24 @@ pub fn root() -> Router {
             "/memory-pool",
             Router::new()
                 .route("/register", post(memory_pool::register_agent))
-                .route("/unregister/{agent_id}", post(memory_pool::unregister_agent))
+                .route(
+                    "/unregister/{agent_id}",
+                    post(memory_pool::unregister_agent),
+                )
                 .route("/share/{owner_agent_id}", post(memory_pool::share_memory))
-                .route("/revoke/{owner_agent_id}/{memory_id}", post(memory_pool::revoke_memory))
-                .route("/visible/{agent_id}", get(memory_pool::get_visible_memories))
+                .route(
+                    "/revoke/{owner_agent_id}/{memory_id}",
+                    post(memory_pool::revoke_memory),
+                )
+                .route(
+                    "/visible/{agent_id}",
+                    get(memory_pool::get_visible_memories),
+                )
                 .route("/correlations", post(memory_pool::add_correlation))
-                .route("/correlations/{memory_id}", get(memory_pool::get_correlations))
+                .route(
+                    "/correlations/{memory_id}",
+                    get(memory_pool::get_correlations),
+                )
                 .route("/network", get(memory_pool::get_network_status))
                 .route("/agents", get(memory_pool::list_agents)),
         )
@@ -289,9 +315,19 @@ pub fn root() -> Router {
         .nest(
             "/tenants",
             Router::new()
-                .route("/", get(multi_tenant_router::list_tenants).post(multi_tenant_router::register_tenant))
-                .route("/{tenant_id}/search", post(multi_tenant_router::tenant_search))
-                .route("/{tenant_id}/sessions", get(multi_tenant_router::tenant_sessions))
+                .route(
+                    "/",
+                    get(multi_tenant_router::list_tenants)
+                        .post(multi_tenant_router::register_tenant),
+                )
+                .route(
+                    "/{tenant_id}/search",
+                    post(multi_tenant_router::tenant_search),
+                )
+                .route(
+                    "/{tenant_id}/sessions",
+                    get(multi_tenant_router::tenant_sessions),
+                )
                 .route("/access/check", post(multi_tenant_router::check_access)),
         )
         .route_layer(auth_layer);
