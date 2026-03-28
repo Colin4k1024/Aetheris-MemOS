@@ -3,6 +3,7 @@ pub mod enterprise_impl;
 pub mod enterprise_hooks_v2;
 pub mod jwt;
 pub mod rate_limit;
+pub mod validation;
 pub use enterprise::{
     AuditEvent, AuditResult, AuthHook, EnterpriseHookSet, GovernanceHook, LicenseTier,
     QuotaResult, RbacHook, Resource, ServerBuilder, UsageSnapshot,
@@ -17,6 +18,7 @@ pub use enterprise_hooks_v2::{
     create_enterprise_hooks_v2,
 };
 pub use rate_limit::{rate_limit_middleware, rate_limit_state};
+pub use validation::{contains_sql_injection, contains_xss, validate_content_length, ValidationError, validation_middleware};
 mod cors;
 pub use cors::cors_hoop;
 
