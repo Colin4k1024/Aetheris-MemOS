@@ -1,51 +1,85 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-03-26
+**Analysis Date:** 2026-03-28
 
 ## Test Framework
 
-**Runner:**
-- Backend uses Rust’s built-in test harness with `#[test]` and `#[tokio::test]` embedded directly in source files such as `backend/src/services/scheduler.rs`, `backend/src/services/memory_orchestrator.rs`, and `backend/src/db/memory.rs`.
-- Frontend uses Jest via `frontend/ant-design-pro-template/jest.config.ts`, built on `@umijs/max/test`.
+**Backend (Rust):**
+- Rust built-in test harness with `#[test]` and `#[tokio::test]`
+- Test modules marked with `#[cfg(test)]`
+- SQLite in-memory database for tests
+- Integration tests in `backend/tests/*.rs`
 
-**Assertion Library:**
-- Backend uses standard Rust assertions like `assert_eq!`, `assert!`, and error expectation patterns in `backend/src/services/scheduler.rs` and `backend/src/services/memory_orchestrator.rs`.
-- Frontend uses Jest assertions plus React Testing Library in `frontend/ant-design-pro-template/src/pages/user/login/login.test.tsx`.
-
-**Run Commands:**
-```bash
-cd backend && cargo test                   # Run backend test suite
-cd backend && cargo test test_hello_world  # Run a specific backend test
-cd backend && cargo run --example test_memory_search  # Run live integration example against a running server
-cd frontend/ant-design-pro-template && npm test       # Run Jest tests
-cd frontend/ant-design-pro-template && npm run test:coverage  # Generate frontend coverage report
-cd frontend/ant-design-pro-template && npm run test:update    # Refresh Jest snapshots
-```
+**Frontend (TypeScript/React):**
+- Jest via `@umijs/max/test` (configured in `jest.config.ts`)
+- React Testing Library for DOM interaction
+- Snapshot testing via `toMatchSnapshot()`
+- Mock server via `@@/requestRecordMock`
 
 ## Test File Organization
 
-**Location:**
-- Backend tests are primarily co-located inside production modules under `backend/src/**` behind `#[cfg(test)]`.
-- Backend also has one executable integration-style example in `backend/examples/test_memory_search.rs`; it is not a standard `tests/` integration test crate.
-- Frontend test code is mostly co-located with the page under test: `frontend/ant-design-pro-template/src/pages/user/login/login.test.tsx`.
-- Frontend shared setup lives in `frontend/ant-design-pro-template/tests/setupTests.jsx`.
+**Backend:**
+```
+backend/src/
+  <module>.rs           # Inline #[cfg(test)] mod tests
+backend/tests/
+  hash_chain.rs        # Integration tests
+  evidence_api.rs       # Integration tests
+  evidence_graph.rs    # Integration tests
+  snapshot_export.rs   # Integration tests
+```
 
-**Naming:**
-- Rust inline modules are named `mod tests` and keep scenario-style function names like `test_apply_preferences_disables_mm_and_kg` in `backend/src/services/scheduler.rs`.
-- Frontend uses `*.test.tsx` and snapshot files under `__snapshots__`, as seen in `frontend/ant-design-pro-template/src/pages/user/login/__snapshots__/login.test.tsx.snap`.
+**Frontend:**
+```
+frontend/ant-design-pro-template/
+  src/pages/user/login/
+    login.test.tsx              # Page test
+    __snapshots__/
+      login.test.tsx.snap       # Snapshot
+  tests/
+    setupTests.jsx              # Global mocks
+```
 
-**Structure:**
-```text
-backend/src/<module>.rs          # Production code with #[cfg(test)] mod tests
-backend/examples/*.rs            # Manual or live integration exercises
-frontend/.../src/pages/**/login.test.tsx
-frontend/.../tests/setupTests.jsx
-frontend/.../src/pages/**/__snapshots__/*.snap
+## Test Configuration
+
+**Backend Cargo.toml:**
+- No explicit test dependencies; uses standard library `#[test]`
+- `#[tokio::test]` for async tests (tokio already in dependencies)
+
+**Frontend jest.config.ts:**
+```typescript
+export default async (): Promise<any> => {
+  const config = await configUmiAlias({
+    ...createConfig({ target: 'browser' }),
+  });
+  return {
+    ...config,
+    testEnvironmentOptions: { url: 'http://localhost:8000' },
+    setupFiles: [...(config.setupFiles || []), './tests/setupTests.jsx'],
+  };
+};
+```
+
+## Run Commands
+
+**Backend:**
+```bash
+cd backend && cargo test                    # Run all tests
+cd backend && cargo test test_name          # Run specific test
+cd backend && cargo test --lib              # Unit tests only
+cd backend && cargo test --test integration # Specific integration test
+```
+
+**Frontend:**
+```bash
+cd frontend/ant-design-pro-template && npm test              # Run Jest
+cd frontend/ant-design-pro-template && npm run test:coverage # Coverage report
+cd frontend/ant-design-pro-template && npm run test:update   # Update snapshots
 ```
 
 ## Test Structure
 
-**Suite Organization:**
+**Rust Unit Test:**
 ```rust
 #[cfg(test)]
 mod tests {
@@ -53,11 +87,28 @@ mod tests {
 
     #[test]
     fn test_assess_task_complexity() {
-        // arrange + act + assert inline
+        let analyzer = TaskCharacteristicAnalyzer::new();
+        let result = analyzer.analyze(&task_context);
+        assert!(result.is_ok());
     }
 }
 ```
 
+**Rust Async Test:**
+```rust
+#[tokio::test]
+async fn verify_chain_accepts_the_unmodified_persisted_nodes() {
+    let _guard = test_guard();
+    init_test_db().await;
+    let trace = sample_trace("workflow-hash-chain-valid").await;
+    let recorded = record_decision_trace_as_evidence(&trace)
+        .await
+        .expect("persist evidence graph");
+    // ...
+}
+```
+
+**Frontend Test:**
 ```tsx
 describe('Login Page', () => {
   beforeAll(async () => {
@@ -65,69 +116,71 @@ describe('Login Page', () => {
   });
 
   it('should show login form', async () => {
-    const rootContainer = render(<TestBrowser ... />);
+    const rootContainer = render(
+      <TestBrowser historyRef={historyRef} location={{ pathname: '/user/login' }} />
+    );
     expect(rootContainer.asFragment()).toMatchSnapshot();
   });
 });
 ```
 
-**Patterns:**
-- Backend tests are table-light and direct: build a struct, call a function, assert fields or bounds. Examples: `backend/src/services/analyzer.rs`, `backend/src/services/scheduler.rs`, and `backend/src/db/memory.rs`.
-- Async backend tests use `#[tokio::test]` where the production API is async, as in `backend/src/main.rs`, `backend/src/services/memory_orchestrator.rs`, and `backend/src/hoops/rate_limit.rs`.
-- Frontend tests render route-aware UI through `TestBrowser` from generated Umi test helpers and interact with the DOM using React Testing Library, as in `frontend/ant-design-pro-template/src/pages/user/login/login.test.tsx`.
-
 ## Mocking
 
-**Framework:** Jest mocks plus Umi request-record mock server on the frontend; minimal mocking on the backend.
+**Backend:**
+- Minimal mocking; use concrete structs directly
+- Test database uses SQLite in-memory with `OnceLock` singletons for shared state
+- Global test lock to prevent parallel DB access
 
-**Patterns:**
-```tsx
-server = await startMock({
-  port: 8000,
-  scene: 'login',
-});
+```rust
+static DB_PATH: OnceLock<String> = OnceLock::new();
+static INIT_DB: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+static TEST_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+
+fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+    TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap()
+}
 ```
 
-```jsx
+**Frontend:**
+- Browser APIs mocked in `tests/setupTests.jsx`: `localStorage`, `matchMedia`, `Worker`, `ResizeObserver`
+- HTTP mocking via `startMock` with scene files
+
+```tsx
+// tests/setupTests.jsx
 global.localStorage = localStorageMock;
 global.ResizeObserver = class ResizeObserver { ... };
 ```
 
-**What to Mock:**
-- Frontend browser APIs and layout dependencies are mocked in `frontend/ant-design-pro-template/tests/setupTests.jsx`, including `localStorage`, `matchMedia`, `Worker`, `URL.createObjectURL`, and `ResizeObserver`.
-- Mock HTTP flows with `startMock` when testing template-style pages that depend on Umi request scenes, as in `frontend/ant-design-pro-template/src/pages/user/login/login.test.tsx`.
-
-**What NOT to Mock:**
-- Backend unit tests usually avoid mocking internal collaborators and instead instantiate concrete structs directly. `backend/src/services/scheduler.rs` and `backend/src/services/analyzer.rs` test real logic with plain data.
-- Do not assume generated frontend service clients are independently tested; they are thin wrappers and currently rely on page-level usage tests instead.
-
 ## Fixtures and Factories
 
-**Test Data:**
+**Backend:**
+Private helper functions in test modules:
 ```rust
-fn sample_task_context() -> TaskContext {
-    TaskContext { ... }
+fn sample_task_context(task_id: &str) -> TaskContext {
+    TaskContext {
+        task_id: task_id.to_string(),
+        task_type: TaskType::Task,
+        complexity: 0.7,
+        // ...
+    }
 }
 ```
 
-```tsx
-const historyRef = React.createRef<any>();
-render(<TestBrowser historyRef={historyRef} location={{ pathname: '/user/login' }} />);
-```
-
-**Location:**
-- Backend fixture helpers are usually private functions inside the same test module, for example `sample_task_context`, `base_constraints`, and `default_preferences` in `backend/src/services/memory_orchestrator.rs`.
-- Frontend does not have a central fixtures or factories directory; setup is embedded in `frontend/ant-design-pro-template/src/pages/user/login/login.test.tsx` and `frontend/ant-design-pro-template/tests/setupTests.jsx`.
+**Frontend:**
+- Inline fixture data in test files
+- No centralized fixture factory pattern
 
 ## Coverage
 
-**Requirements:** None enforced.
-- `frontend/ant-design-pro-template/package.json` exposes `test:coverage`, but `frontend/ant-design-pro-template/jest.config.ts` does not define `coverageThreshold` or `collectCoverageFrom`.
-- Backend has no coverage command or threshold declared in `backend/Cargo.toml` or repository-level config files.
+**Requirements:** None enforced (no `coverageThreshold` configured)
 
-**Current posture:**
-- Backend coverage breadth is reasonable for isolated logic: `backend/src/` currently contains 31 `#[cfg(test)]` modules and 102 `#[test]` or `#[tokio::test]` cases.
-- Frontend coverage is minimal: one real Jest test file at `frontend/ant-design-pro-template/src/pages/user/login/login.test.tsx` plus one snapshot file.
+**Backend:**
+- 31 `#[cfg(test)]` modules found in `backend/src/`
+- Run `cargo test` for basic coverage
+
+**Frontend:**
+- `npm run test:coverage` generates reports but no thresholds
+- Minimal coverage: only `login.test.tsx` with snapshots
 
 **View Coverage:**
 ```bash
@@ -137,52 +190,71 @@ cd frontend/ant-design-pro-template && npm run test:coverage
 ## Test Types
 
 **Unit Tests:**
-- Dominant backend pattern. Logic-heavy modules test pure or near-pure functions inline, including `backend/src/services/analyzer.rs`, `backend/src/services/predictor.rs`, `backend/src/policy/cost_model.rs`, and `backend/src/services/monitor.rs`.
+- Dominant pattern in backend
+- Modules tested: `analyzer.rs`, `predictor.rs`, `scheduler.rs`, `monitor.rs`, `cost_model.rs`
 
 **Integration Tests:**
-- Limited backend integration coverage exists as a live example rather than an automated suite: `backend/examples/test_memory_search.rs` calls the HTTP API with `reqwest` and requires the server plus dependencies to be running.
-- Frontend login tests are closer to component-plus-routing integration tests than isolated unit tests because they render through `TestBrowser` and hit a mock server.
+- Backend: `backend/tests/*.rs` with real HTTP requests via `tower::ServiceExt::oneshot`
+- Frontend: Login test uses `TestBrowser` with mock server
 
 **E2E Tests:**
-- No dedicated Playwright, Cypress, or browser automation suite was detected.
-- The frontend `record` script in `frontend/ant-design-pro-template/package.json` supports Umi request recording, but it is not an end-to-end assertion suite.
+- Not detected; no Playwright, Cypress, or similar
+
+## CI Pipeline
+
+**Backend CI (`.github/workflows/backend-ci.yml`):**
+1. Code quality: `cargo fmt --check`, `cargo clippy`, `cargo doc`
+2. Security: `rustsec/audit-check`
+3. Build and test: `cargo build`, `cargo test`
+
+**Frontend CI (`.github/workflows/frontend-ci.yml`):**
+1. Code quality: `npm run lint`, `tsc --noEmit`
+2. Build: `npm run build`
 
 ## Common Patterns
 
-**Async Testing:**
+**Async Testing (Backend):**
 ```rust
 #[tokio::test]
-async fn test_select_memory_returns_error_when_what_if_fails() {
-    let result = select_memory(...).await;
-    assert!(result.is_err());
+async fn test_function() {
+    let result = async_function().await;
+    assert!(result.is_ok());
 }
 ```
 
-```tsx
-it('should login success', async () => {
-  await (await rootContainer.findByText('Login')).click();
-  await waitTime(5000);
-  await rootContainer.findAllByText('Ant Design Pro');
-});
-```
-
-**Error Testing:**
+**Error Path Testing:**
 ```rust
-let result = select_memory(...).await;
-assert!(result.is_err());
+#[tokio::test]
+async fn verify_chain_rejects_tampering() {
+    let result = verify_chain(...).await;
+    assert!(!result.verified);
+    assert!(verification.violations.iter().any(|item| item.contains("prev_hash")));
+}
 ```
 
-- Backend explicitly checks failing branches in `backend/src/services/memory_orchestrator.rs` and boundary behavior in modules like `backend/src/hoops/rate_limit.rs`.
-- Frontend error-path assertions are largely absent; current tests focus on happy-path login and snapshot rendering in `frontend/ant-design-pro-template/src/pages/user/login/login.test.tsx`.
+**HTTP Handler Testing:**
+```rust
+let app = backend::axum_routers::create_router();
+let response = app
+    .oneshot(
+        Request::builder()
+            .uri(format!("/api/v1/workflows/{}/evidence", task_id))
+            .body(Body::empty())
+            .expect("build request"),
+    )
+    .await
+    .expect("serve request");
+assert_eq!(response.status(), StatusCode::OK);
+```
 
-## Gaps
+## Test Gaps
 
-- Frontend business pages under `frontend/ant-design-pro-template/src/pages/MemoryManagement`, `MemoryConfig`, `MemoryDecisionTrace`, `MemoryDetails`, `Performance`, `ResourceMonitor`, `TaskAnalysis`, and `WeightHistory` do not have matching test files.
-- Frontend request normalization in `frontend/ant-design-pro-template/src/requestErrorConfig.ts` is untested even though it centralizes error display and auth header behavior.
-- Frontend memory API clients under `frontend/ant-design-pro-template/src/services/memory/*.ts` are not directly covered and are excluded from Biome linting in `frontend/ant-design-pro-template/biome.json`.
-- Backend repository methods that hit the database, especially create/list/update flows in `backend/src/db/memory.rs`, are only lightly covered; most tests validate mapping helpers rather than real database interaction.
-- The live example `backend/examples/test_memory_search.rs` depends on a running backend and external services, so it does not protect CI unless explicitly wired into automation.
+- Frontend business pages (`MemoryManagement`, `MemoryConfig`, `MemoryDecisionTrace`, `Performance`, `ResourceMonitor`, `TaskAnalysis`, `WeightHistory`) lack tests
+- Frontend `requestErrorConfig.ts` untested
+- Frontend `src/services/memory/*.ts` not directly covered
+- Backend DB repository methods lightly tested
+- No E2E test framework in use
 
 ---
 
-*Testing analysis: 2026-03-26*
+*Testing analysis: 2026-03-28*

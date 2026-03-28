@@ -1,115 +1,229 @@
 # External Integrations
 
-**Analysis Date:** 2026-03-26
+**Analysis Date:** 2026-03-28
 
 ## APIs & External Services
 
-**Model Serving:**
-- Ollama - backend LLM generation, embedding generation, and reranking calls.
-  - SDK/Client: `reqwest` in `backend/src/services/llm.rs`, `backend/src/services/embedding.rs`, and `backend/src/services/rerank.rs`.
-  - Auth: Not detected; the configured base URL is read from backend config in `backend/src/config/llm_config.rs`, `backend/src/config/embedding_config.rs`, and `backend/src/config/rerank_config.rs`.
+**LLM Service (Ollama):**
+- Purpose: Content summarization, structured extraction, reranking
+  - Implementation: `backend/src/services/llm.rs`
+  - API endpoint: `/api/generate` on Ollama
+  - Config: `backend/src/config/llm_config.rs`
+  - Auth: No auth (local service on localhost:11434)
+  - Default model: llama3
 
-**Vector Search:**
-- Qdrant - long-term memory vector index and similarity search.
-  - SDK/Client: `qdrant-client` in `backend/src/services/qdrant.rs`.
-  - Auth: Not detected; host/port/collection settings come from backend config in `backend/src/config/qdrant_config.rs`.
+**Embedding Service (Ollama):**
+- Purpose: Generate text embeddings for semantic search
+  - Implementation: `backend/src/services/embedding.rs`
+  - API endpoint: `/api/embeddings` on Ollama
+  - Config: `backend/src/config/embedding_config.rs`
+  - Auth: No auth (local service on localhost:11434)
+  - Default model: nomic-embed-text
+  - Caching: Moka in-memory cache (10000 entries, 24h TTL)
 
-**Graph Database:**
-- Neo4j - optional graph persistence for knowledge graph operations.
-  - SDK/Client: `neo4rs` in `backend/src/db/neo4j.rs`.
-  - Auth: username/password loaded from backend config in `backend/src/config/neo4j_config.rs`; do not hardcode production credentials into `backend/config.toml`.
-
-**Documentation UI / Remote Assets:**
-- Scalar API Reference CDN - OpenAPI docs page loads `@scalar/api-reference` from a public CDN in `backend/src/axum_routers/mod.rs` and `backend/src/routers/mod.rs`.
-- Ant Design / Alipay-hosted assets - default frontend logos/backgrounds and sample schemas are referenced in `frontend/ant-design-pro-template/config/defaultSettings.ts`, `frontend/ant-design-pro-template/src/app.tsx`, and `frontend/ant-design-pro-template/config/config.ts`.
-
-**Protocol / Runtime Interop:**
-- MCP (Model Context Protocol) - backend exposes an MCP HTTP surface for memory tools in `backend/src/routers/mcp.rs` and SDK clients consume MCP endpoints in `sdks/rust/src/mcp.rs`, `sdks/rust/src/memory.rs`, and `sdks/python/adaptive_memory/client.py`.
-- Oris integration - in-memory runtime integration types exist in `backend/src/integrations/oris.rs`; no external network client is wired for Oris in this repository.
+**Rerank Service (Ollama):**
+- Purpose: Re-rank search results using LLM relevance scoring
+  - Implementation: `backend/src/services/rerank.rs`
+  - API endpoint: `/api/generate` on Ollama
+  - Config: `backend/src/config/rerank_config.rs`
+  - Auth: No auth (local service on localhost:11434)
+  - Default model: bge-reranker-base
 
 ## Data Storage
 
-**Databases:**
-- PostgreSQL / pgvector image - primary relational store in Docker and SQLx runtime paths.
-  - Connection: `DATABASE_URL` or backend TOML config resolved in `backend/src/config/mod.rs`.
-  - Client: `sqlx` in `backend/src/db/mod.rs` and repositories under `backend/src/db/**`.
-- SQLite - local-first fallback database when `DATABASE_URL` is not set.
-  - Connection: derived by `backend/src/config/storage.rs`.
-  - Client: `sqlx` in `backend/src/db/mod.rs`.
-- Qdrant - vector store for LTM search.
-  - Connection: config section in `backend/src/config/qdrant_config.rs`.
-  - Client: `backend/src/services/qdrant.rs`.
-- Neo4j - graph store for KG operations.
-  - Connection: config section in `backend/src/config/neo4j_config.rs`.
-  - Client: `backend/src/db/neo4j.rs`.
+**PostgreSQL:**
+- Type: Relational database with vector support (pgvector)
+  - Image: `pgvector/pgvector:pg16` (`docker-compose.yml`)
+  - Ports: `5432:5432`
+  - Connection: Configured via `DATABASE_URL` or `db.url` in config
+  - Client: SQLx 0.8 (`backend/src/db/mod.rs`)
+  - Purpose: STM sessions, LTM metadata, weights, performance metrics, decision traces
 
-**File Storage:**
-- Local filesystem only.
-  - Persistent app data is resolved under the OS data directory or overrides from `OPENWEBUI_DATA_DIR` / `ADAPTIVE_MEMORY_DATA_DIR` in `backend/src/config/storage.rs`.
-  - Write-ahead journal and vector signature files are stored locally by `backend/src/services/information_guard.rs` and `backend/src/services/vector_guard.rs`.
-  - Static frontend-like assets and HTML templates are served from `backend/assets/` and `backend/views/`.
+**SQLite:**
+- Type: Embedded database (development fallback)
+  - Path: `data/memory.db` (WAL mode enabled)
+  - Client: SQLx 0.8 with SQLite support
+  - Purpose: Same as PostgreSQL when running without PostgreSQL
+  - Config: `backend/src/config/storage.rs`
 
-**Caching:**
-- In-process cache only.
-  - `moka` caches embeddings in `backend/src/services/embedding.rs`.
-  - In-memory rate limiting state exists in `backend/src/hoops/rate_limit.rs` and `backend/src/web/rate_limit.rs`.
-  - No Redis, Memcached, or external distributed cache was detected.
+**Qdrant:**
+- Type: Vector database
+  - Image: `qdrant/qdrant:latest` (`docker-compose.yml`)
+  - Ports: `6333:6333` (REST), `6334:6334` (gRPC)
+  - Connection: `http://localhost:6334` via config
+  - Client: `qdrant-client` 1.7 (`backend/src/services/qdrant.rs`)
+  - Purpose: LTM vector storage, semantic search
+  - Collection: `long_term_memory` (configurable)
+
+**Neo4j:**
+- Type: Graph database (optional)
+  - Image: `neo4j:5` (`docker-compose.yml`)
+  - Ports: `7474:7474` (HTTP), `7687:7687` (Bolt)
+  - Connection: Configured via `backend/config.toml` or `APP_NEO4J_PASSWORD`
+  - Client: `neo4rs` 0.8 (`backend/src/db/neo4j.rs`)
+  - Purpose: Knowledge graph entities and relationships
+  - Auth: `neo4j` / password
+
+**In-Memory Cache:**
+- Type: Moka cache
+  - Purpose: Embedding result caching
+  - Location: `backend/src/services/embedding.rs`
+  - Capacity: 10000 entries
+  - TTL: 24 hours
 
 ## Authentication & Identity
 
-**Auth Provider:**
-- Custom JWT authentication.
-  - Implementation: JWT encode/decode in `backend/src/hoops/jwt.rs`, cookie-based login/logout flows in `backend/src/routers/auth.rs` and `backend/src/axum_routers/auth.rs`, and frontend token storage/header injection in `frontend/ant-design-pro-template/src/requestErrorConfig.ts` and `frontend/ant-design-pro-template/src/pages/user/login/index.tsx`.
-- API key support is also present for enterprise-style hooks and SDK clients.
-  - Implementation: backend auth hook scaffolding in `backend/src/hoops/enterprise_impl.rs` and `backend/src/web/rate_limit.rs`; optional bearer/API-key handling in `sdks/rust/src/client.rs` and `sdks/python/adaptive_memory/client.py`.
+**JWT Authentication:**
+- Implementation: `backend/src/hoops/jwt.rs`, `backend/src/web/jwt.rs`
+- Algorithm: RS256/RSA via `jsonwebtoken` with `rust_crypto` feature
+- Secret: Configured via `jwt.secret` or `APP_JWT_SECRET` env var
+- Expiry: 3600 seconds (configurable)
+- Cookie-based auth also supported
+
+**Password Hashing:**
+- Algorithm: Argon2
+- Implementation: `backend/src/services/agent_identity.rs`
+
+**Enterprise Features:**
+- API key support in `backend/src/hoops/enterprise_impl.rs`
+- Rate limiting in `backend/src/hoops/rate_limit.rs`
 
 ## Monitoring & Observability
 
-**Error Tracking:**
-- None detected for external SaaS error tracking.
+**Logging:**
+- Framework: `tracing` + `tracing-subscriber` + `tracing-appender`
+- Outputs: stdout, rolling daily log file
+- Config: `backend/src/config/log_config.rs`
+- Format: JSON with timestamps for production, pretty for dev
+- Env filter for log level control
 
-**Logs:**
-- Structured local logging via `tracing`, `tracing-subscriber`, and `tracing-appender` in `backend/src/config/log_config.rs`.
-- Browser-side request failures are surfaced as Ant Design messages/notifications in `frontend/ant-design-pro-template/src/requestErrorConfig.ts`.
+**Frontend Error Handling:**
+- Browser-side failures surfaced as Ant Design notifications
+- Location: `frontend/ant-design-pro-template/src/requestErrorConfig.ts`
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Backend is packaged as a container with `backend/Dockerfile`; local multi-service orchestration is defined in `docker-compose.yml`.
-- Frontend includes a static deployment script using `gh-pages` in `frontend/ant-design-pro-template/package.json`.
-- Vendored upstream template workflows also target GitHub Pages and Surge previews in `frontend/ant-design-pro-template/.github/workflows/deploy.yml` and `frontend/ant-design-pro-template/.github/workflows/preview-deploy.yml`.
+- Docker Compose for local development (`docker-compose.yml`)
+- Backend container via `backend/Dockerfile`
+- Frontend static deployment via `gh-pages`
 
 **CI Pipeline:**
-- GitHub Actions runs backend Rust checks/build/tests in `.github/workflows/backend-ci.yml` and `.github/workflows/ci.yml`.
-- GitHub Actions runs frontend install/lint/build in `.github/workflows/frontend-ci.yml` and `.github/workflows/ci.yml`.
-- The vendored template carries additional GitHub Actions for Bun-based CI, coverage upload, preview deploys, and issue automation in `frontend/ant-design-pro-template/.github/workflows/*.yml`.
+- GitHub Actions: `.github/workflows/backend-ci.yml`, `.github/workflows/frontend-ci.yml`
+- Backend: cargo build, cargo test
+- Frontend: npm install, npm run lint, npm run build
 
 ## Environment Configuration
 
-**Required env vars:**
-- `APP_CONFIG` - explicit backend config file override in `backend/src/config/mod.rs`.
-- `APP_...` - backend-wide Figment override prefix in `backend/src/config/mod.rs`; examples are documented in `backend/config.toml.example`.
-- `DATABASE_URL` - backend primary database connection in `backend/src/config/mod.rs`.
-- `OPENWEBUI_DATA_DIR` and `ADAPTIVE_MEMORY_DATA_DIR` - local storage path overrides in `backend/src/config/storage.rs`.
-- `UMI_ENV`, `MOCK`, and `CI` - frontend dev/build mode controls in `frontend/ant-design-pro-template/package.json` and `frontend/ant-design-pro-template/config/config.ts`.
-- `GITHUB_TOKEN` and `SURGE_TOKEN` - CI secrets referenced by GitHub workflow files in `.github/workflows/backend-ci.yml` and `frontend/ant-design-pro-template/.github/workflows/preview-deploy.yml`.
+**Critical env vars:**
 
-**Secrets location:**
-- Runtime secrets are expected through environment variables or local TOML config files such as `backend/config.toml`, `backend/local.toml`, and `backend/docker.toml`; avoid committing real credentials there.
-- CI secrets are provided through GitHub Actions secrets in workflow files under `.github/workflows/` and `frontend/ant-design-pro-template/.github/workflows/`.
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgres://memory:memory@localhost:5432/memory` |
+| `APP_JWT_SECRET` | JWT signing secret | `your_strong_random_secret` |
+| `APP_NEO4J_PASSWORD` | Neo4j password | `password` |
+| `APP_CONFIG` | Backend config file override | `/path/to/config.toml` |
+
+**Config file (`backend/config.toml`):**
+```toml
+listen_addr = "127.0.0.1:8008"
+
+[db]
+url = "postgres://memory:memory@localhost:5432/memory"
+
+[jwt]
+secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
+
+[llm]
+base_url = "http://localhost:11434"
+model = "llama3"
+
+[embedding]
+base_url = "http://localhost:11434"
+model = "nomic-embed-text"
+
+[qdrant]
+host = "localhost"
+port = 6334
+
+[neo4j]
+host = "localhost"
+port = 7687
+username = "neo4j"
+password = "REPLACE_WITH_YOUR_NEO4J_PASSWORD"
+```
+
+## Frontend-Backend Communication
+
+**Protocol:** REST over HTTP
+**Base URL:** `http://localhost:8008` (backend)
+
+**Key Endpoints:**
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/memory/storage/stm` | POST | Store short-term memory |
+| `/api/v1/memory/storage/ltm` | POST | Store long-term memory |
+| `/api/v1/memory/search/ltm` | GET/POST | List/search LTM |
+| `/api/v1/memory/search/hybrid` | POST | Hybrid vector + keyword search |
+| `/api/v1/memory/search/triple` | POST | Triple hybrid retrieval |
+| `/api/v1/memory/search/scored` | POST | Retrieval with confidence scoring |
+| `/api/kg/entities` | GET | List KG entities |
+| `/api/tenants` | GET/POST | Tenant management |
+| `/scalar` | GET | OpenAPI docs (Scalar UI) |
+
+**Frontend Service Files:**
+- `frontend/ant-design-pro-template/src/services/memory/storageApi.ts` - STM/LTM APIs
+- `frontend/ant-design-pro-template/src/services/memory/knowledgeGraphApi.ts` - KG APIs
+- `frontend/ant-design-pro-template/src/services/memory/multimodalApi.ts` - MM APIs
+- `frontend/ant-design-pro-template/src/services/memory/index.ts` - API exports
+
+## SDK Integrations
+
+**Rust SDK:**
+- Location: `sdks/rust/`
+- Package: `adaptive-memory`
+- Dependencies: `reqwest`, `serde`, `tokio`, `thiserror`, `anyhow`
+- File: `sdks/rust/Cargo.toml`
+
+**Python SDK:**
+- Location: `sdks/python/`
+- Build: `pyproject.toml` based
+- File: `sdks/python/pyproject.toml`
+
+## Service Communication Flow
+
+```
+Frontend (React) - Port 8000
+    |
+    v HTTP REST
+Backend (Axum/Rust) - Port 8008
+    |
+    +---> PostgreSQL:5432 - Relational data (SQLx)
+    +---> Qdrant:6334 - Vector storage (gRPC)
+    +---> Neo4j:7687 - Graph data (Bolt)
+    +---> Ollama:11434 - LLM/Embeddings (HTTP)
+```
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None detected. The repository exposes HTTP APIs and MCP endpoints, but no webhook receiver pattern is configured in routing files under `backend/src/routers/**` or `backend/src/axum_routers/**`.
+- None detected. Repository exposes HTTP APIs and MCP endpoints only.
 
 **Outgoing:**
-- Backend outbound HTTP calls go to Ollama in `backend/src/services/llm.rs`, `backend/src/services/embedding.rs`, and `backend/src/services/rerank.rs`.
-- Backend outbound gRPC/HTTP2 calls go to Qdrant in `backend/src/services/qdrant.rs`.
-- Backend outbound Bolt protocol calls go to Neo4j in `backend/src/db/neo4j.rs`.
-- Frontend development mode targets the local backend at `http://127.0.0.1:8008` in `frontend/ant-design-pro-template/src/app.tsx`.
-- Frontend non-development fallback and proxy settings still reference template/demo endpoints in `frontend/ant-design-pro-template/src/app.tsx` and `frontend/ant-design-pro-template/config/proxy.ts`; treat those as template carryovers unless intentionally retained.
+- Backend -> Ollama: LLM calls, embedding generation, reranking (`backend/src/services/*.rs`)
+- Backend -> Qdrant: Vector search operations (`backend/src/services/qdrant.rs`)
+- Backend -> Neo4j: Graph traversal and updates (`backend/src/db/neo4j.rs`)
+
+## Documentation
+
+**API Documentation:**
+- Scalar UI at `/scalar` endpoint
+- OpenAPI spec generated via Utoipa (`backend/src/axum_routers/mod.rs`)
+
+**Scalar CDN:**
+- `@scalar/api-reference` loaded from public CDN (`backend/src/axum_routers/mod.rs`)
 
 ---
 
-*Integration audit: 2026-03-26*
+*Integration audit: 2026-03-28*

@@ -1,6 +1,6 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-03-26
+**Analysis Date:** 2026-03-28
 
 ## Tech Debt
 
@@ -27,6 +27,23 @@
 - Files: `backend/README.md`, `frontend/ant-design-pro-template/README.md`, `frontend/ant-design-pro-template/src/app.tsx`
 - Impact: New contributors and deployers can follow the wrong architecture or accidentally ship the UI against an external demo backend.
 - Fix approach: Replace template docs with project-specific docs, document the active router and auth flow, and externalize production API base URL into environment-specific config.
+
+## Incomplete Feature Implementations
+
+**[MCP Router - Memory Deletion]:**
+- Issue: `handle_memory_delete` in `backend/src/routers/mcp.rs:386` acknowledges the forget operation but does not implement actual deletion per layer
+- Impact: Memory deletion via MCP protocol has no effect
+- Fix approach: Implement actual deletion logic for STM, LTM, KG, MM layers
+
+**[Consolidation Service - Conflict Detection]:**
+- Issue: `detect_conflicts` in `backend/src/services/consolidation.rs:204` is a placeholder returning empty vector
+- Impact: Memory conflicts are never detected or resolved
+- Fix approach: Implement semantic embedding comparison or content diff logic
+
+**[Batch Store Error Handling]:**
+- Issue: `batch_store_ltm` in `backend/src/services/memory_storage.rs:262-268` silently continues on individual entry failures
+- Impact: Partial failures go unnoticed; no rollback or retry mechanism
+- Fix approach: Add configurable error handling (fail-fast, continue with reporting, or transactional batch)
 
 ## Known Bugs
 
@@ -74,6 +91,11 @@
 - Current mitigation: The legacy router tree is not the one booted by `main.rs`.
 - Recommendations: Hash passwords on update immediately so the bug cannot be reintroduced by a router switch or test path.
 
+**Database URL potentially logged with connection details:**
+- File: `backend/src/db/mod.rs:64`
+- Risk: `config.url.split('@').last().unwrap_or("")` - URL parsing could expose connection details if format differs
+- Recommendations: Use proper URL parsing to extract only the host portion
+
 ## Performance Bottlenecks
 
 **Memory search does N+1 database lookups after vector search:**
@@ -94,6 +116,18 @@
 - Cause: There is no model-aware tokenizer in the compression path.
 - Improvement path: Use the tokenizer for the configured model family or at least calibrate per-provider estimates and track actual token deltas in telemetry.
 
+**sysinfo refresh on every monitoring call:**
+- File: `backend/src/services/monitor.rs:24`
+- Problem: `System::new_all()` refreshes all system metrics on every `get_current_status()` call
+- Impact: Unnecessary overhead for frequent monitoring calls
+- Improvement path: Cache system data with a refresh interval, or use targeted refresh methods
+
+**Hardcoded quality score in LTM storage:**
+- File: `backend/src/services/memory_storage.rs:153`
+- Problem: `quality_score = Some(0.8)` is always 0.8 regardless of content quality
+- Impact: Quality-based filtering and ranking are ineffective
+- Improvement path: Calculate from LLM extraction confidence or content characteristics
+
 ## Fragile Areas
 
 **Startup sequencing masks infrastructure failure modes:**
@@ -108,6 +142,18 @@
 - Safe modification: Align the frontend to one explicit auth contract first, then add an end-to-end login/logout smoke test before changing routing or response formats.
 - Test coverage: Frontend tests only cover `src/pages/user/login/login.test.tsx`, which is a template-style login test and does not verify the active backend integration.
 
+**Database pool() panics on incorrect initialization order:**
+- File: `backend/src/db/mod.rs:214-219`
+- Why fragile: `pool()` panics if database not initialized; Pool::new() is called in multiple places
+- Impact: Startup failures cascade; no graceful degradation
+- Safe modification: Return Result instead of panicking; implement proper initialization checks
+
+**MemoryTransferService thread safety concerns:**
+- File: `backend/src/services/memory_transfer.rs:12-23`
+- Why fragile: Service contains `running: bool` with interior mutability in a static singleton
+- Impact: Race conditions possible if start()/stop() called concurrently
+- Safe modification: Use Mutex for internal state or tokio::sync::OnceCell
+
 ## Missing Critical Features
 
 **No authoritative route contract for the running server:**
@@ -117,6 +163,11 @@
 **No project-specific frontend deployment configuration:**
 - Problem: Production requests default to `https://proapi.azurewebsites.net` in `frontend/ant-design-pro-template/src/app.tsx`.
 - Blocks: Safe production builds of the actual Adaptive Memory System UI.
+
+**No retry/circuit breaker for external services:**
+- Issue: Ollama, Qdrant, Neo4j calls have no circuit breakers
+- Impact: External service outages crash the application
+- Fix approach: Add configurable timeouts and fallback behavior
 
 ## Test Coverage Gaps
 
@@ -132,6 +183,12 @@
 - Risk: Routing, auth, and data loading regressions can ship unnoticed.
 - Priority: High
 
+**Repository methods and database queries untested:**
+- What's not tested: SQL queries, repository methods, and service integrations
+- Files: `backend/src/db/memory.rs`, `backend/src/db/stm.rs`, `backend/src/db/ltm.rs`
+- Risk: Database errors only discovered at runtime
+- Priority: Medium
+
 ---
 
-*Concerns audit: 2026-03-26*
+*Concerns audit: 2026-03-28*

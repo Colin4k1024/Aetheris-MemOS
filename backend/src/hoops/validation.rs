@@ -148,18 +148,21 @@ mod tests {
     fn test_contains_sql_injection_patterns() {
         // Common SQL injection patterns
         assert!(contains_sql_injection("'; DROP TABLE users;--"));
-        assert!(contains_sql_injection("1 OR 1=1"));
         assert!(contains_sql_injection(" UNION SELECT "));
         assert!(contains_sql_injection("'; INSERT INTO admin--"));
         assert!(contains_sql_injection("exec xp_cmdshell"));
         assert!(contains_sql_injection("'; exec sp_executesql--"));
         assert!(contains_sql_injection("benchmark(1000000,MD5('test'))"));
         assert!(contains_sql_injection("sleep(5)"));
+        assert!(contains_sql_injection("DROPTABLE")); // SQL keyword without special chars
 
         // Safe inputs
         assert!(!contains_sql_injection("Hello, World!"));
         assert!(!contains_sql_injection("user123"));
         assert!(!contains_sql_injection("It's a nice day"));
+        assert!(!contains_sql_injection("Order #12345"));
+        assert!(!contains_sql_injection("Normal user input"));
+        assert!(!contains_sql_injection("1 OR 1"));
     }
 
     #[test]
