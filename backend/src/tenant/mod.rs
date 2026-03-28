@@ -45,3 +45,10 @@ impl std::fmt::Display for TenantId {
         write!(f, "{}", self.0)
     }
 }
+
+impl TenantId {
+    /// Returns the tenant prefix for scoping data (e.g., "t:tenant_id").
+    pub fn prefix(&self) -> String {
+        format!("t:{}", self.0)
+    }
+}

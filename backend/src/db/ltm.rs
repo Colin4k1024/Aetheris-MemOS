@@ -4,6 +4,7 @@ use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
+use crate::tenant::TenantId;
 use crate::AppError;
 
 /// 长期记忆仓库
@@ -48,8 +49,9 @@ pub struct KnowledgeEntry {
 }
 
 impl LTMRepository {
-    /// 创建知识条目
+    /// 创建知识条目（租户隔离）
     pub async fn create_knowledge_entry(
+        tenant_id: &TenantId,
         source_id: &str,
         source_type: &str,
         title: Option<&str>,
@@ -62,6 +64,7 @@ impl LTMRepository {
     ) -> Result<String, AppError> {
         Self::create_knowledge_entry_with_id(
             None,
+            tenant_id,
             source_id,
             source_type,
             title,
@@ -75,9 +78,10 @@ impl LTMRepository {
         .await
     }
 
-    /// 创建知识条目（使用指定的 entry_id）
+    /// 创建知识条目（使用指定的 entry_id，租户隔离）
     pub async fn create_knowledge_entry_with_id(
         entry_id: Option<String>,
+        tenant_id: &TenantId,
         source_id: &str,
         source_type: &str,
         title: Option<&str>,
@@ -100,6 +104,9 @@ impl LTMRepository {
             AppError::Internal(format!("Failed to serialize embedding: {}", e))
         })?;
 
+        // 构建租户限定的source_id用于跨租户隔离
+        let tenant_source_id = format!("{}:{}", tenant_id.prefix(), source_id);
+
         sqlx::query(
             r#"
             INSERT INTO knowledge_entries (
@@ -110,7 +117,7 @@ impl LTMRepository {
             "#,
         )
         .bind(&entry_id)
-        .bind(source_id)
+        .bind(tenant_source_id)
         .bind(source_type)
         .bind(title)
         .bind(content)
@@ -127,7 +134,7 @@ impl LTMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Created new knowledge entry: {}", entry_id);
+        info!("Created new knowledge entry: {} for tenant: {}", entry_id, tenant_id);
         Ok(entry_id)
     }
 
@@ -165,10 +172,12 @@ impl LTMRepository {
         Ok(())
     }
 
-    /// 根据 ID 获取条目
-    pub async fn get_entry_by_id(entry_id: &str) -> Result<Option<KnowledgeEntry>, AppError> {
-        let pool = pool();
-
+    /// 根据 ID 获取条目（租户隔离）
+    pub async fn get_entry_by_id(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        entry_id: &str,
+    ) -> Result<Option<KnowledgeEntry>, AppError> {
         let entry = sqlx::query_as::<_, KnowledgeEntry>(
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
@@ -194,17 +203,34 @@ impl LTMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
+        // 验证条目属于该租户
+        if let Some(ref e) = entry {
+            let prefix = tenant_id.prefix();
+            if !e.source_id.starts_with(&prefix) {
+                // 跨租户访问尝试 - 记录违规但返回None（不泄露数据存在性）
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    entry_id,
+                    "ltm_entry_cross_tenant_read",
+                );
+                return Ok(None);
+            }
+        }
+
         Ok(entry)
     }
 
-    /// 根据来源获取条目
+    /// 根据来源获取条目（租户隔离）
     pub async fn get_entries_by_source(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         source_id: &str,
         source_type: Option<&str>,
         limit: Option<i32>,
     ) -> Result<Vec<KnowledgeEntry>, AppError> {
-        let pool = pool();
         let limit = limit.unwrap_or(100);
+        let prefix = tenant_id.prefix();
+        let tenant_source_pattern = format!("{}:{}%", prefix, source_id);
 
         let query = if let Some(st) = source_type {
             sqlx::query_as::<_, KnowledgeEntry>(
@@ -221,12 +247,12 @@ impl LTMRepository {
                        valid_until::text as valid_until,
                        superseded_by
                 FROM knowledge_entries
-                WHERE source_id = $1 AND source_type = $2 AND status = 'active'
+                WHERE source_id LIKE $1 AND source_type = $2 AND status = 'active'
                 ORDER BY created_at DESC
                 LIMIT $3
                 "#,
             )
-            .bind(source_id)
+            .bind(tenant_source_pattern)
             .bind(st)
             .bind(limit)
         } else {
@@ -244,12 +270,12 @@ impl LTMRepository {
                        valid_until::text as valid_until,
                        superseded_by
                 FROM knowledge_entries
-                WHERE source_id = $1 AND status = 'active'
+                WHERE source_id LIKE $1 AND status = 'active'
                 ORDER BY created_at DESC
                 LIMIT $2
                 "#,
             )
-            .bind(source_id)
+            .bind(tenant_source_pattern)
             .bind(limit)
         };
 
@@ -261,16 +287,22 @@ impl LTMRepository {
         Ok(entries)
     }
 
-    /// 获取所有知识条目列表
+    /// 获取所有知识条目列表（租户隔离）
     pub async fn list_entries(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         _category: Option<&str>,
         _status: Option<&str>,
         limit: Option<i32>,
         offset: Option<i32>,
     ) -> Result<KnowledgeEntryListResponse, AppError> {
-        let pool = pool();
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
+
+        let prefix = tenant_id.prefix();
+        let tenant_source_pattern = format!("{}%", prefix);
+        // Clone for second query since String doesn't implement Copy
+        let tenant_source_pattern_clone = tenant_source_pattern.clone();
 
         let entries: Vec<KnowledgeEntry> = sqlx::query_as(
             r#"
@@ -285,11 +317,12 @@ impl LTMRepository {
                    valid_until::text as valid_until,
                    superseded_by
             FROM knowledge_entries
-            WHERE status = 'active'
+            WHERE source_id LIKE $1 AND status = 'active'
             ORDER BY created_at DESC
-            LIMIT $1 OFFSET $2
+            LIMIT $2 OFFSET $3
             "#,
         )
+        .bind(tenant_source_pattern)
         .bind(limit)
         .bind(offset)
         .fetch_all(pool)
@@ -300,7 +333,8 @@ impl LTMRepository {
         })?;
 
         let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE status = 'active'")
+            sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1 AND status = 'active'")
+                .bind(tenant_source_pattern_clone)
                 .fetch_one(pool)
                 .await
                 .map_err(|e| {
@@ -316,28 +350,34 @@ impl LTMRepository {
         })
     }
 
-    /// 获取长期记忆条目总数
-    pub async fn count(pool: &sqlx::PgPool) -> Result<i64, AppError> {
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries")
-            .fetch_one(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to count knowledge entries: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })?;
+    /// 获取长期记忆条目总数（租户隔离）
+    pub async fn count(pool: &sqlx::PgPool, tenant_id: &TenantId) -> Result<i64, AppError> {
+        let prefix = tenant_id.prefix();
+        let tenant_pattern = format!("{}%", prefix);
+
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1"
+        )
+        .bind(tenant_pattern)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to count knowledge entries: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         Ok(row.0)
     }
 
-    // ============ Bi-temporal Tracking Methods ============
+    // ============ Bi-temporal Tracking Methods (租户隔离) ============
 
-    /// 获取特定时间点的知识条目（时间旅行查询）
+    /// 获取特定时间点的知识条目（时间旅行查询，租户隔离）
     pub async fn get_entry_at_time(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         entry_id: &str,
         at_timestamp: &str,
     ) -> Result<Option<KnowledgeEntry>, AppError> {
-        let pool = pool();
-
         let entry = sqlx::query_as::<_, KnowledgeEntry>(
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
@@ -365,17 +405,33 @@ impl LTMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
+        // 验证条目属于该租户
+        if let Some(ref e) = entry {
+            let prefix = tenant_id.prefix();
+            if !e.source_id.starts_with(&prefix) {
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    entry_id,
+                    "ltm_entry_at_time_cross_tenant_access",
+                );
+                return Ok(None);
+            }
+        }
+
         Ok(entry)
     }
 
-    /// 搜索特定时间点的知识条目
+    /// 搜索特定时间点的知识条目（租户隔离）
     pub async fn search_entries_at_time(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         query: &str,
         at_timestamp: &str,
         limit: Option<i32>,
     ) -> Result<Vec<KnowledgeEntry>, AppError> {
-        let pool = pool();
         let limit = limit.unwrap_or(20);
+        let prefix = tenant_id.prefix();
+        let tenant_pattern = format!("{}%", prefix);
 
         let entries = sqlx::query_as::<_, KnowledgeEntry>(
             r#"
@@ -390,21 +446,23 @@ impl LTMRepository {
                    valid_until::text as valid_until,
                    superseded_by
             FROM knowledge_entries
-            WHERE status = 'active'
+            WHERE source_id LIKE $1
+              AND status = 'active'
               AND valid_from <= $2
               AND (valid_until IS NULL OR valid_until > $2)
               AND (
-                  title ILIKE '%' || $1 || '%'
-                  OR content ILIKE '%' || $1 || '%'
-                  OR category ILIKE '%' || $1 || '%'
-                  OR domain ILIKE '%' || $1 || '%'
+                  title ILIKE '%' || $3 || '%'
+                  OR content ILIKE '%' || $3 || '%'
+                  OR category ILIKE '%' || $3 || '%'
+                  OR domain ILIKE '%' || $3 || '%'
               )
             ORDER BY quality_score DESC, relevance_score DESC
-            LIMIT $3
+            LIMIT $4
             "#,
         )
-        .bind(query)
+        .bind(tenant_pattern)
         .bind(at_timestamp)
+        .bind(query)
         .bind(limit)
         .fetch_all(pool)
         .await
@@ -450,8 +508,9 @@ impl LTMRepository {
         Ok(entries)
     }
 
-    /// 更新条目时创建新版本（保留历史）
+    /// 更新条目时创建新版本（保留历史，租户隔离）
     pub async fn supersede_entry(
+        tenant_id: &TenantId,
         entry_id: &str,
         new_content: &str,
         new_title: Option<&str>,
@@ -460,8 +519,8 @@ impl LTMRepository {
         let pool = pool();
         let new_entry_id = Ulid::new().to_string();
 
-        // 获取当前条目
-        let current = Self::get_entry_by_id(entry_id).await?;
+        // 获取当前条目（租户隔离）
+        let current = Self::get_entry_by_id(&pool, tenant_id, entry_id).await?;
         if current.is_none() {
             return Err(AppError::NotFound(format!("Entry {} not found", entry_id)));
         }

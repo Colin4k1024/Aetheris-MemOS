@@ -5,6 +5,7 @@ use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
+use crate::tenant::TenantId;
 use crate::AppError;
 
 /// 知识图谱仓库
@@ -64,8 +65,9 @@ pub struct Relation {
 }
 
 impl KGRepository {
-    /// 创建实体
+    /// 创建实体（租户隔离）
     pub async fn create_entity(
+        tenant_id: &TenantId,
         entity_name: &str,
         entity_type: &str,
         description: Option<&str>,
@@ -110,6 +112,9 @@ impl KGRepository {
 
         let embedding_dimension = embedding_vector.map(|v| v.len() as i32);
 
+        // 构建租户限定的entity_id用于跨租户隔离
+        let tenant_entity_id = format!("{}:{}", tenant_id.prefix(), entity_id);
+
         sqlx::query(
             r#"
             INSERT INTO entities (
@@ -118,7 +123,7 @@ impl KGRepository {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
-        .bind(entity_id.clone())
+        .bind(tenant_entity_id)
         .bind(entity_name)
         .bind(entity_type)
         .bind(description)
@@ -135,15 +140,19 @@ impl KGRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
+        info!("Created new entity: {} for tenant: {}", entity_id, tenant_id);
         Ok(entity_id)
     }
 
-    /// 根据实体名称和类型获取实体
+    /// 根据实体名称和类型获取实体（租户隔离）
     pub async fn get_entity_by_name(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         entity_name: &str,
         entity_type: Option<&str>,
     ) -> Result<Option<Entity>, AppError> {
-        let pool = pool();
+        let prefix = tenant_id.prefix();
+        let tenant_entity_pattern = format!("{}:%", prefix);
 
         let query = if let Some(et) = entity_type {
             sqlx::query_as::<_, Entity>(
@@ -153,12 +162,13 @@ impl KGRepository {
                        created_at, updated_at, confidence_score, popularity_score,
                        relation_count, mention_count, status
                 FROM entities
-                WHERE entity_name = $1 AND entity_type = $2 AND status = 'active'
+                WHERE entity_name = $1 AND entity_type = $2 AND entity_id LIKE $3 AND status = 'active'
                 LIMIT 1
                 "#,
             )
             .bind(entity_name)
             .bind(et)
+            .bind(tenant_entity_pattern)
         } else {
             sqlx::query_as::<_, Entity>(
                 r#"
@@ -167,11 +177,12 @@ impl KGRepository {
                        created_at, updated_at, confidence_score, popularity_score,
                        relation_count, mention_count, status
                 FROM entities
-                WHERE entity_name = $1 AND status = 'active'
+                WHERE entity_name = $1 AND entity_id LIKE $2 AND status = 'active'
                 LIMIT 1
                 "#,
             )
             .bind(entity_name)
+            .bind(tenant_entity_pattern)
         };
 
         let entity = query.fetch_optional(pool).await.map_err(|e| {
@@ -182,9 +193,13 @@ impl KGRepository {
         Ok(entity)
     }
 
-    /// 根据实体ID获取实体
-    pub async fn get_entity_by_id(entity_id: &str) -> Result<Option<Entity>, AppError> {
-        let pool = pool();
+    /// 根据实体ID获取实体（租户隔离）
+    pub async fn get_entity_by_id(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        entity_id: &str,
+    ) -> Result<Option<Entity>, AppError> {
+        let prefix = tenant_id.prefix();
 
         let entity = sqlx::query_as::<_, Entity>(
             r#"
@@ -204,6 +219,18 @@ impl KGRepository {
             error!("Failed to get entity by id: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+
+        // 验证实体属于该租户
+        if let Some(ref e) = entity {
+            if !e.entity_id.starts_with(&prefix) {
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    entity_id,
+                    "kg_entity_cross_tenant_access",
+                );
+                return Ok(None);
+            }
+        }
 
         Ok(entity)
     }
@@ -274,13 +301,14 @@ impl KGRepository {
         Ok(relation_id)
     }
 
-    /// 获取实体的相关实体
+    /// 获取实体的相关实体（租户隔离）
     pub async fn get_related_entities(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         entity_id: &str,
         relation_type: Option<&str>,
         limit: Option<i32>,
     ) -> Result<Vec<(Entity, Relation)>, AppError> {
-        let pool = pool();
         let limit = limit.unwrap_or(10);
 
         // 分别查询实体和关系，避免字段冲突
@@ -322,8 +350,8 @@ impl KGRepository {
 
         let mut result = Vec::new();
         for relation in relations {
-            // 查询对应的目标实体
-            if let Some(entity) = Self::get_entity_by_id(&relation.target_entity_id).await? {
+            // 查询对应的目标实体（租户隔离）
+            if let Some(entity) = Self::get_entity_by_id(pool, tenant_id, &relation.target_entity_id).await? {
                 result.push((entity, relation));
             }
         }
@@ -331,7 +359,7 @@ impl KGRepository {
         Ok(result)
     }
 
-    /// 根据实体搜索相关的知识条目 (pool版本)
+    /// 根据实体搜索相关的知识条目 (pool版本，租户隔离)
     pub async fn search_knowledge_by_entity(
         pool: &sqlx::PgPool,
         entity_name: &str,
@@ -410,17 +438,23 @@ impl KGRepository {
         Ok(rows)
     }
 
-    /// 获取实体列表
+    /// 获取实体列表（租户隔离）
     pub async fn list_entities(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         entity_type: Option<&str>,
         limit: Option<i32>,
         offset: Option<i32>,
     ) -> Result<EntityListResponse, AppError> {
-        let pool = pool();
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
+        let prefix = tenant_id.prefix();
+        let tenant_entity_pattern = format!("{}%", prefix);
 
         let (entities, total): (Vec<Entity>, (i64,)) = if let Some(et) = entity_type {
+            // Clone pattern for second query since String doesn't implement Copy
+            let tenant_pattern_clone = tenant_entity_pattern.clone();
+
             let entities = sqlx::query_as::<_, Entity>(
                 r#"
                 SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
@@ -428,11 +462,12 @@ impl KGRepository {
                        created_at::text as created_at, updated_at::text as updated_at,
                        confidence_score, popularity_score, relation_count, mention_count, status
                 FROM entities
-                WHERE status = 'active' AND entity_type = $1
+                WHERE entity_id LIKE $1 AND status = 'active' AND entity_type = $2
                 ORDER BY created_at DESC
-                LIMIT $2 OFFSET $3
+                LIMIT $3 OFFSET $4
                 "#,
             )
+            .bind(tenant_entity_pattern)
             .bind(et)
             .bind(limit)
             .bind(offset)
@@ -444,8 +479,9 @@ impl KGRepository {
             })?;
 
             let total = sqlx::query_as::<_, (i64,)>(
-                "SELECT COUNT(*) FROM entities WHERE status = 'active' AND entity_type = $1",
+                "SELECT COUNT(*) FROM entities WHERE entity_id LIKE $1 AND status = 'active' AND entity_type = $2",
             )
+            .bind(tenant_pattern_clone)
             .bind(et)
             .fetch_one(pool)
             .await
@@ -455,6 +491,9 @@ impl KGRepository {
             })?;
             (entities, total)
         } else {
+            // Clone pattern for second query since String doesn't implement Copy
+            let tenant_pattern_clone = tenant_entity_pattern.clone();
+
             let entities = sqlx::query_as::<_, Entity>(
                 r#"
                 SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
@@ -462,11 +501,12 @@ impl KGRepository {
                        created_at::text as created_at, updated_at::text as updated_at,
                        confidence_score, popularity_score, relation_count, mention_count, status
                 FROM entities
-                WHERE status = 'active'
+                WHERE entity_id LIKE $1 AND status = 'active'
                 ORDER BY created_at DESC
-                LIMIT $1 OFFSET $2
+                LIMIT $2 OFFSET $3
                 "#,
             )
+            .bind(tenant_entity_pattern)
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
@@ -477,8 +517,9 @@ impl KGRepository {
             })?;
 
             let total = sqlx::query_as::<_, (i64,)>(
-                "SELECT COUNT(*) FROM entities WHERE status = 'active'",
+                "SELECT COUNT(*) FROM entities WHERE entity_id LIKE $1 AND status = 'active'",
             )
+            .bind(tenant_pattern_clone)
             .fetch_one(pool)
             .await
             .map_err(|e| {
@@ -563,8 +604,9 @@ impl KGRepository {
         Ok(entities)
     }
 
-    /// 更新实体时创建新版本（保留历史）
+    /// 更新实体时创建新版本（保留历史，租户隔离）
     pub async fn supersede_entity(
+        tenant_id: &TenantId,
         entity_id: &str,
         new_name: &str,
         new_type: &str,
@@ -573,8 +615,8 @@ impl KGRepository {
         let pool = pool();
         let new_entity_id = Ulid::new().to_string();
 
-        // 获取当前实体
-        let current = Self::get_entity_by_id(entity_id).await?;
+        // 获取当前实体（租户隔离）
+        let current = Self::get_entity_by_id(&pool, tenant_id, entity_id).await?;
         if current.is_none() {
             return Err(AppError::NotFound(format!("Entity {} not found", entity_id)));
         }

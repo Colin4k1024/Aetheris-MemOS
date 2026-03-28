@@ -351,6 +351,46 @@ impl CrossAgentMemoryQuery {
     }
 }
 
+// ============ 隔离违规监控 ============
+
+/// 记录租户隔离违规事件
+///
+/// 在检测到跨租户访问尝试时调用此函数:
+/// - 增加 multi_tenant_isolation_violations_total 指标
+/// - 发出结构化警告日志用于审计追踪
+///
+/// # Arguments
+/// * `tenant_id` - 尝试访问的租户ID (from crate::tenant::TenantId, use .as_str())
+/// * `resource` - 被访问的资源标识符
+/// * `reason` - 违规原因描述
+pub fn record_isolation_violation(tenant_id: &str, resource: &str, reason: &str) {
+    // 发出结构化警告日志用于审计
+    warn!(
+        tenant_id = %tenant_id,
+        resource = resource,
+        reason = reason,
+        "MULTI-TENANT ISOLATION VIOLATION DETECTED"
+    );
+
+    // 递增内部计数器（在metrics crate可用时替换为真实指标）
+    increment_violation_counter(tenant_id, resource, reason);
+}
+
+/// 内部违规计数器（生产环境应替换为metrics crate）
+static VIOLATION_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn increment_violation_counter(tenant_id: &str, resource: &str, reason: &str) {
+    VIOLATION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // 在生产环境日志中可以看到违规计数
+    info!(
+        "Isolation violation #{}: tenant={}, resource={}, reason={}",
+        VIOLATION_COUNT.load(std::sync::atomic::Ordering::Relaxed),
+        tenant_id,
+        resource,
+        reason
+    );
+}
+
 // ============ 配额检查 ============
 
 /// 租户配额检查器
@@ -369,9 +409,10 @@ impl QuotaEnforcer {
         };
 
         // 粗略统计：查询带前缀的条目数（实际应走缓存计数器）
-        let prefix = format!("t:{}:", tenant_id);
+        let tenant_id_obj = TenantId::new(tenant_id);
+        let pool = crate::db::pool();
         let result =
-            crate::db::ltm::LTMRepository::list_entries(None, None, Some(1), Some(0)).await?;
+            crate::db::ltm::LTMRepository::list_entries(&pool, &tenant_id_obj, None, None, Some(1), Some(0)).await?;
         // 注：完整实现需要 tenant-scoped COUNT；此处保守地检查总量
         if result.total >= max {
             warn!(
