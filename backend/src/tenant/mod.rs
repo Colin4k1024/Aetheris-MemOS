@@ -9,7 +9,7 @@ pub mod context;
 pub mod quota;
 pub mod isolation;
 
-pub use context::TenantContext;
+pub use context::{TenantContext, RequestTenantContext};
 pub use quota::QuotaManager;
 pub use isolation::TenantIsolation;
 
@@ -20,6 +20,7 @@ pub use crate::tenant::context::QuotaResource;
 pub struct TenantId(pub String);
 
 impl TenantId {
+    /// Create a new TenantId with a freshly generated ULID.
     pub fn new() -> Self {
         Self(ulid::Ulid::new().to_string())
     }

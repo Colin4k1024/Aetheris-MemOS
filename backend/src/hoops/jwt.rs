@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
 use crate::config;
+use crate::tenant::RequestTenantContext;
 use crate::AppError;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -75,7 +76,12 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, A
     let claims = decode_token_claims(&token)
         .ok_or_else(|| AppError::Unauthorized("Token is invalid or expired".to_string()))?;
 
-    req.extensions_mut().insert(claims);
+    req.extensions_mut().insert(claims.clone());
+
+    // Populate tenant context from JWT uid claim (MVP: each user is their own tenant)
+    let tenant_ctx = RequestTenantContext::new(&claims.uid);
+    req.extensions_mut().insert(tenant_ctx);
+
     Ok(next.run(req).await)
 }
 
