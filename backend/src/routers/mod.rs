@@ -101,6 +101,8 @@ pub fn root() -> Router {
         .route("/config", get(memory::get_config))
         .route("/importance/{entry_id}", get(memory::get_importance))
         .route("/importance/batch", post(memory::batch_importance))
+        .route("/fusion/status", get(memory::fusion_status))
+        .route("/fusion/query", post(memory::fusion_query))
         .nest(
             "/storage",
             Router::new()

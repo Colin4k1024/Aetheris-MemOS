@@ -1,4 +1,4 @@
-use axum::extract::{Path, Query};
+use axum::extract::{Extension, Path, Query};
 use axum::Json;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ use crate::db::{
 use crate::kernel::types::{LayerType, MemoryContent, MemoryEntry, MemoryId, MemoryMetadata};
 use crate::models::*;
 use crate::services::*;
+use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
 static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> =
@@ -1125,4 +1126,29 @@ pub async fn batch_importance(
         .collect();
 
     json_ok(BatchImportanceResponse { results })
+}
+
+// ========== Memory Fusion API ==========
+
+use crate::services::memory_fusion::{FusionResult, FusionStatusResponse, MemoryFusionService};
+
+#[derive(Deserialize, ToSchema)]
+pub struct FusionQueryRequest {
+    pub query: String,
+    pub limit: Option<i32>,
+}
+
+pub async fn fusion_status(
+    ctx: RequestTenantContext,
+) -> JsonResult<FusionStatusResponse> {
+    let status = MemoryFusionService::get_status(&ctx.tenant_id).await?;
+    json_ok(status)
+}
+
+pub async fn fusion_query(
+    ctx: RequestTenantContext,
+    Json(req): Json<FusionQueryRequest>,
+) -> JsonResult<FusionResult> {
+    let result = MemoryFusionService::query(&req.query, &ctx.tenant_id, req.limit).await?;
+    json_ok(result)
 }
