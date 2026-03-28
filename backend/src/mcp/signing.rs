@@ -51,6 +51,11 @@ pub struct TrustedKeyBundle {
 }
 
 impl TrustedKeyBundle {
+    /// Create a new TrustedKeyBundle with the given keys
+    pub fn new(keys: HashMap<String, Vec<u8>>) -> Self {
+        Self { keys }
+    }
+
     /// Load trusted keys from environment variables.
     ///
     /// `MCP_TRUSTED_ISSUERS` - JSON array of trusted issuer IDs

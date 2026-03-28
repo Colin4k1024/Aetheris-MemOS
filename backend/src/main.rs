@@ -10,6 +10,7 @@ mod error;
 mod hoops;
 mod integrations;
 mod kernel;
+mod mcp;
 mod models;
 mod protocol;
 mod routers;
