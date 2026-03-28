@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-28T13:28:14.487Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-03-28T13:40:14.146Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 6
   percent: 57
 ---
 
@@ -26,8 +26,8 @@ See: `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (updated 2026-03-26)
 ## Current Position
 
 Phase: 02 (security-hardening-for-mcp-and-multi-tenant-runtime)
-Plan: 1 of 4 (Wave 0: Auth Foundation)
-Status: Plan 02-01 complete — executing phase 02
+Plan: 3 of 4 (Wave 0: Auth Foundation)
+Status: Ready to execute
 Last activity: 2026-03-28
 
 Progress: [██████░░░░] 57% (5 of 7 plans complete)
@@ -66,6 +66,8 @@ Progress: [██████░░░░] 57% (5 of 7 plans complete)
 - [Phase 02]: Query-string tokens explicitly rejected with 401 to prevent referrer leakage
 - [Phase 02]: Route protection via protected_router() composition (public vs protected routes clearly separated)
 - [Phase 02]: MVP: each user is their own tenant (tenant_id derived from JWT uid claim)
+- [Phase 02]: MCP component signing uses HMAC-SHA256 with key bundle from MCP_TRUSTED_ISSUERS/MCP_KEY_* env vars
+- [Phase 02]: Input validation layer with SQL/XSS detection using schema-based validation (serde + custom validators)
 
 ### Pending Todos
 
@@ -77,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T13:28:14.485Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-28T13:40:14.144Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
