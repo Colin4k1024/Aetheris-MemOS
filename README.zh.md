@@ -454,17 +454,17 @@ docker compose logs -f
 
 ## 相关文档
 
-- [v1.0 里程碑审计 (.planning/v1.0-MILESTONE-AUDIT.md)](.planning/v1.0-MILESTONE-AUDIT.md) — 版本完成状态与需求覆盖
+### 核心文档
+- [API 示例 (API_EXAMPLES.md)](docs/API_EXAMPLES.md) — 完整 curl + Python 代码示例
+- [集成食谱 (INTEGRATION_COOKBOOK.md)](docs/INTEGRATION_COOKBOOK.md) — Python/JS/LLM Agent 集成实战
+- [架构深度解析 (ARCHITECTURE_DEEP_DIVE.md)](docs/ARCHITECTURE_DEEP_DIVE.md) — 系统设计原理与内部实现
+- [接入指南 (INTEGRATION_GUIDE.md)](docs/INTEGRATION_GUIDE.md) — 快速接入与最佳实践
+
+### 参考文档
 - [变更记录 (CHANGELOG)](CHANGELOG.md) — 版本更新与改动说明
-- [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告与支持版本
-- [行为准则 (CODE_OF_CONDUCT)](CODE_OF_CONDUCT.md) — 社区参与规范
-- [开源审查清单 (OPEN_SOURCE_CHECKLIST)](docs/OPEN_SOURCE_CHECKLIST.md) — 开源就绪项与发布前待办
 - [架构说明 (ARCHITECTURE)](docs/ARCHITECTURE.md) — Why adaptive / Why agent-like / 决策链路
-- [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划与生态对齐
+- [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划
 - [使用场景 (USE_CASES)](docs/USE_CASES.md) — LLM Agent、多模态、成本敏感推理等
-- [贡献指南 (CONTRIBUTING)](CONTRIBUTING.md) — 构建、测试、PR、扩展点
 - [扩展指南 (EXTENSION_GUIDE)](docs/EXTENSION_GUIDE.md) — 新增 WeightStrategy / MemoryAgent
-- [Axum 迁移说明](docs/why-axum.md)
-- [算法设计文档](docs/adaptive_memory_algorithm_design.md)
-- [API 规范文档](docs/adaptive_memory_api_specification.md)
-- [算法可视化](docs/adaptive_memory_algorithm_visualization.md)
+- [贡献指南 (CONTRIBUTING)](CONTRIBUTING.md) — 构建、测试、PR
+- [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告
