@@ -59,3 +59,9 @@ database = "neo4j"
 
 [memory_evolution]
 decay_lambda = 0.01
+
+[redis]
+# Redis configuration for STM cache (enabled via redis-stm feature)
+url = "redis://localhost:6379"
+pool_size = 10
+default_ttl_seconds = 3600

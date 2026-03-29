@@ -44,6 +44,7 @@ pub mod multi_tenant;
 #[allow(dead_code)]
 pub mod multimodal_memory;
 pub mod predictor;
+pub mod prometheus_exporter;
 pub mod prompt_injection_probe;
 #[allow(dead_code)]
 pub mod qdrant;

@@ -120,6 +120,31 @@ pub struct MemoryEvolutionConfig {
     pub decay_lambda: f64,
 }
 
+#[derive(Deserialize, Clone, Debug)]
+pub struct MetricsConfig {
+    #[serde(default = "default_metrics_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_export_interval")]
+    pub export_interval_seconds: u64,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            export_interval_seconds: 15,
+        }
+    }
+}
+
+fn default_metrics_enabled() -> bool {
+    true
+}
+
+fn default_export_interval() -> u64 {
+    15
+}
+
 fn default_decay_lambda() -> f64 {
     0.01
 }
@@ -152,6 +177,8 @@ pub struct ServerConfig {
     pub memory_transfer: MemoryTransferConfig,
     #[serde(default)]
     pub memory_evolution: MemoryEvolutionConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 
 #[derive(Deserialize, Clone, Debug)]

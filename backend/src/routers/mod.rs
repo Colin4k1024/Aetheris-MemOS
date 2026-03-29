@@ -30,9 +30,9 @@ mod multi_tenant_router;
 mod multimodal;
 #[allow(dead_code)]
 mod planner;
+mod security;
 #[allow(dead_code)]
 mod snapshot;
-mod security;
 #[allow(dead_code)]
 mod tenant;
 mod tracing;
@@ -40,7 +40,7 @@ mod user;
 mod visualization;
 mod workflows;
 
-use crate::{config, hoops};
+use crate::{config, hoops, services::prometheus_exporter};
 
 #[derive(RustEmbed)]
 #[folder = "assets"]
@@ -339,10 +339,7 @@ pub fn root() -> Router {
         .nest(
             "/v1/security",
             Router::new()
-                .route(
-                    "/prompt-probe/check",
-                    post(security::check_prompt_probe),
-                )
+                .route("/prompt-probe/check", post(security::check_prompt_probe))
                 .route(
                     "/prompt-probe/check-input",
                     post(security::check_prompt_probe_input),
@@ -356,22 +353,12 @@ pub fn root() -> Router {
         .nest(
             "/v1/workflows",
             Router::new()
-                .route(
-                    "/{workflow_id}/approve",
-                    post(workflows::approve_workflow),
-                )
-                .route(
-                    "/{workflow_id}/reject",
-                    post(workflows::reject_workflow),
-                ),
+                .route("/{workflow_id}/approve", post(workflows::approve_workflow))
+                .route("/{workflow_id}/reject", post(workflows::reject_workflow)),
         )
         .nest(
             "/v1/approvals",
-            Router::new()
-                .route(
-                    "/{approval_id}/status",
-                    get(workflows::get_approval_status),
-                ),
+            Router::new().route("/{approval_id}/status", get(workflows::get_approval_status)),
         )
         // Distributed system routes (pool status, signals)
         .nest(
@@ -380,10 +367,7 @@ pub fn root() -> Router {
                 .route("/pool/status", get(distributed::get_pool_status))
                 .route("/pool/allocate", post(distributed::allocate_slots))
                 .route("/pool/release", post(distributed::release_slots))
-                .route(
-                    "/signals/{workflow_id}",
-                    get(distributed::get_signals),
-                )
+                .route("/signals/{workflow_id}", get(distributed::get_signals))
                 .route("/signals/publish", post(distributed::publish_signal)),
         )
         // Planner sandbox routes (dry-run execution)
@@ -414,6 +398,7 @@ pub fn root() -> Router {
         .route("/scalar", get(scalar_ui))
         .route("/scalar/", get(scalar_ui))
         .route("/favicon.ico", get(favicon))
+        .route("/metrics", get(prometheus_exporter::metrics_handler))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(TraceLayer::new_for_http())
         .fallback(not_found)
