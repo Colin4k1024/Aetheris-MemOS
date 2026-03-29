@@ -168,7 +168,7 @@ impl<T> WasmSandbox<T> {
 
 impl<T> Default for WasmSandbox<T>
 where
-    T: Default + Send + Sync
+    T: Default + Send + Sync,
 {
     fn default() -> Self {
         Self::new(T::default()).expect("failed to create default WasmSandbox")

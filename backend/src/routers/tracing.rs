@@ -57,14 +57,13 @@ pub async fn get_workflow_events(
 ///
 /// Returns the DAG structure for a workflow instance, suitable for
 /// frontend visualization with nodes and edges.
-pub async fn get_workflow_dag(
-    Path(workflow_instance_id): Path<String>,
-) -> JsonResult<WorkflowDag> {
+pub async fn get_workflow_dag(Path(workflow_instance_id): Path<String>) -> JsonResult<WorkflowDag> {
     let events = EventStore::get_workflow_events(&workflow_instance_id).await?;
 
     let mut nodes = Vec::with_capacity(events.len());
     let mut edges = Vec::new();
-    let mut span_to_node: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut span_to_node: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
 
     for event in &events {
         let node = DagNode {
@@ -73,7 +72,11 @@ pub async fn get_workflow_dag(
             label: format!(
                 "{} ({})",
                 event.event_type,
-                event.timestamp.split('T').next().unwrap_or(&event.timestamp)
+                event
+                    .timestamp
+                    .split('T')
+                    .next()
+                    .unwrap_or(&event.timestamp)
             ),
             status: status_from_event_type(&event.event_type),
             timestamp: event.timestamp.clone(),

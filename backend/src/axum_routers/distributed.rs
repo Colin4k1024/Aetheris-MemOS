@@ -1,9 +1,6 @@
 //! Distributed routes - epoch management and interrupt propagation
 
-use axum::{
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 use serde::Serialize;
 use std::sync::Arc;
 use utoipa::ToSchema;
@@ -25,7 +22,8 @@ pub struct EpochStatusResponse {
 /// Global instances for epoch management
 /// These are initialized once and shared across all requests
 static EPOCH_MANAGER: std::sync::OnceLock<Arc<EpochManager>> = std::sync::OnceLock::new();
-static INTERRUPT_PROPAGATOR: std::sync::OnceLock<Arc<InterruptPropagator>> = std::sync::OnceLock::new();
+static INTERRUPT_PROPAGATOR: std::sync::OnceLock<Arc<InterruptPropagator>> =
+    std::sync::OnceLock::new();
 
 /// Initialize the global epoch manager and interrupt propagator
 pub fn init_distributed() {

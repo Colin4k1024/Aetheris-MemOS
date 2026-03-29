@@ -95,14 +95,11 @@ impl SubagentPool {
 
     /// Release previously allocated slots back to the pool.
     pub async fn release(&self, slot_ids: &[usize]) {
-        let slot_ids_set: std::collections::HashSet<usize> =
-            slot_ids.iter().copied().collect();
+        let slot_ids_set: std::collections::HashSet<usize> = slot_ids.iter().copied().collect();
 
         for slot in &self.slots {
             let mut slot_guard = slot.lock().await;
-            if slot_ids_set.contains(&slot_guard.slot_id)
-                && slot_guard.status == SlotStatus::Busy
-            {
+            if slot_ids_set.contains(&slot_guard.slot_id) && slot_guard.status == SlotStatus::Busy {
                 slot_guard.status = SlotStatus::Idle;
                 slot_guard.workflow_id = None;
             }

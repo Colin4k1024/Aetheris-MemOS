@@ -168,17 +168,13 @@ impl WorkflowLifecycle {
     ///
     /// This is used to enforce that a parent workflow cannot complete
     /// until all its children have completed.
-    pub async fn ensure_child_complete(
-        &self,
-        parent_id: &str,
-        child_id: &str,
-    ) -> MemoryResult<()> {
+    pub async fn ensure_child_complete(&self, parent_id: &str, child_id: &str) -> MemoryResult<()> {
         let states = self.states.read().await;
 
         // Verify parent exists
-        let parent = states
-            .get(parent_id)
-            .ok_or_else(|| MemoryError::NotFound(format!("Parent workflow {} not found", parent_id)))?;
+        let parent = states.get(parent_id).ok_or_else(|| {
+            MemoryError::NotFound(format!("Parent workflow {} not found", parent_id))
+        })?;
 
         // Verify child exists and is in parent's children list
         if !parent.child_workflow_ids.contains(&child_id.to_string()) {
@@ -189,9 +185,9 @@ impl WorkflowLifecycle {
         }
 
         // Get child's state
-        let child = states
-            .get(child_id)
-            .ok_or_else(|| MemoryError::NotFound(format!("Child workflow {} not found", child_id)))?;
+        let child = states.get(child_id).ok_or_else(|| {
+            MemoryError::NotFound(format!("Child workflow {} not found", child_id))
+        })?;
 
         // Check if child is in terminal state
         if !child.state.is_terminal() {
@@ -230,21 +226,18 @@ impl WorkflowLifecycle {
 
         // First check if workflow exists and get its children
         let child_ids = {
-            let record = states
-                .get(workflow_id)
-                .ok_or_else(|| MemoryError::NotFound(format!("Workflow {} not found", workflow_id)))?;
+            let record = states.get(workflow_id).ok_or_else(|| {
+                MemoryError::NotFound(format!("Workflow {} not found", workflow_id))
+            })?;
 
             // Cannot remove a workflow with active children
             if !record.child_workflow_ids.is_empty() {
-                let any_active = record
-                    .child_workflow_ids
-                    .iter()
-                    .any(|child_id| {
-                        states
-                            .get(child_id)
-                            .map(|r| !r.state.is_terminal())
-                            .unwrap_or(false)
-                    });
+                let any_active = record.child_workflow_ids.iter().any(|child_id| {
+                    states
+                        .get(child_id)
+                        .map(|r| !r.state.is_terminal())
+                        .unwrap_or(false)
+                });
 
                 if any_active {
                     return Err(MemoryError::InvalidOperation(
@@ -257,7 +250,10 @@ impl WorkflowLifecycle {
         };
 
         // Remove from parent's children list
-        if let Some(parent_id) = states.get(workflow_id).and_then(|r| r.parent_workflow_id.clone()) {
+        if let Some(parent_id) = states
+            .get(workflow_id)
+            .and_then(|r| r.parent_workflow_id.clone())
+        {
             if let Some(parent) = states.get_mut(&parent_id) {
                 parent.child_workflow_ids.retain(|id| id != workflow_id);
             }
@@ -282,10 +278,7 @@ mod tests {
     async fn test_register_workflow() {
         let lifecycle = WorkflowLifecycle::new();
 
-        lifecycle
-            .register("wf-1".to_string(), None)
-            .await
-            .unwrap();
+        lifecycle.register("wf-1".to_string(), None).await.unwrap();
 
         let state = lifecycle.get_state("wf-1").await.unwrap();
         assert_eq!(state, WorkflowState::Pending);
@@ -323,7 +316,10 @@ mod tests {
             .unwrap();
 
         // Child not terminal yet
-        assert!(lifecycle.ensure_child_complete("parent", "child").await.is_err());
+        assert!(lifecycle
+            .ensure_child_complete("parent", "child")
+            .await
+            .is_err());
 
         // Complete the child
         lifecycle
@@ -332,17 +328,17 @@ mod tests {
             .unwrap();
 
         // Now it should pass
-        assert!(lifecycle.ensure_child_complete("parent", "child").await.is_ok());
+        assert!(lifecycle
+            .ensure_child_complete("parent", "child")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn test_transition_to_terminal() {
         let lifecycle = WorkflowLifecycle::new();
 
-        lifecycle
-            .register("wf-1".to_string(), None)
-            .await
-            .unwrap();
+        lifecycle.register("wf-1".to_string(), None).await.unwrap();
 
         lifecycle
             .transition("wf-1", WorkflowState::Running)

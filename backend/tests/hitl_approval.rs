@@ -5,9 +5,9 @@
 use std::time::Duration;
 
 use backend::kernel::approval_node::{ApprovalNode, ApprovalStatus, EscalationPolicy};
+use backend::kernel::ApprovalInput;
 use backend::kernel::ExecutionContext;
 use backend::services::approval_manager::ApprovalManager;
-use backend::kernel::ApprovalInput;
 
 /// Test: Request approval and then approve it
 #[tokio::test]
@@ -48,7 +48,10 @@ async fn test_approval_request_and_approve() {
     assert_eq!(status, ApprovalStatus::Pending);
 
     // Approve the request
-    manager.approve(&output.approval_id, "admin_user").await.unwrap();
+    manager
+        .approve(&output.approval_id, "admin_user")
+        .await
+        .unwrap();
 
     // Verify it's now approved
     let status = manager.get_status(&output.approval_id).await.unwrap();
@@ -96,7 +99,10 @@ async fn test_approval_request_and_reject() {
     assert_eq!(status, ApprovalStatus::Rejected);
 
     let approval = manager.get_approval(&output.approval_id).await.unwrap();
-    assert_eq!(approval.resolution_reason, Some("Budget exceeds limit".to_string()));
+    assert_eq!(
+        approval.resolution_reason,
+        Some("Budget exceeds limit".to_string())
+    );
 }
 
 /// Test: Approval timeout expiry
@@ -205,7 +211,10 @@ async fn test_multiple_approvals_same_workflow() {
     assert_eq!(pending.len(), 2);
 
     // Approve first one
-    manager.approve(&output1.approval_id, "admin_user").await.unwrap();
+    manager
+        .approve(&output1.approval_id, "admin_user")
+        .await
+        .unwrap();
 
     // Verify first is approved, second still pending
     assert_eq!(

@@ -71,7 +71,10 @@ impl WorkflowSpanAttributes {
     /// Convert to key-value pairs for span creation.
     pub fn into_kv(self) -> Vec<(String, String)> {
         let mut kv = vec![
-            ("workflow.instance_id".to_string(), self.workflow_instance_id),
+            (
+                "workflow.instance_id".to_string(),
+                self.workflow_instance_id,
+            ),
             ("workflow.attempt_id".to_string(), self.attempt_id),
         ];
         if let Some(epoch) = self.epoch_id {

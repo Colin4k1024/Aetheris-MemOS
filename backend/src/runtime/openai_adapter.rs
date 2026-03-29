@@ -2,13 +2,13 @@
 //!
 //! This adapter integrates with OpenAI's Agents SDK for memory operations.
 
-use crate::kernel::types::*;
-use crate::kernel::error::MemoryResult;
-use crate::runtime::{RuntimeAdapter, RuntimeMessage, MessageRole, AdapterConfig};
 use crate::agent::memory_agent::MemoryAgent;
+use crate::kernel::error::MemoryResult;
+use crate::kernel::types::*;
+use crate::runtime::{AdapterConfig, MessageRole, RuntimeAdapter, RuntimeMessage};
 
 /// OpenAI Memory Adapter
-/// 
+///
 /// Provides integration with OpenAI Agents SDK for automatic memory management.
 pub struct OpenAIMemoryAdapter {
     agent: std::sync::Arc<MemoryAgent>,
@@ -53,12 +53,12 @@ impl OpenAIMemoryAdapter {
     ) -> MemoryResult<String> {
         // Get recent messages
         let recent = self.get_history(session_id, 10).await?;
-        
+
         // Search for relevant memories
         let search_results = self.search(current_query).await?;
-        
+
         let mut context = String::new();
-        
+
         // Add relevant memories as context
         if !search_results.is_empty() {
             context.push_str("Relevant memories:\n");
@@ -69,7 +69,7 @@ impl OpenAIMemoryAdapter {
             }
             context.push('\n');
         }
-        
+
         // Add recent conversation
         if !recent.is_empty() {
             context.push_str("Recent conversation:\n");
@@ -83,7 +83,7 @@ impl OpenAIMemoryAdapter {
                 context.push_str(&format!("{}: {}\n", role_str, msg.content));
             }
         }
-        
+
         Ok(context)
     }
 
@@ -119,16 +119,22 @@ impl RuntimeAdapter for OpenAIMemoryAdapter {
     async fn store_message(&self, message: &RuntimeMessage) -> MemoryResult<MemoryId> {
         // Determine user_id from session_id (simplified)
         let user_id = &message.session_id;
-        
-        self.agent.remember(
-            user_id,
-            Some(&message.session_id),
-            None,
-            message.content.clone(),
-        ).await
+
+        self.agent
+            .remember(
+                user_id,
+                Some(&message.session_id),
+                None,
+                message.content.clone(),
+            )
+            .await
     }
 
-    async fn get_history(&self, session_id: &str, limit: usize) -> MemoryResult<Vec<RuntimeMessage>> {
+    async fn get_history(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> MemoryResult<Vec<RuntimeMessage>> {
         let query = MemoryQuery {
             layer: None,
             text: None,

@@ -1,6 +1,8 @@
 //! Integration tests for Planner Sandbox
 
-use backend::models::dry_run::{DryRunConfig, DryRunResult, ExecutionPlan, ExecutionStep, ExecutionTrace};
+use backend::models::dry_run::{
+    DryRunConfig, DryRunResult, ExecutionPlan, ExecutionStep, ExecutionTrace,
+};
 use backend::runtime::planner_sandbox::{PlannerSandbox, ToolRegistry, VirtualEffectStore};
 use backend::services::conflict_detector::{ConflictDetector, ConflictReport, ResourceConflict};
 use std::time::Duration;
@@ -51,8 +53,16 @@ fn test_tool_registry_classification() {
 #[test]
 fn test_conflict_detector_no_conflicts() {
     let mut trace = ExecutionTrace::new();
-    trace.add_step(ExecutionStep::new(0, "read", serde_json::json!({"resource": "res_a"})));
-    trace.add_step(ExecutionStep::new(1, "read", serde_json::json!({"resource": "res_b"})));
+    trace.add_step(ExecutionStep::new(
+        0,
+        "read",
+        serde_json::json!({"resource": "res_a"}),
+    ));
+    trace.add_step(ExecutionStep::new(
+        1,
+        "read",
+        serde_json::json!({"resource": "res_b"}),
+    ));
 
     let report = ConflictDetector::analyze(&trace);
     assert!(report.resource_conflicts.is_empty());

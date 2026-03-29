@@ -5,9 +5,9 @@
 //! cancellation is propagated to all registered contexts for the affected epoch.
 
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
 
 use super::epoch_manager::{CancellationFunc, RegisteredContext};
 
@@ -86,9 +86,12 @@ mod tests {
         let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let called_clone = called.clone();
 
-        propagator.register_context(1, Box::new(move || {
-            called_clone.store(true, Ordering::SeqCst);
-        }));
+        propagator.register_context(
+            1,
+            Box::new(move || {
+                called_clone.store(true, Ordering::SeqCst);
+            }),
+        );
 
         assert_eq!(propagator.active_context_count(1), 1);
         propagator.unregister_context(1);
@@ -107,8 +110,18 @@ mod tests {
         let c1 = called1.clone();
         let c2 = called2.clone();
 
-        propagator.register_context(1, Box::new(move || { c1.store(true, Ordering::SeqCst); }));
-        propagator.register_context(1, Box::new(move || { c2.store(true, Ordering::SeqCst); }));
+        propagator.register_context(
+            1,
+            Box::new(move || {
+                c1.store(true, Ordering::SeqCst);
+            }),
+        );
+        propagator.register_context(
+            1,
+            Box::new(move || {
+                c2.store(true, Ordering::SeqCst);
+            }),
+        );
 
         assert!(!called1.load(Ordering::SeqCst));
         assert!(!called2.load(Ordering::SeqCst));

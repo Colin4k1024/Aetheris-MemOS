@@ -94,9 +94,7 @@ pub async fn get_pool_status() -> JsonResult<PoolStatusResponse> {
         (status = 404, description = "Workflow not found")
     )
 )]
-pub async fn get_signals(
-    Path(workflow_id): Path<String>,
-) -> JsonResult<WorkflowSignalResponse> {
+pub async fn get_signals(Path(workflow_id): Path<String>) -> JsonResult<WorkflowSignalResponse> {
     let signals = SIGNALING_BUS.get_parent_signals(&workflow_id);
 
     let signal_infos = signals
@@ -132,9 +130,7 @@ pub struct AllocateResponse {
 }
 
 /// Allocate slots for sub-agents.
-pub async fn allocate_slots(
-    Json(request): Json<AllocateRequest>,
-) -> JsonResult<AllocateResponse> {
+pub async fn allocate_slots(Json(request): Json<AllocateRequest>) -> JsonResult<AllocateResponse> {
     let slot_ids = SUBAGENT_POOL.allocate(request.count).await;
     json_ok(AllocateResponse {
         allocated_count: slot_ids.len(),
@@ -155,9 +151,7 @@ pub struct ReleaseResponse {
 }
 
 /// Release previously allocated slots.
-pub async fn release_slots(
-    Json(request): Json<ReleaseRequest>,
-) -> JsonResult<ReleaseResponse> {
+pub async fn release_slots(Json(request): Json<ReleaseRequest>) -> JsonResult<ReleaseResponse> {
     SUBAGENT_POOL.release(&request.slot_ids).await;
     json_ok(ReleaseResponse {
         released_count: request.slot_ids.len(),
@@ -203,7 +197,10 @@ mod tests {
         let response = get_pool_status().await.unwrap();
         assert!(response.total_slots >= 1);
         assert!(response.idle_slots <= response.total_slots);
-        assert_eq!(response.total_slots, response.idle_slots + response.busy_slots + response.detached_slots);
+        assert_eq!(
+            response.total_slots,
+            response.idle_slots + response.busy_slots + response.detached_slots
+        );
     }
 
     #[tokio::test]

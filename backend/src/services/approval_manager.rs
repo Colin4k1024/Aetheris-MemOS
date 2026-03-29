@@ -218,9 +218,9 @@ impl ApprovalManager {
         let workflow_id = {
             let mut approvals = self.approvals.write().await;
 
-            let pending = approvals
-                .get_mut(approval_id)
-                .ok_or_else(|| AppError::NotFound(format!("Approval not found: {}", approval_id)))?;
+            let pending = approvals.get_mut(approval_id).ok_or_else(|| {
+                AppError::NotFound(format!("Approval not found: {}", approval_id))
+            })?;
 
             if pending.status != ApprovalStatus::Pending {
                 return Err(AppError::BadRequest(format!(
@@ -259,9 +259,9 @@ impl ApprovalManager {
         let workflow_id = {
             let mut approvals = self.approvals.write().await;
 
-            let pending = approvals
-                .get_mut(approval_id)
-                .ok_or_else(|| AppError::NotFound(format!("Approval not found: {}", approval_id)))?;
+            let pending = approvals.get_mut(approval_id).ok_or_else(|| {
+                AppError::NotFound(format!("Approval not found: {}", approval_id))
+            })?;
 
             if pending.status != ApprovalStatus::Pending {
                 return Ok(()); // Already resolved, nothing to do

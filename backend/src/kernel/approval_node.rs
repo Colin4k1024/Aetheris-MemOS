@@ -115,11 +115,7 @@ impl ApprovalNode {
 
         // Request approval from the manager
         let approval_id = approval_manager
-            .request_approval(
-                self,
-                &_ctx.workflow_id,
-                input.workflow_snapshot.clone(),
-            )
+            .request_approval(self, &_ctx.workflow_id, input.workflow_snapshot.clone())
             .await?;
 
         tracing::info!(
@@ -135,8 +131,7 @@ impl ApprovalNode {
             status: ApprovalStatus::Pending,
             message: format!(
                 "Approval required for: {}. Waiting for {} approval.",
-                input.description,
-                self.required_rbac_role
+                input.description, self.required_rbac_role
             ),
         })
     }

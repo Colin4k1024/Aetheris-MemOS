@@ -6,33 +6,23 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::broadcast::{self, Receiver, Sender};
 use std::sync::{Arc, RwLock};
+use tokio::sync::broadcast::{self, Receiver, Sender};
 
 /// Workflow signal types for inter-workflow communication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WorkflowSignal {
     /// Signal that a sub-agent has been spawned.
-    SubagentSpawn {
-        child_workflow_id: String,
-    },
+    SubagentSpawn { child_workflow_id: String },
     /// Signal that a sub-agent should wake up.
-    SubagentWake {
-        workflow_id: String,
-    },
+    SubagentWake { workflow_id: String },
     /// Signal that a sub-agent should suspend execution.
-    SubagentSuspend {
-        workflow_id: String,
-    },
+    SubagentSuspend { workflow_id: String },
     /// Signal that a sub-agent should terminate.
-    SubagentTerminate {
-        workflow_id: String,
-    },
+    SubagentTerminate { workflow_id: String },
     /// Signal that a sub-agent has completed.
-    SubagentComplete {
-        workflow_id: String,
-    },
+    SubagentComplete { workflow_id: String },
 }
 
 impl WorkflowSignal {
@@ -159,10 +149,7 @@ impl SignalingBus {
     /// Get all stored signals (for debugging/admin purposes).
     pub fn get_all_signals(&self) -> Vec<(String, Vec<StoredSignal>)> {
         let store = self.event_store.read().unwrap();
-        store
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
+        store.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
     /// Clear all stored signals for a workflow.

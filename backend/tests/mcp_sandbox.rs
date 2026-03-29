@@ -1,6 +1,6 @@
 //! Integration tests for MCP sandbox isolation.
 
-use backend::mcp::sandbox::{Capability, CapabilityPolicy, SandboxedTool, SandboxError};
+use backend::mcp::sandbox::{Capability, CapabilityPolicy, SandboxError, SandboxedTool};
 use backend::mcp::sandbox_proxy::{ProxyError, SandboxProxy};
 use serde_json::json;
 

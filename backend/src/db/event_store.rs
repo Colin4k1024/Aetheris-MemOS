@@ -131,36 +131,32 @@ impl EventStore {
         workflow_instance_id: &str,
     ) -> Result<Vec<WorkflowEvent>, AppError> {
         let rows: Vec<EventRow> = match DATABASE_POOL.get() {
-            Some(DatabasePool::Postgres(pool)) => {
-                sqlx::query_as::<_, EventRow>(
-                    r#"
+            Some(DatabasePool::Postgres(pool)) => sqlx::query_as::<_, EventRow>(
+                r#"
                     SELECT event_id, timestamp, workflow_instance_id, attempt_id,
                            parent_span_id, event_type, payload
                     FROM workflow_events
                     WHERE workflow_instance_id = $1
                     ORDER BY timestamp ASC
                     "#,
-                )
-                .bind(workflow_instance_id)
-                .fetch_all(pool)
-                .await
-                .map_err(db_error)?
-            }
-            Some(DatabasePool::Sqlite(pool)) => {
-                sqlx::query_as::<_, EventRow>(
-                    r#"
+            )
+            .bind(workflow_instance_id)
+            .fetch_all(pool)
+            .await
+            .map_err(db_error)?,
+            Some(DatabasePool::Sqlite(pool)) => sqlx::query_as::<_, EventRow>(
+                r#"
                     SELECT event_id, timestamp, workflow_instance_id, attempt_id,
                            parent_span_id, event_type, payload
                     FROM workflow_events
                     WHERE workflow_instance_id = $1
                     ORDER BY timestamp ASC
                     "#,
-                )
-                .bind(workflow_instance_id)
-                .fetch_all(pool)
-                .await
-                .map_err(db_error)?
-            }
+            )
+            .bind(workflow_instance_id)
+            .fetch_all(pool)
+            .await
+            .map_err(db_error)?,
             None => {
                 return Err(AppError::DatabaseConnection(
                     "database pool not initialized".into(),
@@ -170,9 +166,10 @@ impl EventStore {
 
         rows.into_iter()
             .map(|row| {
-                let payload: serde_json::Value = serde_json::from_str(&row.payload).map_err(|e| {
-                    AppError::Deserialization(format!("invalid JSON in payload: {}", e))
-                })?;
+                let payload: serde_json::Value =
+                    serde_json::from_str(&row.payload).map_err(|e| {
+                        AppError::Deserialization(format!("invalid JSON in payload: {}", e))
+                    })?;
                 Ok(WorkflowEvent {
                     event_id: row.event_id,
                     timestamp: row.timestamp,
@@ -193,9 +190,8 @@ impl EventStore {
         end: &str,
     ) -> Result<Vec<WorkflowEvent>, AppError> {
         let rows: Vec<EventRow> = match DATABASE_POOL.get() {
-            Some(DatabasePool::Postgres(pool)) => {
-                sqlx::query_as::<_, EventRow>(
-                    r#"
+            Some(DatabasePool::Postgres(pool)) => sqlx::query_as::<_, EventRow>(
+                r#"
                     SELECT event_id, timestamp, workflow_instance_id, attempt_id,
                            parent_span_id, event_type, payload
                     FROM workflow_events
@@ -203,17 +199,15 @@ impl EventStore {
                       AND timestamp >= $2 AND timestamp <= $3
                     ORDER BY timestamp ASC
                     "#,
-                )
-                .bind(workflow_instance_id)
-                .bind(start)
-                .bind(end)
-                .fetch_all(pool)
-                .await
-                .map_err(db_error)?
-            }
-            Some(DatabasePool::Sqlite(pool)) => {
-                sqlx::query_as::<_, EventRow>(
-                    r#"
+            )
+            .bind(workflow_instance_id)
+            .bind(start)
+            .bind(end)
+            .fetch_all(pool)
+            .await
+            .map_err(db_error)?,
+            Some(DatabasePool::Sqlite(pool)) => sqlx::query_as::<_, EventRow>(
+                r#"
                     SELECT event_id, timestamp, workflow_instance_id, attempt_id,
                            parent_span_id, event_type, payload
                     FROM workflow_events
@@ -221,14 +215,13 @@ impl EventStore {
                       AND timestamp >= $2 AND timestamp <= $3
                     ORDER BY timestamp ASC
                     "#,
-                )
-                .bind(workflow_instance_id)
-                .bind(start)
-                .bind(end)
-                .fetch_all(pool)
-                .await
-                .map_err(db_error)?
-            }
+            )
+            .bind(workflow_instance_id)
+            .bind(start)
+            .bind(end)
+            .fetch_all(pool)
+            .await
+            .map_err(db_error)?,
             None => {
                 return Err(AppError::DatabaseConnection(
                     "database pool not initialized".into(),
@@ -238,9 +231,10 @@ impl EventStore {
 
         rows.into_iter()
             .map(|row| {
-                let payload: serde_json::Value = serde_json::from_str(&row.payload).map_err(|e| {
-                    AppError::Deserialization(format!("invalid JSON in payload: {}", e))
-                })?;
+                let payload: serde_json::Value =
+                    serde_json::from_str(&row.payload).map_err(|e| {
+                        AppError::Deserialization(format!("invalid JSON in payload: {}", e))
+                    })?;
                 Ok(WorkflowEvent {
                     event_id: row.event_id,
                     timestamp: row.timestamp,

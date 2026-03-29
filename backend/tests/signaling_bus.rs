@@ -1,7 +1,7 @@
 //! Integration tests for Signaling Bus and Sub-Agent Pool
 
 use backend::distributed::signaling_bus::{SignalingBus, WorkflowSignal};
-use backend::runtime::subagent_pool::{SubagentPool, PoolStatus};
+use backend::runtime::subagent_pool::{PoolStatus, SubagentPool};
 
 #[tokio::test]
 async fn test_signal_publish_and_subscribe() {

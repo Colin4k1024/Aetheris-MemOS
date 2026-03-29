@@ -4,8 +4,8 @@
 //! Each epoch represents a distinct execution cycle that can be individually
 //! cancelled via interrupt propagation.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Cancellation function type for epoch-scoped contexts.
 pub type CancellationFunc = Box<dyn Fn() + Send + Sync>;

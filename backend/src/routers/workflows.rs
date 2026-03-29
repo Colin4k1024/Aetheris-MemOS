@@ -111,7 +111,10 @@ pub async fn approve_workflow(
         .into_iter()
         .find(|p| p.status == ApprovalStatus::Pending)
         .ok_or_else(|| {
-            AppError::NotFound(format!("No pending approval found for workflow: {}", workflow_id))
+            AppError::NotFound(format!(
+                "No pending approval found for workflow: {}",
+                workflow_id
+            ))
         })?;
 
     // In a real implementation, verify RBAC here:
@@ -183,7 +186,10 @@ pub async fn reject_workflow(
         .into_iter()
         .find(|p| p.status == ApprovalStatus::Pending)
         .ok_or_else(|| {
-            AppError::NotFound(format!("No pending approval found for workflow: {}", workflow_id))
+            AppError::NotFound(format!(
+                "No pending approval found for workflow: {}",
+                workflow_id
+            ))
         })?;
 
     // In a real implementation, verify RBAC here

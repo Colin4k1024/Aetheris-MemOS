@@ -2,8 +2,8 @@
 //!
 //! This module handles merging similar memory entries to reduce redundancy.
 
-use crate::kernel::types::*;
 use crate::kernel::error::MemoryResult;
+use crate::kernel::types::*;
 
 /// Memory merger that combines similar memory entries.
 pub struct MemoryMerger {
@@ -12,11 +12,13 @@ pub struct MemoryMerger {
 
 impl MemoryMerger {
     pub fn new(similarity_threshold: f64) -> Self {
-        Self { similarity_threshold }
+        Self {
+            similarity_threshold,
+        }
     }
 
     /// Find and merge similar memories.
-    /// 
+    ///
     /// Returns a list of merge operations to perform.
     pub async fn find_merges(&self, entries: &[MemoryEntry]) -> Vec<MergeOperation> {
         let mut merges = Vec::new();
@@ -35,7 +37,7 @@ impl MemoryMerger {
                 }
 
                 let similarity = self.calculate_similarity(&entries[i], &entries[j]);
-                
+
                 if similarity >= self.similarity_threshold {
                     similar.push((j, similarity));
                     processed.insert(j);
@@ -45,7 +47,10 @@ impl MemoryMerger {
             if !similar.is_empty() {
                 merges.push(MergeOperation {
                     primary: entries[i].id.clone(),
-                    secondary: similar.iter().map(|(idx, _)| entries[*idx].id.clone()).collect(),
+                    secondary: similar
+                        .iter()
+                        .map(|(idx, _)| entries[*idx].id.clone())
+                        .collect(),
                     similarity: similar.iter().map(|(_, s)| *s).sum::<f64>() / similar.len() as f64,
                 });
             }
@@ -89,7 +94,7 @@ impl MemoryMerger {
     pub async fn merge(&self, primary: &MemoryEntry, secondary: &[&MemoryEntry]) -> MemoryEntry {
         // Combine content from all entries
         let mut combined_content = String::new();
-        
+
         if let MemoryContent::Text(text) = &primary.content {
             combined_content = text.clone();
         }
@@ -104,13 +109,16 @@ impl MemoryMerger {
         }
 
         // Combine metadata
-        let max_importance = secondary.iter()
+        let max_importance = secondary
+            .iter()
             .map(|e| e.metadata.importance)
             .fold(primary.metadata.importance, f64::max);
 
-        let total_access = secondary.iter()
+        let total_access = secondary
+            .iter()
             .map(|e| e.metadata.access_count)
-            .sum::<u32>() + primary.metadata.access_count;
+            .sum::<u32>()
+            + primary.metadata.access_count;
 
         // Create merged entry
         MemoryEntry {

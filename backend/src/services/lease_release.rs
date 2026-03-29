@@ -60,8 +60,9 @@ impl LeaseReleaseProtocol {
 
         // Ensure directory exists
         if let Some(parent) = checkpoint_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Internal(format!("Failed to create checkpoint dir: {}", e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AppError::Internal(format!("Failed to create checkpoint dir: {}", e))
+            })?;
         }
 
         // Write checkpoint file
@@ -141,7 +142,9 @@ impl LeaseReleaseProtocol {
 
     /// Get the checkpoint path for a workflow
     fn checkpoint_path(&self, workflow_id: &str) -> PathBuf {
-        self.checkpoint_dir.join("workflows").join(format!("{}.bin", workflow_id))
+        self.checkpoint_dir
+            .join("workflows")
+            .join(format!("{}.bin", workflow_id))
     }
 
     /// Get checkpoint path for an approval
@@ -176,7 +179,9 @@ mod tests {
         let snapshot = vec![1, 2, 3, 4, 5];
 
         // Release and checkpoint
-        let path = protocol.release_and_checkpoint(workflow_id, snapshot.clone()).unwrap();
+        let path = protocol
+            .release_and_checkpoint(workflow_id, snapshot.clone())
+            .unwrap();
         assert!(path.exists());
         assert!(protocol.has_checkpoint(workflow_id));
 

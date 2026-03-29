@@ -2,11 +2,11 @@
 //!
 //! This module provides sharding for distributed memory.
 
+use crate::distributed::node::NodeId;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
-use crate::distributed::node::NodeId;
 
 /// Shard key for memory distribution.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -73,13 +73,16 @@ impl ShardManager {
     /// Get primary node for a key.
     pub fn get_primary_node(&self, key: &ShardKey) -> Option<NodeId> {
         let shard_id = self.get_shard(key);
-        self.placements.get(&shard_id).map(|p| p.primary_node.clone())
+        self.placements
+            .get(&shard_id)
+            .map(|p| p.primary_node.clone())
     }
 
     /// Get all replica nodes for a key.
     pub fn get_replica_nodes(&self, key: &ShardKey) -> Vec<NodeId> {
         let shard_id = self.get_shard(key);
-        self.placements.get(&shard_id)
+        self.placements
+            .get(&shard_id)
             .map(|p| p.replica_nodes.clone())
             .unwrap_or_default()
     }

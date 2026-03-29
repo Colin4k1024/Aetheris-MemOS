@@ -7,6 +7,10 @@ use crate::db::pool;
 use crate::tenant::TenantId;
 use crate::AppError;
 
+/// Feature-gated Redis STM adapter import.
+#[cfg(feature = "redis-stm")]
+use crate::db::adapters::redis_stm::RedisStmAdapter;
+
 /// 短期记忆会话仓库
 pub struct STMRepository;
 
@@ -49,6 +53,9 @@ pub struct SessionMessage {
 
 impl STMRepository {
     /// 创建新会话（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
     pub async fn create_session(
         tenant_id: &TenantId,
         user_id: &str,
@@ -57,6 +64,21 @@ impl STMRepository {
         max_context_length: i32,
         retention_hours: i32,
     ) -> Result<String, AppError> {
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::create_session(
+                    tenant_id,
+                    user_id,
+                    agent_id,
+                    session_type,
+                    max_context_length,
+                    retention_hours,
+                )
+                .await;
+            }
+        }
+
         let session_id = Ulid::new().to_string();
         let pool = pool();
 
@@ -139,6 +161,9 @@ impl STMRepository {
     }
 
     /// 添加消息到会话（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
     pub async fn add_message(
         pool: &sqlx::PgPool,
         tenant_id: &TenantId,
@@ -148,6 +173,21 @@ impl STMRepository {
         token_count: Option<i32>,
         importance_score: Option<f64>,
     ) -> Result<String, AppError> {
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::append_message(
+                    tenant_id,
+                    session_id,
+                    role,
+                    content,
+                    token_count,
+                    importance_score,
+                )
+                .await;
+            }
+        }
+
         // 验证session属于该租户
         let session = sqlx::query_as::<_, Session>(
             r#"
@@ -231,12 +271,36 @@ impl STMRepository {
     }
 
     /// 获取会话消息（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
     pub async fn get_session_messages(
         pool: &sqlx::PgPool,
         tenant_id: &TenantId,
         session_id: &str,
         limit: Option<i32>,
     ) -> Result<Vec<SessionMessage>, AppError> {
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::get_session_messages(tenant_id, session_id, limit)
+                    .await
+                    .map(|msgs| {
+                        msgs.into_iter()
+                            .map(|m| SessionMessage {
+                                message_id: m.message_id,
+                                session_id: m.session_id,
+                                role: m.role,
+                                content: m.content,
+                                created_at: m.created_at,
+                                token_count: m.token_count,
+                                importance_score: m.importance_score,
+                            })
+                            .collect()
+                    });
+            }
+        }
+
         // 验证session属于该租户
         let session = sqlx::query_as::<_, Session>(
             r#"
@@ -540,5 +604,78 @@ impl STMRepository {
         })?;
 
         Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// 删除会话（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled and Redis is available, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
+    pub async fn delete_session(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        session_id: &str,
+    ) -> Result<bool, AppError> {
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::delete_session(tenant_id, session_id).await;
+            }
+        }
+
+        // Verify session belongs to tenant via PostgreSQL
+        let session = sqlx::query_as::<_, Session>(
+            r#"
+            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                   session_type, context_length, max_context_length, status, priority
+            FROM context_sessions
+            WHERE session_id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get session for deletion: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        if let Some(ref s) = session {
+            let prefix = tenant_id.prefix();
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            if !belongs_to_tenant {
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    session_id,
+                    "stm_delete_cross_tenant_access",
+                );
+                return Ok(false);
+            }
+        } else {
+            return Ok(false);
+        }
+
+        // Delete messages first
+        sqlx::query("DELETE FROM session_messages WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to delete session messages: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        // Delete session
+        let result = sqlx::query("DELETE FROM context_sessions WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to delete session: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        info!("Deleted session: {} for tenant: {}", session_id, tenant_id);
+        Ok(result.rows_affected() > 0)
     }
 }

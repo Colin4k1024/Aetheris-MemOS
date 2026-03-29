@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::services::embedding::EmbeddingService;
-use crate::services::prompt_injection_probe::{PromptInjectionProbe, ProbeResult};
+use crate::services::prompt_injection_probe::{ProbeResult, PromptInjectionProbe};
 use crate::{json_ok, JsonResult};
 
 /// Global prompt injection probe instance

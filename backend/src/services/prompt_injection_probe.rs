@@ -5,10 +5,10 @@
 //! - Layer 2: Embedding-based anomaly detection (similarity to known injection vectors)
 //! - Layer 3: LLM output validation (unexpected tool invocation patterns)
 
+use crate::services::embedding::EmbeddingService;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use once_cell::sync::Lazy;
-use crate::services::embedding::EmbeddingService;
 
 /// Probe result indicating the status of a prompt check
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -17,10 +17,7 @@ pub enum ProbeResult {
     /// Text passed all checks
     Clean,
     /// Text flagged as suspicious but not quarantined
-    Flagged {
-        reason: String,
-        confidence: f32,
-    },
+    Flagged { reason: String, confidence: f32 },
     /// Text is quarantined (high confidence malicious)
     Quarantined,
 }
@@ -136,17 +133,17 @@ impl PromptInjectionProbe {
 
         for pattern in INJECTION_PATTERNS {
             if text_lower.contains(&pattern.to_lowercase()) {
-                return Some((
-                    format!("Keyword blocklist match: '{}'", pattern),
-                    0.95,
-                ));
+                return Some((format!("Keyword blocklist match: '{}'", pattern), 0.95));
             }
         }
         None
     }
 
     /// Layer 2: Check embedding similarity against known injection vectors
-    async fn check_embedding_similarity(&self, text: &str) -> anyhow::Result<Option<(String, f32)>> {
+    async fn check_embedding_similarity(
+        &self,
+        text: &str,
+    ) -> anyhow::Result<Option<(String, f32)>> {
         // If not initialized yet, skip this layer
         if self.injection_embeddings.is_empty() {
             return Ok(None);
@@ -188,9 +185,19 @@ impl PromptInjectionProbe {
         let text_lower = text.to_lowercase();
 
         let suspicious = [
-            "exec(", "run(", "eval(", "system(", "spawn(", "fork(",
-            "kill(", "rm -rf", "drop table", "delete from",
-            "truncate ", "insert into", "update  set",
+            "exec(",
+            "run(",
+            "eval(",
+            "system(",
+            "spawn(",
+            "fork(",
+            "kill(",
+            "rm -rf",
+            "drop table",
+            "delete from",
+            "truncate ",
+            "insert into",
+            "update  set",
         ];
 
         for pattern in &suspicious {

@@ -157,7 +157,10 @@ mod tests {
     struct MockTool;
 
     impl SandboxedTool for MockTool {
-        fn execute(&self, input: JsonValue) -> Result<JsonValue, crate::mcp::sandbox::SandboxError> {
+        fn execute(
+            &self,
+            input: JsonValue,
+        ) -> Result<JsonValue, crate::mcp::sandbox::SandboxError> {
             Ok(json!({ "result": input }))
         }
     }

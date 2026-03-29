@@ -3,7 +3,10 @@
 //! This module provides a sandboxed environment for executing planner agent
 //! dry-runs without actual side effects.
 
-use crate::models::dry_run::{DryRunConfig, DryRunResult, ExecutionPlan, ExecutionStep, ExecutionTrace, PlanStep, PlanMetadata};
+use crate::models::dry_run::{
+    DryRunConfig, DryRunResult, ExecutionPlan, ExecutionStep, ExecutionTrace, PlanMetadata,
+    PlanStep,
+};
 use crate::services::conflict_detector::{ConflictDetector, ConflictReport};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -56,7 +59,9 @@ pub struct VirtualEffectStore {
 impl VirtualEffectStore {
     /// Create a new empty effect store.
     pub fn new() -> Self {
-        Self { effects: Vec::new() }
+        Self {
+            effects: Vec::new(),
+        }
     }
 
     /// Record a side effect.
@@ -255,12 +260,18 @@ impl ToolRegistry {
 
     /// Check if a tool performs network I/O.
     pub fn is_network_tool(&self, name: &str) -> bool {
-        self.tools.get(name).map(|t| t.is_network_io).unwrap_or(false)
+        self.tools
+            .get(name)
+            .map(|t| t.is_network_io)
+            .unwrap_or(false)
     }
 
     /// Check if a tool accesses the filesystem.
     pub fn is_filesystem_tool(&self, name: &str) -> bool {
-        self.tools.get(name).map(|t| t.is_filesystem_io).unwrap_or(false)
+        self.tools
+            .get(name)
+            .map(|t| t.is_filesystem_io)
+            .unwrap_or(false)
     }
 }
 
@@ -324,31 +335,26 @@ impl PlannerSandbox {
                     "Execution timeout exceeded after {:?}",
                     start.elapsed()
                 ));
-                suggestions.push("Consider reducing the number of steps or increasing the timeout"
-                    .to_string());
+                suggestions.push(
+                    "Consider reducing the number of steps or increasing the timeout".to_string(),
+                );
                 break;
             }
 
             // Process the step
             match self.execute_step(idx, plan_step) {
                 Ok(mock_output) => {
-                    let step = ExecutionStep::new(
-                        idx,
-                        &plan_step.tool,
-                        plan_step.parameters.clone(),
-                    )
-                    .with_mock_output(mock_output);
+                    let step =
+                        ExecutionStep::new(idx, &plan_step.tool, plan_step.parameters.clone())
+                            .with_mock_output(mock_output);
                     trace.add_step(step);
                 }
                 Err(e) => {
-                    let step = ExecutionStep::new(idx, &plan_step.tool, plan_step.parameters.clone());
+                    let step =
+                        ExecutionStep::new(idx, &plan_step.tool, plan_step.parameters.clone());
                     trace.add_step(step);
                     errors.push(e.to_string());
-                    suggestions.push(format!(
-                        "Fix error in step {}: {}",
-                        idx,
-                        e.to_string()
-                    ));
+                    suggestions.push(format!("Fix error in step {}: {}", idx, e.to_string()));
                 }
             }
         }
@@ -360,7 +366,10 @@ impl PlannerSandbox {
                 plan.steps.len(),
                 self.config.max_steps
             ));
-            suggestions.push("Consider increasing max_steps or breaking the plan into smaller sub-plans".to_string());
+            suggestions.push(
+                "Consider increasing max_steps or breaking the plan into smaller sub-plans"
+                    .to_string(),
+            );
         }
 
         // Perform conflict analysis
@@ -378,8 +387,13 @@ impl PlannerSandbox {
             }
 
             for deadlock in &conflict_report.deadlocks {
-                errors.push(format!("Deadlock detected: circular dependency in {:?}", deadlock.cycle));
-                suggestions.push("Break the circular dependency by reordering or splitting steps".to_string());
+                errors.push(format!(
+                    "Deadlock detected: circular dependency in {:?}",
+                    deadlock.cycle
+                ));
+                suggestions.push(
+                    "Break the circular dependency by reordering or splitting steps".to_string(),
+                );
             }
 
             for missing in &conflict_report.missing_preconditions {
@@ -414,8 +428,7 @@ impl PlannerSandbox {
             if step.tool.is_empty() {
                 return Some(format!("Step {} has empty tool name", idx));
             }
-            if !self.tool_registry.contains(&step.tool)
-                && !self.is_dynamic_tool(&step.tool) {
+            if !self.tool_registry.contains(&step.tool) && !self.is_dynamic_tool(&step.tool) {
                 // This is a warning, not an error - unknown tools are allowed
             }
         }

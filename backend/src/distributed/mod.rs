@@ -19,8 +19,8 @@ pub use consensus::ConsensusModule;
 pub use epoch_manager::{CancellationFunc, EpochContext, EpochManager, RegisteredContext};
 pub use interrupt_propagator::InterruptPropagator;
 pub use node::{MemoryNode, NodeId, NodeInfo, NodeRole};
-pub use replication::{ReplicationManager, ReplicaState, ReplicationConfig};
-pub use sharding::{ShardManager, ShardKey, ShardPlacement};
+pub use replication::{ReplicaState, ReplicationConfig, ReplicationManager};
+pub use sharding::{ShardKey, ShardManager, ShardPlacement};
 
 /// Distributed system configuration.
 #[derive(Debug, Clone)]

@@ -209,11 +209,7 @@ mod tests {
 
     #[test]
     fn test_execution_step_creation() {
-        let step = ExecutionStep::new(
-            0,
-            "read_file",
-            serde_json::json!({"path": "/test.txt"}),
-        );
+        let step = ExecutionStep::new(0, "read_file", serde_json::json!({"path": "/test.txt"}));
         assert_eq!(step.step_index, 0);
         assert_eq!(step.action, "read_file");
         assert!(step.mock_output.is_none());
@@ -222,18 +218,13 @@ mod tests {
     #[test]
     fn test_execution_trace_add_step() {
         let mut trace = ExecutionTrace::new();
-        trace.add_step(ExecutionStep::new(
-            0,
-            "test",
-            serde_json::json!({}),
-        ));
+        trace.add_step(ExecutionStep::new(0, "test", serde_json::json!({})));
         assert_eq!(trace.steps.len(), 1);
     }
 
     #[test]
     fn test_dry_run_result_has_errors() {
-        let result = DryRunResult::new(ExecutionTrace::new())
-            .with_error("Network call attempted");
+        let result = DryRunResult::new(ExecutionTrace::new()).with_error("Network call attempted");
         assert!(result.has_errors());
         assert!(!result.has_warnings());
     }

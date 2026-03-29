@@ -93,17 +93,17 @@ impl ConflictDetector {
         for step in &trace.steps {
             let resources = Self::extract_resources(&step.action, &step.input);
             for resource in resources {
-                resource_steps.entry(resource).or_default().push(step.step_index);
+                resource_steps
+                    .entry(resource)
+                    .or_default()
+                    .push(step.step_index);
             }
         }
 
         // Find conflicts: same resource accessed by overlapping step ranges
         for (resource, steps) in resource_steps {
             if Self::has_overlapping_access(&steps) {
-                conflicts.push(ResourceConflict {
-                    resource,
-                    steps,
-                });
+                conflicts.push(ResourceConflict { resource, steps });
             }
         }
 
@@ -209,14 +209,16 @@ impl ConflictDetector {
 
         for step in &trace.steps {
             if !visited.contains(&step.step_index) {
-                if let Some(cycle) =
-                    Self::detect_cycle_dfs(step.step_index, &dependencies, &mut visited, &mut rec_stack, &mut path)
-                {
+                if let Some(cycle) = Self::detect_cycle_dfs(
+                    step.step_index,
+                    &dependencies,
+                    &mut visited,
+                    &mut rec_stack,
+                    &mut path,
+                ) {
                     let cycle_tools: Vec<String> = cycle
                         .iter()
-                        .filter_map(|&idx| {
-                            trace.steps.iter().find(|s| s.step_index == idx)
-                        })
+                        .filter_map(|&idx| trace.steps.iter().find(|s| s.step_index == idx))
                         .map(|s| s.action.clone())
                         .collect();
 
@@ -276,8 +278,7 @@ impl ConflictDetector {
             if let Some(required) = step.input.get("requires").and_then(|r| r.as_array()) {
                 for req in required {
                     if let Some(tool_name) = req.as_str() {
-                        if !available_tools.contains(tool_name)
-                            && !Self::is_builtin_tool(tool_name)
+                        if !available_tools.contains(tool_name) && !Self::is_builtin_tool(tool_name)
                         {
                             preconditions.push(MissingPrecondition {
                                 step: step.step_index,
@@ -296,14 +297,7 @@ impl ConflictDetector {
     fn is_builtin_tool(tool: &str) -> bool {
         matches!(
             tool,
-            "noop"
-                | "log"
-                | "assert"
-                | "env_get"
-                | "env_set"
-                | "sleep"
-                | "timestamp"
-                | "uuid"
+            "noop" | "log" | "assert" | "env_get" | "env_set" | "sleep" | "timestamp" | "uuid"
         )
     }
 }

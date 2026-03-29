@@ -573,9 +573,7 @@ pub struct WeightStatusResponse {
 }
 
 pub async fn get_weight_status() -> JsonResult<WeightStatusResponse> {
-    let decay_lambda = crate::config::get()
-        .memory_evolution
-        .decay_lambda;
+    let decay_lambda = crate::config::get().memory_evolution.decay_lambda;
     json_ok(WeightStatusResponse {
         decay_lambda,
         active_weights: crate::models::MemoryWeights {

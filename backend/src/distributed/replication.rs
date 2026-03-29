@@ -2,8 +2,8 @@
 //!
 //! This module provides replication management for distributed memory.
 
-use serde::{Deserialize, Serialize};
 use crate::distributed::node::NodeId;
+use serde::{Deserialize, Serialize};
 
 /// Replication state for a memory entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,7 +74,9 @@ impl ReplicationManager {
     /// Add replica for a memory entry.
     pub fn add_replica(&self, memory_id: &str, node_id: NodeId) {
         let mut replicas = self.replicas.write().unwrap();
-        let entry = replicas.entry(memory_id.to_string()).or_insert_with(Vec::new);
+        let entry = replicas
+            .entry(memory_id.to_string())
+            .or_insert_with(Vec::new);
         entry.push(ReplicaInfo {
             node_id,
             state: ReplicaState::Syncing,

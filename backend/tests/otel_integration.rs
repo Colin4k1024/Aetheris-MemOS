@@ -30,7 +30,10 @@ fn test_workflow_span_attributes_to_kv() {
 
     let map: std::collections::HashMap<String, String> = kv.into_iter().collect();
     assert_eq!(map.get("workflow.instance_id"), Some(&"wf-001".to_string()));
-    assert_eq!(map.get("workflow.attempt_id"), Some(&"attempt-1".to_string()));
+    assert_eq!(
+        map.get("workflow.attempt_id"),
+        Some(&"attempt-1".to_string())
+    );
     assert_eq!(map.get("workflow.epoch_id"), Some(&"epoch-5".to_string()));
 }
 

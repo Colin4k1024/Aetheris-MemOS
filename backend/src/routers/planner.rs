@@ -119,7 +119,7 @@ pub fn router(state: Arc<PlannerState>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::dry_run::{PlanStep, PlanMetadata};
+    use crate::models::dry_run::{PlanMetadata, PlanStep};
 
     fn create_test_plan() -> ExecutionPlan {
         ExecutionPlan {
