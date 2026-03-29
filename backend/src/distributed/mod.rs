@@ -6,15 +6,21 @@
 //! - Sharding
 //! - Consensus
 
+pub mod consensus;
+pub mod epoch_manager;
+pub mod interrupt_propagator;
+pub mod lease_coordinator;
 pub mod node;
 pub mod replication;
 pub mod sharding;
-pub mod consensus;
+pub mod signaling_bus;
 
+pub use consensus::ConsensusModule;
+pub use epoch_manager::{CancellationFunc, EpochContext, EpochManager, RegisteredContext};
+pub use interrupt_propagator::InterruptPropagator;
 pub use node::{MemoryNode, NodeId, NodeInfo, NodeRole};
 pub use replication::{ReplicationManager, ReplicaState, ReplicationConfig};
 pub use sharding::{ShardManager, ShardKey, ShardPlacement};
-pub use consensus::ConsensusModule;
 
 /// Distributed system configuration.
 #[derive(Debug, Clone)]

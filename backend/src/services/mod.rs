@@ -2,8 +2,11 @@
 pub mod agent;
 pub mod agent_identity;
 pub mod analyzer;
+pub mod approval_manager;
 pub mod bitemporal_kg;
 pub mod confidence_scorer;
+#[allow(dead_code)]
+pub mod conflict_detector;
 #[allow(dead_code)]
 pub mod consolidation;
 pub mod context_compressor;
@@ -18,6 +21,8 @@ pub mod hardware_detector;
 #[allow(dead_code)]
 pub mod importance_evaluator;
 pub mod information_guard;
+#[allow(dead_code)]
+pub mod lease_release;
 #[allow(dead_code)]
 pub mod llm;
 pub mod memory_fusion;
@@ -39,6 +44,7 @@ pub mod multi_tenant;
 #[allow(dead_code)]
 pub mod multimodal_memory;
 pub mod predictor;
+pub mod prompt_injection_probe;
 #[allow(dead_code)]
 pub mod qdrant;
 #[allow(dead_code)]
@@ -59,6 +65,7 @@ pub mod weight_strategy;
 pub mod write_queue;
 
 pub use analyzer::*;
+pub use conflict_detector::*;
 pub use memory_storage::*;
 pub use monitor::*;
 pub use predictor::*;

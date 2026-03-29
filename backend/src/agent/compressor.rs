@@ -258,9 +258,8 @@ mod tests {
             content: MemoryContent::Text("Short text".to_string()),
             metadata: MemoryMetadata::default(),
             layer: LayerType::Stm,
-            created_at: time::OffsetDateTime::now_utc(),
-            accessed_at: time::OffsetDateTime::now_utc(),
-            access_count: 0,
+            created_at: chrono::Utc::now().timestamp(),
+            updated_at: chrono::Utc::now().timestamp(),
         };
 
         let result = compressor.compress(&[entry]).await;

@@ -24,6 +24,7 @@ pub mod adapters;
 pub mod agent;
 
 pub mod decision_trace;
+pub mod event_store;
 pub mod evidence_graph;
 pub mod kg;
 #[allow(dead_code)]
@@ -38,6 +39,7 @@ pub mod performance;
 pub mod stm;
 #[allow(dead_code)]
 pub mod weights;
+pub mod workflow_lifecycle;
 pub use kg::KGRepository;
 pub use neo4j::{init_neo4j, init_neo4j_indexes};
 pub use stm::{SessionListResponse, SessionMessage};

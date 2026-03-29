@@ -69,6 +69,18 @@ pub enum MemoryContent {
     Graph(GraphData),
 }
 
+impl From<String> for MemoryContent {
+    fn from(s: String) -> Self {
+        MemoryContent::Text(s)
+    }
+}
+
+impl From<&str> for MemoryContent {
+    fn from(s: &str) -> Self {
+        MemoryContent::Text(s.to_string())
+    }
+}
+
 /// Memory weights for layer selection.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoryWeights {

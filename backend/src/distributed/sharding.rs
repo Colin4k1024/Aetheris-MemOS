@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
 use crate::distributed::node::NodeId;
 
 /// Shard key for memory distribution.
@@ -52,7 +54,9 @@ impl ShardManager {
     /// Get shard ID for a key.
     pub fn get_shard(&self, key: &ShardKey) -> u32 {
         // Simple hash-based sharding
-        let hash = key.memory_id.hash();
+        let mut hasher = DefaultHasher::default();
+        key.memory_id.hash(&mut hasher);
+        let hash = hasher.finish();
         (hash % self.shard_count as u64) as u32
     }
 

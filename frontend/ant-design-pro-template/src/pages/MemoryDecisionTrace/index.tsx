@@ -1,23 +1,76 @@
 import { PageContainer, ProForm, ProFormSelect, ProFormSlider, ProFormText } from '@ant-design/pro-components';
-import { Card, message, Descriptions, Steps, Tag, Spin, Table } from 'antd';
+import { Card, message, Descriptions, Steps, Tag, Spin, Table, Button, Space, Select, Progress } from 'antd';
 import { useRequest } from '@umijs/max';
 import { getDecisionTrace } from '@/services/memory';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DEFAULT_USER_ID, DEFAULT_AGENT_ID } from '@/config/appConfig';
+
+type PlaybackSpeed = 0.5 | 1 | 2;
 
 export default function MemoryDecisionTracePage() {
   const [trace, setTrace] = useState<API.DecisionTrace | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<PlaybackSpeed>(1);
 
   const { loading, run: fetchTrace } = useRequest(getDecisionTrace, {
     manual: true,
     onSuccess: (data) => {
       setTrace(data);
+      setCurrentStep(0);
+      setIsPlaying(false);
       message.success('决策链路获取成功');
     },
     onError: () => {
       message.error('获取决策链路失败');
     },
   });
+
+  const steps = trace ? [
+    { title: '1. Analyzer 输出', key: 'analyzer' },
+    { title: '2. 资源状态', key: 'resource' },
+    { title: '3. 初始记忆配置', key: 'initial' },
+    { title: '4. Predictor 评估', key: 'predictor' },
+    { title: '5. 成本效益比与权重调整', key: 'weight' },
+    { title: '6. 最终结果', key: 'result' },
+  ] : [];
+
+  const totalSteps = steps.length;
+
+  const handleStepForward = useCallback(() => {
+    setCurrentStep(prev => Math.min(prev + 1, totalSteps - 1));
+  }, [totalSteps]);
+
+  const handleStepBack = useCallback(() => {
+    setCurrentStep(prev => Math.max(prev - 1, 0));
+  }, []);
+
+  const handlePlay = useCallback(() => {
+    if (currentStep >= totalSteps - 1) {
+      setCurrentStep(0);
+    }
+    setIsPlaying(true);
+  }, [currentStep, totalSteps]);
+
+  const handlePause = useCallback(() => {
+    setIsPlaying(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isPlaying || !trace) return;
+    const interval = setInterval(() => {
+      setCurrentStep(prev => {
+        if (prev >= totalSteps - 1) {
+          setIsPlaying(false);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1000 / playbackSpeed);
+    return () => clearInterval(interval);
+  }, [isPlaying, playbackSpeed, totalSteps, trace]);
+
+  const stepColors = ['blue', 'cyan', 'purple', 'orange', 'gold', 'green'];
 
   const handleSubmit = async (values: Record<string, any>) => {
     const modalityMap: Record<string, API.Modality> = {
@@ -142,13 +195,71 @@ export default function MemoryDecisionTracePage() {
         <>
           <Card title="决策路径图" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-              {['Analyzer', 'Resource', 'Initial Config', 'Predictor', 'Weight Adjuster', 'Result'].map((label, i) => (
-                <span key={label}>
-                  <Tag color={i === 0 ? 'blue' : i === 5 ? 'green' : 'default'}>{label}</Tag>
-                  {i < 5 && <span style={{ margin: '0 4px', color: 'var(--ant-color-text-tertiary)' }}>→</span>}
+              {steps.map((step, i) => (
+                <span key={step.key}>
+                  <Tag
+                    color={i <= currentStep ? stepColors[i] : 'default'}
+                    style={{
+                      opacity: i <= currentStep ? 1 : 0.5,
+                      fontWeight: i === currentStep ? 'bold' : 'normal',
+                    }}
+                  >
+                    {step.title}
+                  </Tag>
+                  {i < steps.length - 1 && <span style={{ margin: '0 4px', color: 'var(--ant-color-text-tertiary)' }}>→</span>}
                 </span>
               ))}
             </div>
+          </Card>
+
+          <Card title="回放控制" style={{ marginBottom: 16 }}>
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Progress percent={Math.round(((currentStep + 1) / totalSteps) * 100)} status="active" />
+              <Space>
+                <Button
+                  icon="⏮"
+                  onClick={() => setCurrentStep(0)}
+                  disabled={currentStep === 0}
+                >
+                  重置
+                </Button>
+                <Button
+                  icon="◀"
+                  onClick={handleStepBack}
+                  disabled={currentStep === 0}
+                >
+                  上一步
+                </Button>
+                {isPlaying ? (
+                  <Button type="primary" onClick={handlePause}>
+                    暂停
+                  </Button>
+                ) : (
+                  <Button type="primary" onClick={handlePlay}>
+                    播放
+                  </Button>
+                )}
+                <Button
+                  icon="▶"
+                  onClick={handleStepForward}
+                  disabled={currentStep >= totalSteps - 1}
+                >
+                  下一步
+                </Button>
+                <Select
+                  value={playbackSpeed}
+                  onChange={setPlaybackSpeed}
+                  style={{ width: 100 }}
+                >
+                  <Select.Option value={0.5}>0.5x</Select.Option>
+                  <Select.Option value={1}>1x</Select.Option>
+                  <Select.Option value={2}>2x</Select.Option>
+                </Select>
+              </Space>
+              <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 12 }}>
+                当前步骤: {steps[currentStep]?.title || '-'} ({currentStep + 1}/{totalSteps})
+              </div>
+            </Space>
           </Card>
 
           {trace.memory_contributions && trace.memory_contributions.length > 0 && (
@@ -170,7 +281,7 @@ export default function MemoryDecisionTracePage() {
           <Card title={`决策链路：${trace.task_id}`}>
           <Steps
             direction="vertical"
-            current={4}
+            current={currentStep}
             items={[
               {
                 title: '1. Analyzer 输出',

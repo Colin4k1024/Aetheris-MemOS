@@ -5,10 +5,12 @@
 
 #![allow(unused_imports)]
 
+pub mod approval_node;
 pub mod error;
 pub mod traits;
 pub mod types;
 
+pub use approval_node::*;
 pub use error::{MemoryError, MemoryResult};
 pub use traits::*;
 pub use types::*;

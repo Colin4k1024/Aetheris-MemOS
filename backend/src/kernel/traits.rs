@@ -9,43 +9,28 @@ use std::collections::HashMap;
 ///
 /// This is the main entry point for all memory operations in the system.
 /// Implementations can delegate to different storage backends.
+#[async_trait::async_trait]
 pub trait MemoryKernel: Send + Sync {
     /// Store a new memory entry.
-    fn store(
-        &self,
-        entry: MemoryEntry,
-    ) -> impl std::future::Future<Output = MemoryResult<MemoryId>> + Send;
+    async fn store(&self, entry: MemoryEntry) -> MemoryResult<MemoryId>;
 
     /// Retrieve a memory entry by ID.
-    fn retrieve(
-        &self,
-        id: &MemoryId,
-    ) -> impl std::future::Future<Output = MemoryResult<MemoryEntry>> + Send;
+    async fn retrieve(&self, id: &MemoryId) -> MemoryResult<MemoryEntry>;
 
     /// Search memories based on query parameters.
-    fn search(
-        &self,
-        query: &MemoryQuery,
-    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
+    async fn search(&self, query: &MemoryQuery) -> MemoryResult<Vec<MemoryMatch>>;
 
     /// Update an existing memory entry.
-    fn update(
-        &self,
-        id: &MemoryId,
-        entry: MemoryEntry,
-    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+    async fn update(&self, id: &MemoryId, entry: MemoryEntry) -> MemoryResult<()>;
 
     /// Delete a memory entry.
-    fn delete(&self, id: &MemoryId) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+    async fn delete(&self, id: &MemoryId) -> MemoryResult<()>;
 
     /// Evict memories based on policy.
-    fn evict(
-        &self,
-        policy: &EvictionPolicy,
-    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryId>>> + Send;
+    async fn evict(&self, policy: &EvictionPolicy) -> MemoryResult<Vec<MemoryId>>;
 
     /// Get statistics about memory usage.
-    fn stats(&self) -> impl std::future::Future<Output = MemoryResult<MemoryStats>> + Send;
+    async fn stats(&self) -> MemoryResult<MemoryStats>;
 }
 
 /// Policy for memory eviction.

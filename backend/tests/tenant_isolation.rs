@@ -7,7 +7,7 @@
 //! - Cross-tenant access rejection
 //! - Isolation violation recording
 
-use adaptive_memory_system::tenant::TenantId;
+use backend::tenant::TenantId;
 
 /// Test that different tenants get different prefixes.
 #[test]
@@ -71,7 +71,7 @@ fn test_cross_tenant_access_rejected() {
 /// Note: Full integration test requires metrics setup.
 #[test]
 fn test_isolation_violation_function_exists() {
-    use adaptive_memory_system::services::multi_tenant::record_isolation_violation;
+    use backend::services::multi_tenant::record_isolation_violation;
 
     let tenant = TenantId::from_string("malicious_tenant");
     // Function should exist and be callable (doesn't panic)

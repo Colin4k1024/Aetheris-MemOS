@@ -22,6 +22,7 @@ use axum::{
 
 use super::agent;
 use super::auth;
+use super::distributed;
 use super::knowledge_graph;
 use super::memory;
 use super::memory_search;
@@ -52,5 +53,7 @@ pub fn protected_router() -> Router {
         .merge(knowledge_graph::router())
         // Multimodal
         .merge(multimodal::router())
+        // Distributed - epoch management and interrupt propagation
+        .merge(distributed::router())
         .layer(middleware::from_fn(auth_middleware))
 }

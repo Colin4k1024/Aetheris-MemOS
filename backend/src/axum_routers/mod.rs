@@ -5,6 +5,7 @@
 pub mod agent;
 pub mod auth;
 pub mod demo;
+pub mod distributed;
 pub mod knowledge_graph;
 pub mod memory;
 pub mod memory_search;

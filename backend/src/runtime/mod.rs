@@ -8,27 +8,31 @@
 
 pub mod openai_adapter;
 pub mod anthropic_adapter;
+pub mod planner_sandbox;
+pub mod subagent_pool;
 
 pub use openai_adapter::OpenAIMemoryAdapter;
 pub use anthropic_adapter::AnthropicMemoryAdapter;
+pub use planner_sandbox::{PlannerSandbox, SandboxError, ToolRegistry, VirtualEffectStore};
 
 use crate::kernel::types::*;
 use crate::kernel::error::MemoryResult;
 use crate::agent::memory_agent::MemoryAgent;
 
 /// Common trait for runtime adapters.
+#[async_trait::async_trait]
 pub trait RuntimeAdapter: Send + Sync {
     /// Get the adapter name.
     fn name(&self) -> &str;
-    
+
     /// Store a message in memory.
-    fn store_message(&self, message: &RuntimeMessage) -> impl std::future::Future<Output = MemoryResult<MemoryId>> + Send;
-    
+    async fn store_message(&self, message: &RuntimeMessage) -> MemoryResult<MemoryId>;
+
     /// Get conversation history.
-    fn get_history(&self, session_id: &str, limit: usize) -> impl std::future::Future<Output = MemoryResult<Vec<RuntimeMessage>>> + Send;
-    
+    async fn get_history(&self, session_id: &str, limit: usize) -> MemoryResult<Vec<RuntimeMessage>>;
+
     /// Search memories.
-    fn search(&self, query: &str) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
+    async fn search(&self, query: &str) -> MemoryResult<Vec<MemoryMatch>>;
 }
 
 /// Message from/to agent runtime.

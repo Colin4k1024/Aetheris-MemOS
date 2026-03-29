@@ -63,15 +63,17 @@ impl MemoryMerger {
             MemoryContent::Text(s) => s.clone(),
             _ => return 0.0,
         };
-        
+
         let text_b = match &b.content {
             MemoryContent::Text(s) => s.clone(),
             _ => return 0.0,
         };
 
         // Simple word overlap similarity
-        let words_a: std::collections::HashSet<_> = text_a.to_lowercase().split_whitespace().collect();
-        let words_b: std::collections::HashSet<_> = text_b.to_lowercase().split_whitespace().collect();
+        let lower_a = text_a.to_lowercase();
+        let lower_b = text_b.to_lowercase();
+        let words_a: std::collections::HashSet<_> = lower_a.split_whitespace().collect();
+        let words_b: std::collections::HashSet<_> = lower_b.split_whitespace().collect();
 
         if words_a.is_empty() || words_b.is_empty() {
             return 0.0;

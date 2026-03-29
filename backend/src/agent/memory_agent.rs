@@ -34,12 +34,16 @@ impl MemoryAgent {
     }
 
     pub fn with_config(kernel: Arc<dyn MemoryKernel>, config: AgentConfig) -> Self {
+        let compression_batch_size = config.compression_batch_size;
+        let merge_similarity_threshold = config.merge_similarity_threshold;
+        let min_importance_threshold = config.min_importance_threshold;
+        let max_age_seconds = config.max_age_seconds;
         Self {
             kernel,
             config,
-            compressor: MemoryCompressor::new(config.compression_batch_size),
-            merger: MemoryMerger::new(config.merge_similarity_threshold),
-            forgetter: MemoryForGetter::new(config.min_importance_threshold, config.max_age_seconds),
+            compressor: MemoryCompressor::new(compression_batch_size),
+            merger: MemoryMerger::new(merge_similarity_threshold),
+            forgetter: MemoryForGetter::new(min_importance_threshold, max_age_seconds),
         }
     }
 
@@ -147,8 +151,9 @@ impl MemoryAgent {
         };
 
         let all_memories = self.kernel.search(&query).await?;
-        
-        self.forgetter.evict(&all_memories.iter().map(|m| m.entry.clone()).collect()).await
+
+        let entries: Vec<MemoryEntry> = all_memories.iter().map(|m| m.entry.clone()).collect();
+        self.forgetter.evict(&entries).await
     }
 
     /// Run periodic maintenance.
@@ -172,12 +177,11 @@ impl MemoryAgent {
         };
 
         let stm_memories = self.kernel.search(&stm_query).await?;
-        
+
         if stm_memories.len() >= self.config.stm_compression_threshold {
             // Compress old STM to LTM
-            let compressed = self.compressor.compress(
-                &stm_memories.iter().map(|m| m.entry.clone()).collect()
-            ).await;
+            let entries: Vec<MemoryEntry> = stm_memories.iter().map(|m| m.entry.clone()).collect();
+            let compressed = self.compressor.compress(&entries).await;
             results.compressed_count = compressed.len();
         }
 
