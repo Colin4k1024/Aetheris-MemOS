@@ -5,9 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-03-28
 
 ### Added
+
+- **Phase 1: Evidence Graph & Decision Snapshots**
+  - Decision traces with hash-chain verification (`decision_trace.rs`)
+  - Serializable snapshots for memory state
+  - Queryable evidence API
+
+- **Phase 2: Security Hardening for MCP & Multi-Tenant**
+  - MCP signing verification (`mcp/signing.rs`)
+  - Input validation layer (`mcp/validation.rs`)
+  - Multi-tenant isolation enforcement (`tenant/isolation.rs`, `tenant/quota.rs`)
+
+- **Phase 3: Memory Fusion & Self-Healing Runtime**
+  - Memory fusion service (`services/memory_fusion.rs`)
+  - Weight decay mechanism (`services/weight_decay.rs`)
+  - Self-healing runtime with health check endpoint (`services/self_healing.rs`)
+
+- **New Modules**
+  - `distributed/` - consensus, replication, sharding
+  - `mcp/` - sandbox environment, signing verification
+  - `kernel/` - approval nodes for decision validation
+  - `layers/` - memory layer abstractions
+  - `tenant/` - isolation and quota management
 
 - Root `LICENSE` file (MIT) for the project.
 - `SECURITY.md` with supported versions and vulnerability reporting instructions.
@@ -20,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backend: template rendering in routers uses proper error handling (`map_err` to `AppError`) instead of `unwrap()`.
 - Backend: 404 handler template render uses `unwrap_or_else` fallback instead of `unwrap()`.
 - Backend: log config builder methods `rolling()` and `format()` use safe defaults and logging instead of `panic!()` for invalid values.
+
+### Build
+
+- `cargo build` passes with 564 warnings (acceptable for v1.0)
 
 ## [0.1.1] - 2024
 
@@ -36,6 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial implementation: Rust backend and React (Ant Design Pro) frontend scaffold.
 
-[Unreleased]: https://github.com/adaptive-memory-system/adaptive-memory-system/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/adaptive-memory-system/adaptive-memory-system/compare/v1.0.0...HEAD
 [0.1.1]: https://github.com/adaptive-memory-system/adaptive-memory-system/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/adaptive-memory-system/adaptive-memory-system/releases/tag/v0.1.0

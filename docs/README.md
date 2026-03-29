@@ -34,6 +34,18 @@ Welcome to the Adaptive Memory Management System documentation. | 欢迎阅读�
 | [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md) / [OPEN_SOURCE_CHECKLIST.zh.md](OPEN_SOURCE_CHECKLIST.zh.md) | 开源审查清单         | Open source review checklist      | 开源审查清单     |
 | [why-axum.md](why-axum.md) / [why-axum.zh.md](why-axum.zh.md)                                                     | Axum Migration Notes | Web framework migration rationale | Web 框架迁移说明 |
 
+## v1.0 Phase Documentation | v1.0 阶段文档
+
+See [.planning/phases/](../.planning/phases/) for detailed phase documentation:
+
+| Phase | Description |
+|-------|-------------|
+| [01-evidence-graph-decision-snapshots-completeness](../.planning/phases/01-evidence-graph-decision-snapshots-completeness/) | Decision traces, hash-chain verification, serializable snapshots |
+| [02-security-hardening-for-mcp-and-multi-tenant-runtime](../.planning/phases/02-security-hardening-for-mcp-and-multi-tenant-runtime/) | MCP signing, input validation, multi-tenant isolation |
+| [03-memos-deep-fusion-and-self-healing-runtime](../.planning/phases/03-memos-deep-fusion-and-self-healing-runtime/) | Memory fusion, weight decay, self-healing runtime |
+
+See [.planning/v1.0-MILESTONE-AUDIT.md](../.planning/v1.0-MILESTONE-AUDIT.md) for v1.0 requirements coverage audit.
+
 ## Internal Design Notes | 内部设计笔记
 
 See [update/](update/) directory for v0.3 design and architecture review documents.

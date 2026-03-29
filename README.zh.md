@@ -454,6 +454,7 @@ docker compose logs -f
 
 ## 相关文档
 
+- [v1.0 里程碑审计 (.planning/v1.0-MILESTONE-AUDIT.md)](.planning/v1.0-MILESTONE-AUDIT.md) — 版本完成状态与需求覆盖
 - [变更记录 (CHANGELOG)](CHANGELOG.md) — 版本更新与改动说明
 - [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告与支持版本
 - [行为准则 (CODE_OF_CONDUCT)](CODE_OF_CONDUCT.md) — 社区参与规范

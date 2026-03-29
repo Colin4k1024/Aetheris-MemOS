@@ -36,6 +36,7 @@ This is a **monorepo** with two main components:
 ### Backend (`backend/src/`)
 
 - **routers/** — API endpoint handlers (memory, auth, user, knowledge_graph, memory_search, memory_storage, multimodal)
+- **axum_routers/** — Axum-compatible router adapters
 - **services/** — Core business logic
   - `scheduler.rs` — Adaptive memory scheduler (selects optimal memory config)
   - `analyzer.rs` — Task feature analysis (complexity, modality, reasoning depth)
@@ -52,6 +53,7 @@ This is a **monorepo** with two main components:
   - `qdrant.rs` — Qdrant vector database client
   - `rerank.rs` — Reranking service
 - **db/** — Database repositories
+  - `adapters/` — Database adapter implementations
   - `memory.rs` — Memory configuration
   - `performance.rs` — Performance metrics
   - `weights.rs` — Weight history
@@ -64,6 +66,15 @@ This is a **monorepo** with two main components:
 - **models/** — Data models (memory, task, performance, resource)
 - **config/** — Configuration modules
 - **hoops/** — Middleware (CORS, JWT auth)
+- **kernel/** — Approval nodes, fan nodes, trait definitions for the evidence graph
+- **layers/** — Memory layer abstractions (STM, LTM, KG, MM layers)
+- **policy/** — Cost model and scheduler policy
+- **protocol/** — Protocol implementations (gRPC, WebSocket, MCP)
+- **runtime/** — Runtime adapters (Anthropic, OpenAI), planner sandbox, subagent pool
+- **tenant/** — Multi-tenant context, isolation, and quota management
+- **distributed/** — Distributed systems (consensus, replication, sharding, lease coordination, signaling)
+- **mcp/** — MCP protocol (sandbox isolation, signing verification, proxy)
+- **web/** — Web-specific handlers
 
 ### Frontend (`frontend/ant-design-pro-template/`)
 
@@ -97,6 +108,30 @@ This is a **monorepo** with two main components:
 - `src/services/memory/knowledgeGraphApi.ts` - KG APIs
 - `src/services/memory/multimodalApi.ts` - MM APIs
 
+### Distributed & Signaling Endpoints
+
+| Method | Endpoint                          | Description              |
+| ------ | --------------------------------- | ------------------------ |
+| GET    | `/api/v1/distributed/nodes`       | List cluster nodes       |
+| GET    | `/api/v1/distributed/node/{id}`  | Get node status          |
+| POST   | `/api/v1/distributed/replicate`  | Trigger replication      |
+
+### Tenant & Quota Endpoints
+
+| Method | Endpoint                          | Description              |
+| ------ | --------------------------------- | ------------------------ |
+| GET    | `/api/v1/tenant/context`         | Get current tenant context |
+| GET    | `/api/v1/tenant/quota`           | Get tenant quota status  |
+| POST   | `/api/v1/tenant/quota/reset`     | Reset quota counters    |
+
+### Health & System Endpoints
+
+| Method | Endpoint                          | Description              |
+| ------ | --------------------------------- | ------------------------ |
+| GET    | `/api/v1/health`                  | Full system health check |
+| GET    | `/api/v1/health/liveness`         | Liveness probe           |
+| GET    | `/api/v1/health/readiness`        | Readiness probe          |
+
 ## Key Patterns
 
 ### Adding New API Endpoints
@@ -125,6 +160,14 @@ sqlx::query_as!(Model, "SELECT * FROM table")
 ### Error Handling
 
 Use `AppError` from `backend/src/error.rs` for structured error responses with proper HTTP status codes.
+
+### Multi-Tenant Isolation
+
+All repository queries are scoped by `tenant_id`. Use `TenantContext` extractor to access tenant info in handlers. See `backend/src/tenant/isolation.rs`.
+
+### MCP Sandbox
+
+MCP tool calls run in isolated sandboxes with signing verification. See `backend/src/mcp/sandbox.rs` and `backend/src/mcp/signing.rs`.
 
 ## Environment Requirements
 
