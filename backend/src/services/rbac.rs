@@ -117,10 +117,7 @@ impl RbacService {
         let mut roles = self.roles.write().await;
 
         let tenant_roles = roles.entry(tenant_id.to_string()).or_default();
-        tenant_roles.insert(
-            user_id.to_string(),
-            role,
-        );
+        tenant_roles.insert(user_id.to_string(), role);
 
         let user_role = UserRole {
             user_id: user_id.to_string(),
@@ -171,12 +168,7 @@ impl RbacService {
     }
 
     /// Check if user can perform action (with role level check)
-    pub async fn can_perform(
-        &self,
-        tenant_id: &str,
-        user_id: &str,
-        required_role: Role,
-    ) -> bool {
+    pub async fn can_perform(&self, tenant_id: &str, user_id: &str, required_role: Role) -> bool {
         if let Some(role) = self.get_role(tenant_id, user_id).await {
             role.level() >= required_role.level()
         } else {
@@ -237,12 +229,15 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(rbac
-            .has_permission("tenant1", "admin_user", Permission::Write)
-            .await);
-        assert!(!rbac
-            .has_permission("tenant1", "reader_user", Permission::Write)
-            .await);
+        assert!(
+            rbac.has_permission("tenant1", "admin_user", Permission::Write)
+                .await
+        );
+        assert!(
+            !rbac
+                .has_permission("tenant1", "reader_user", Permission::Write)
+                .await
+        );
     }
 
     #[tokio::test]
@@ -252,11 +247,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(rbac
-            .has_permission("tenant1", "owner", Permission::DeleteTenant)
-            .await);
-        assert!(rbac
-            .has_permission("tenant1", "owner", Permission::ManageBilling)
-            .await);
+        assert!(
+            rbac.has_permission("tenant1", "owner", Permission::DeleteTenant)
+                .await
+        );
+        assert!(
+            rbac.has_permission("tenant1", "owner", Permission::ManageBilling)
+                .await
+        );
     }
 }

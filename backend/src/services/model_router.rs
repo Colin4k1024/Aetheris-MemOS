@@ -111,16 +111,12 @@ pub fn recommend_embedding(
 }
 
 /// Recommend the best LLM for the detected hardware.
-pub fn recommend_llm(
-    caps: &HardwareCapabilities,
-    configured_base_url: &str,
-) -> LlmRecommendation {
+pub fn recommend_llm(caps: &HardwareCapabilities, configured_base_url: &str) -> LlmRecommendation {
     if caps.is_apple_silicon {
         LlmRecommendation {
             model: "llama3.2".to_string(),
             base_url: configured_base_url.to_string(),
-            reasoning: "Apple Silicon: llama3.2 via Ollama with Metal/ANE acceleration"
-                .to_string(),
+            reasoning: "Apple Silicon: llama3.2 via Ollama with Metal/ANE acceleration".to_string(),
         }
     } else if caps.has_cuda && caps.cuda_total_vram_mb >= 16384 {
         LlmRecommendation {

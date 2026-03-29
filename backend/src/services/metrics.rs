@@ -270,7 +270,10 @@ impl MetricsAggregator {
         let mut buckets = self.buckets.lock().unwrap();
 
         let op_stats = buckets.entry(bucket_id).or_default();
-        op_stats.entry(op_type).or_insert_with(BucketStats::new).record(latency_ms, outcome);
+        op_stats
+            .entry(op_type)
+            .or_insert_with(BucketStats::new)
+            .record(latency_ms, outcome);
     }
 
     /// Get current bucket identifier
@@ -308,7 +311,9 @@ impl MetricsAggregator {
             .get(&bucket_id)
             .map(|ops| {
                 ops.iter()
-                    .map(|(op_type, stats)| MetricsEvent::new(bucket_id.clone(), *op_type, stats.clone()))
+                    .map(|(op_type, stats)| {
+                        MetricsEvent::new(bucket_id.clone(), *op_type, stats.clone())
+                    })
                     .collect()
             })
             .unwrap_or_default()

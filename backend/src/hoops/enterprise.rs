@@ -57,12 +57,7 @@ pub struct AuditEvent {
 }
 
 impl AuditEvent {
-    pub fn new(
-        tenant_id: String,
-        action: String,
-        resource: String,
-        result: AuditResult,
-    ) -> Self {
+    pub fn new(tenant_id: String, action: String, resource: String, result: AuditResult) -> Self {
         Self {
             tenant_id,
             user_id: None,

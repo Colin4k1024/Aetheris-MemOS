@@ -2,8 +2,8 @@
 //!
 //! This module provides tenant isolation mechanisms for multi-tenant memory systems.
 
-use crate::tenant::TenantId;
 use crate::kernel::types::*;
+use crate::tenant::TenantId;
 
 /// Tenant isolation configuration.
 #[derive(Debug, Clone)]
@@ -130,7 +130,11 @@ impl TenantIsolation {
     }
 
     /// Check if a tenant can access another tenant's data (cross-tenant access).
-    pub fn can_access_cross_tenant(&self, _tenant_id: &TenantId, _target_tenant_id: &TenantId) -> bool {
+    pub fn can_access_cross_tenant(
+        &self,
+        _tenant_id: &TenantId,
+        _target_tenant_id: &TenantId,
+    ) -> bool {
         // By default, cross-tenant access is denied
         // In production, this could check for admin privileges or explicit grants
         false
@@ -241,7 +245,11 @@ mod tests {
 
         let filters = isolation.scoped_filters(&tenant);
 
-        assert!(filters.tags.as_ref().unwrap().contains(&"tenant:tenant_123".to_string()));
+        assert!(filters
+            .tags
+            .as_ref()
+            .unwrap()
+            .contains(&"tenant:tenant_123".to_string()));
     }
 
     #[test]

@@ -87,7 +87,10 @@ impl STMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Created new session: {} for tenant: {}", session_id, tenant_id);
+        info!(
+            "Created new session: {} for tenant: {}",
+            session_id, tenant_id
+        );
         Ok(session_id)
     }
 
@@ -119,7 +122,8 @@ impl STMRepository {
             let prefix = tenant_id.prefix();
             // 检查user_id是否以租户前缀开头（用于新数据格式）
             // 或者user_id等于tenant_id（用于MVP格式，每个user是自己的tenant）
-            let belongs_to_tenant = s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
             if !belongs_to_tenant {
                 // 记录隔离违规
                 crate::services::multi_tenant::record_isolation_violation(
@@ -163,14 +167,17 @@ impl STMRepository {
 
         if let Some(ref s) = session {
             let prefix = tenant_id.prefix();
-            let belongs_to_tenant = s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
             if !belongs_to_tenant {
                 crate::services::multi_tenant::record_isolation_violation(
                     tenant_id.as_str(),
                     session_id,
                     "stm_message_cross_tenant_access",
                 );
-                return Err(AppError::Forbidden("Session belongs to different tenant".to_string()));
+                return Err(AppError::Forbidden(
+                    "Session belongs to different tenant".to_string(),
+                ));
             }
         } else {
             return Err(AppError::NotFound("Session not found".to_string()));
@@ -216,7 +223,10 @@ impl STMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Added message to session: {} for tenant: {}", session_id, tenant_id);
+        info!(
+            "Added message to session: {} for tenant: {}",
+            session_id, tenant_id
+        );
         Ok(message_id)
     }
 
@@ -246,7 +256,8 @@ impl STMRepository {
 
         if let Some(ref s) = session {
             let prefix = tenant_id.prefix();
-            let belongs_to_tenant = s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
             if !belongs_to_tenant {
                 crate::services::multi_tenant::record_isolation_violation(
                     tenant_id.as_str(),

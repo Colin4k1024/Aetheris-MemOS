@@ -1,9 +1,6 @@
 //! Demo routes
 
-use axum::{
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 
 /// Demo hello world handler
 #[utoipa::path(get, path = "/", tag = "Demo")]
@@ -13,6 +10,5 @@ pub async fn hello() -> &'static str {
 
 /// Create demo routes
 pub fn router() -> Router {
-    Router::new()
-        .route("/", get(hello))
+    Router::new().route("/", get(hello))
 }

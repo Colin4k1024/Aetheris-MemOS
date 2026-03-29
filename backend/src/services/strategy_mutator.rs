@@ -9,7 +9,6 @@
 /// 3. 生成若干候选突变（小幅随机扰动 ± delta）
 /// 4. 贪心选择：若突变后预测评分更高，则接受
 /// 5. 将变异结果写入权重历史（决策轨迹）并返回新权重建议
-
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -145,9 +144,7 @@ impl StrategyMutator {
     pub async fn run_mutation_cycle(cfg: &MutationConfig) -> Result<MutationResult, AppError> {
         // 读取历史性能指标（用空字符串匹配所有 config_id 做全量聚合；失败时使用空统计量）
         let stats = crate::db::performance::PerformanceMetricsRepository::get_aggregated_stats(
-            "",
-            None,
-            None,
+            "", None, None,
         )
         .await
         .unwrap_or(crate::db::performance::AggregatedStats {
@@ -204,10 +201,8 @@ impl StrategyMutator {
             accepted,
             old_score: baseline_score,
             new_score: best_score,
-            old_params: serde_json::to_value(&current_params)
-                .unwrap_or(serde_json::Value::Null),
-            new_params: serde_json::to_value(&best_candidate)
-                .unwrap_or(serde_json::Value::Null),
+            old_params: serde_json::to_value(&current_params).unwrap_or(serde_json::Value::Null),
+            new_params: serde_json::to_value(&best_candidate).unwrap_or(serde_json::Value::Null),
             reason,
         })
     }
@@ -293,8 +288,7 @@ impl StrategyMutator {
             kg_reasoning_threshold: (params.kg_reasoning_threshold + r2 * delta).clamp(0.1, 0.9),
             mm_modality_threshold: (params.mm_modality_threshold + r3 * delta).clamp(1.0, 5.0),
             synergy_boost: (params.synergy_boost + r4 * delta * 0.5).clamp(0.0, 0.2),
-            decay_cost_threshold: (params.decay_cost_threshold + r5 * delta * 2.0)
-                .clamp(0.5, 2.0),
+            decay_cost_threshold: (params.decay_cost_threshold + r5 * delta * 2.0).clamp(0.5, 2.0),
         }
     }
 }

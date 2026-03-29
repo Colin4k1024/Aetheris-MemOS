@@ -133,7 +133,10 @@ pub fn init() -> Result<()> {
                 sigs.insert(collection_name.clone(), sig);
                 if let Err(e) = save_signatures(&sig_path, &sigs) {
                     // Non-fatal: warn rather than abort — the system can still run.
-                    warn!("Could not persist vector signature to {:?}: {}", sig_path, e);
+                    warn!(
+                        "Could not persist vector signature to {:?}: {}",
+                        sig_path, e
+                    );
                 } else {
                     info!(
                         collection = %collection_name,

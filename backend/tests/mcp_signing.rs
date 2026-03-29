@@ -2,11 +2,11 @@
 //!
 //! Tests for MCP component signing and verification behavior.
 
-use sha2::Digest;
+use backend::mcp::signing::SigningError;
 use backend::mcp::signing::{
     compute_signature, verify_component, verify_unsigned, ComponentSignature, TrustedKeyBundle,
 };
-use backend::mcp::signing::SigningError;
+use sha2::Digest;
 
 /// Test helper to create a test key bundle
 fn test_key_bundle() -> TrustedKeyBundle {
@@ -14,7 +14,8 @@ fn test_key_bundle() -> TrustedKeyBundle {
 
     let mut keys = HashMap::new();
     // 32-byte test key
-    let secret_key = hex::decode("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").unwrap();
+    let secret_key =
+        hex::decode("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").unwrap();
     keys.insert("test-issuer".to_string(), secret_key);
     TrustedKeyBundle::new(keys)
 }
@@ -49,7 +50,11 @@ fn test_valid_signature_passes_verification() {
 
     // Verification should pass
     let result = verify_component("test_tool", artifact, &sig, &bundle);
-    assert!(result.is_ok(), "Valid signature should pass verification: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Valid signature should pass verification: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -85,7 +90,8 @@ fn test_tampered_artifact_fails_verification() {
     let result = verify_component("test_tool", tampered_artifact, &sig, &bundle);
     assert!(
         matches!(result, Err(SigningError::VerificationFailed(_, _))),
-        "Tampered artifact should fail verification: {:?}", result
+        "Tampered artifact should fail verification: {:?}",
+        result
     );
 }
 
@@ -106,7 +112,8 @@ fn test_unknown_issuer_fails_verification() {
     let result = verify_component("test_tool", artifact, &sig, &bundle);
     assert!(
         matches!(result, Err(SigningError::UnknownIssuer(_))),
-        "Unknown issuer should fail verification: {:?}", result
+        "Unknown issuer should fail verification: {:?}",
+        result
     );
 }
 
@@ -115,7 +122,8 @@ fn test_component_without_signature_is_rejected() {
     let result = verify_unsigned("test_tool");
     assert!(
         matches!(result, Err(SigningError::Unsigned(_))),
-        "Unsigned component should be rejected: {:?}", result
+        "Unsigned component should be rejected: {:?}",
+        result
     );
 }
 
@@ -130,7 +138,8 @@ fn test_signature_with_wrong_key_fails() {
     let timestamp = 1710000000i64;
 
     // Use wrong key
-    let wrong_key = hex::decode("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").unwrap();
+    let wrong_key =
+        hex::decode("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").unwrap();
 
     let signature = compute_signature(artifact, issuer, version, timestamp, &wrong_key)
         .expect("signature computation should succeed");
@@ -156,7 +165,8 @@ fn test_signature_with_wrong_key_fails() {
     let result = verify_component("test_tool", artifact, &sig, &bundle);
     assert!(
         matches!(result, Err(SigningError::VerificationFailed(_, _))),
-        "Wrong key should fail verification: {:?}", result
+        "Wrong key should fail verification: {:?}",
+        result
     );
 }
 
@@ -189,7 +199,11 @@ fn test_expired_signature_handling() {
     // This should still verify - we don't enforce timestamp validation in MVP
     // Timestamp validation can be added in future iteration
     let result = verify_component("test_tool", artifact, &sig, &bundle);
-    assert!(result.is_ok(), "Old timestamp should still verify: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Old timestamp should still verify: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -198,14 +212,20 @@ fn test_trusted_key_bundle_from_env() {
     std::env::remove_var("MCP_TRUSTED_ISSUERS");
 
     let bundle = TrustedKeyBundle::load_from_env();
-    assert!(!bundle.is_trusted("anything"), "Empty bundle should trust nothing");
+    assert!(
+        !bundle.is_trusted("anything"),
+        "Empty bundle should trust nothing"
+    );
 
     // When env vars are set, bundle should load them
     std::env::set_var("MCP_TRUSTED_ISSUERS", r#"["test"]"#);
     std::env::set_var("MCP_KEY_TEST", "0123456789abcdef");
 
     let bundle = TrustedKeyBundle::load_from_env();
-    assert!(bundle.is_trusted("test"), "Should trust test issuer from env");
+    assert!(
+        bundle.is_trusted("test"),
+        "Should trust test issuer from env"
+    );
 
     // Cleanup
     std::env::remove_var("MCP_TRUSTED_ISSUERS");

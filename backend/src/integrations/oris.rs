@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use ulid::Ulid;
 use tracing::info;
+use ulid::Ulid;
 
 use crate::kernel::types::{MemoryEntry, MemoryId};
 
@@ -152,7 +152,10 @@ impl OrisIntegration {
             updated_at: now,
         };
 
-        self.tasks.write().await.insert(task_id.clone(), task.clone());
+        self.tasks
+            .write()
+            .await
+            .insert(task_id.clone(), task.clone());
         info!("Created Oris task: {}", task_id);
 
         Ok(task)
@@ -165,17 +168,23 @@ impl OrisIntegration {
         context: ContextSnapshot,
     ) -> Result<ContextSnapshot, crate::AppError> {
         let mut tasks = self.tasks.write().await;
-        let task = tasks.get_mut(task_id).ok_or_else(|| {
-            crate::AppError::NotFound(format!("Task {} not found", task_id))
-        })?;
+        let task = tasks
+            .get_mut(task_id)
+            .ok_or_else(|| crate::AppError::NotFound(format!("Task {} not found", task_id)))?;
 
         task.status = OrisTaskStatus::Suspended;
         task.context_snapshot = context.clone();
         task.updated_at = chrono::Utc::now().timestamp();
 
         // Store snapshot
-        self.snapshots.write().await.insert(context.snapshot_id.clone(), context.clone());
-        info!("Suspended task {} with snapshot {}", task_id, context.snapshot_id);
+        self.snapshots
+            .write()
+            .await
+            .insert(context.snapshot_id.clone(), context.clone());
+        info!(
+            "Suspended task {} with snapshot {}",
+            task_id, context.snapshot_id
+        );
 
         Ok(context)
     }
@@ -187,9 +196,9 @@ impl OrisIntegration {
         snapshot_id: Option<String>,
     ) -> Result<OrisTaskState, crate::AppError> {
         let mut tasks = self.tasks.write().await;
-        let task = tasks.get_mut(task_id).ok_or_else(|| {
-            crate::AppError::NotFound(format!("Task {} not found", task_id))
-        })?;
+        let task = tasks
+            .get_mut(task_id)
+            .ok_or_else(|| crate::AppError::NotFound(format!("Task {} not found", task_id)))?;
 
         if task.status != OrisTaskStatus::Suspended {
             return Err(crate::AppError::BadRequest(
@@ -219,16 +228,20 @@ impl OrisIntegration {
         description: Option<String>,
     ) -> Result<Checkpoint, crate::AppError> {
         let tasks = self.tasks.read().await;
-        let task = tasks.get(task_id).ok_or_else(|| {
-            crate::AppError::NotFound(format!("Task {} not found", task_id))
-        })?;
+        let task = tasks
+            .get(task_id)
+            .ok_or_else(|| crate::AppError::NotFound(format!("Task {} not found", task_id)))?;
 
         let checkpoint = Checkpoint {
             checkpoint_id: Ulid::new().to_string(),
             task_id: task_id.to_string(),
             snapshot: task.context_snapshot.clone(),
             memory_snapshot: task.context_snapshot.memory_state.stm_entries.clone(),
-            decision_snapshot: task.context_snapshot.decision_state.decision_history.clone(),
+            decision_snapshot: task
+                .context_snapshot
+                .decision_state
+                .decision_history
+                .clone(),
             created_at: chrono::Utc::now().timestamp(),
             description,
         };
@@ -276,15 +289,18 @@ impl OrisIntegration {
 
         // Now update the task
         let mut tasks = self.tasks.write().await;
-        let task = tasks.get_mut(task_id).ok_or_else(|| {
-            crate::AppError::NotFound(format!("Task {} not found", task_id))
-        })?;
+        let task = tasks
+            .get_mut(task_id)
+            .ok_or_else(|| crate::AppError::NotFound(format!("Task {} not found", task_id)))?;
 
         task.context_snapshot = checkpoint_data;
         task.status = OrisTaskStatus::RolledBack;
         task.updated_at = chrono::Utc::now().timestamp();
 
-        info!("Rolled back task {} to checkpoint {}", task_id, checkpoint_id);
+        info!(
+            "Rolled back task {} to checkpoint {}",
+            task_id, checkpoint_id
+        );
         Ok(task.clone())
     }
 
@@ -302,11 +318,14 @@ impl OrisIntegration {
     }
 
     /// List task checkpoints
-    pub async fn list_checkpoints(&self, task_id: &str) -> Result<Vec<Checkpoint>, crate::AppError> {
+    pub async fn list_checkpoints(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<Checkpoint>, crate::AppError> {
         let tasks = self.tasks.read().await;
-        let task = tasks.get(task_id).ok_or_else(|| {
-            crate::AppError::NotFound(format!("Task {} not found", task_id))
-        })?;
+        let task = tasks
+            .get(task_id)
+            .ok_or_else(|| crate::AppError::NotFound(format!("Task {} not found", task_id)))?;
 
         Ok(task.checkpoints.clone())
     }

@@ -46,7 +46,10 @@ pub fn router() -> Router {
     Router::new()
         .route("/api/v1/memory/storage/sessions", get(list_sessions))
         .route("/api/v1/memory/storage/stm", post(store_stm))
-        .route("/api/v1/memory/storage/stm/{session_id}", get(get_session_messages))
+        .route(
+            "/api/v1/memory/storage/stm/{session_id}",
+            get(get_session_messages),
+        )
         .route("/api/v1/memory/storage/ltm", post(store_ltm))
         .route("/api/v1/memory/storage/transfer", post(transfer_stm_to_ltm))
         .route("/api/v1/memory/storage/batch-ltm", post(batch_store_ltm))

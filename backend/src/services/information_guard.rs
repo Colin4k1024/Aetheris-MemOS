@@ -141,7 +141,11 @@ pub fn init_write_journal() {
         }
     }
     // Touch the file so it exists.
-    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Err(e) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         warn!("Could not open journal file {:?}: {}", path, e);
         return;
     }
@@ -175,7 +179,10 @@ pub fn init_integrity_scanner() {
     if SCANNER_RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
-    info!("Starting background LTM integrity scanner (interval={}s)", SCAN_INTERVAL_SECONDS);
+    info!(
+        "Starting background LTM integrity scanner (interval={}s)",
+        SCAN_INTERVAL_SECONDS
+    );
     tokio::spawn(scanner_loop());
 }
 
@@ -192,7 +199,15 @@ async fn run_scan_cycle() -> anyhow::Result<()> {
     use crate::db::ltm::LTMRepository;
 
     // Fetch a random sample of LTM entries.
-    let entries = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(SAMPLE_BATCH), Some(0)).await?;
+    let entries = LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(SAMPLE_BATCH),
+        Some(0),
+    )
+    .await?;
     let mut checked = 0u64;
     let mut violations = 0u64;
 
@@ -201,7 +216,11 @@ async fn run_scan_cycle() -> anyhow::Result<()> {
         checked += 1;
         match status {
             IntegrityStatus::Ok => {}
-            IntegrityStatus::HashMismatch { entry_id, stored, computed } => {
+            IntegrityStatus::HashMismatch {
+                entry_id,
+                stored,
+                computed,
+            } => {
                 error!(
                     entry_id = %entry_id,
                     stored_hash = %stored,

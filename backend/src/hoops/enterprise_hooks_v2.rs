@@ -155,14 +155,18 @@ impl BillingHookImpl {
 
         // Record to usage tracker
         let runtime = tokio::runtime::Handle::current();
-        runtime.block_on(async {
-            self.usage_tracker.record_usage(
-                &event.tenant_id,
-                event.event_type.to_metric_type(),
-                event.quantity,
-                Some(event.metadata.clone()),
-            ).await
-        }).map_err(|e| e.to_string())?;
+        runtime
+            .block_on(async {
+                self.usage_tracker
+                    .record_usage(
+                        &event.tenant_id,
+                        event.event_type.to_metric_type(),
+                        event.quantity,
+                        Some(event.metadata.clone()),
+                    )
+                    .await
+            })
+            .map_err(|e| e.to_string())?;
 
         // Cache the key
         if let Ok(mut cache) = self.event_cache.write() {
@@ -185,9 +189,7 @@ impl BillingHook for BillingHookImpl {
 
     fn calculate_cost(&self, tenant_id: &str) -> f64 {
         let runtime = tokio::runtime::Handle::current();
-        runtime.block_on(async {
-            self.usage_tracker.calculate_cost(tenant_id).await
-        })
+        runtime.block_on(async { self.usage_tracker.calculate_cost(tenant_id).await })
     }
 }
 
@@ -223,12 +225,7 @@ pub struct AuditLogEntry {
 }
 
 impl AuditLogEntry {
-    pub fn new(
-        tenant_id: String,
-        action: String,
-        resource: String,
-        result: AuditResult,
-    ) -> Self {
+    pub fn new(tenant_id: String, action: String, resource: String, result: AuditResult) -> Self {
         Self {
             entry_id: ulid::Ulid::new().to_string(),
             tenant_id,
@@ -382,8 +379,7 @@ impl AuditHook for AuditHookImpl {
         let entries = self.query(filter);
 
         match format.to_lowercase().as_str() {
-            "json" => serde_json::to_string_pretty(&entries)
-                .map_err(|e| e.to_string()),
+            "json" => serde_json::to_string_pretty(&entries).map_err(|e| e.to_string()),
             "csv" => {
                 let mut csv = String::from("entry_id,tenant_id,user_id,action,resource,result,timestamp,request_id,ip_address\n");
                 for entry in entries {
@@ -468,7 +464,9 @@ pub struct FeatureGate {
     /// License tiers: tenant_id -> tier
     license_tiers: std::sync::RwLock<std::collections::HashMap<String, LicenseTier>>,
     /// Custom feature flags: tenant_id -> feature -> enabled
-    feature_flags: std::sync::RwLock<std::collections::HashMap<String, std::collections::HashMap<String, bool>>>,
+    feature_flags: std::sync::RwLock<
+        std::collections::HashMap<String, std::collections::HashMap<String, bool>>,
+    >,
 }
 
 impl FeatureGate {
@@ -605,7 +603,11 @@ impl EnterpriseHooksV2 {
     }
 
     /// Query audit logs (RBAC protected)
-    pub fn query_audit(&self, filter: AuditQueryFilter, _user_id: &str) -> Result<Vec<AuditLogEntry>, String> {
+    pub fn query_audit(
+        &self,
+        filter: AuditQueryFilter,
+        _user_id: &str,
+    ) -> Result<Vec<AuditLogEntry>, String> {
         // Check RBAC permission
         if let Ok(rbac) = self.rbac.roles().try_read() {
             // For now, allow all - in production would check Permission::Manage
@@ -615,7 +617,12 @@ impl EnterpriseHooksV2 {
     }
 
     /// Export audit logs (RBAC protected)
-    pub fn export_audit(&self, filter: AuditQueryFilter, format: &str, _user_id: &str) -> Result<String, String> {
+    pub fn export_audit(
+        &self,
+        filter: AuditQueryFilter,
+        format: &str,
+        _user_id: &str,
+    ) -> Result<String, String> {
         self.audit.export(&filter, format)
     }
 
@@ -716,19 +723,25 @@ mod tests {
         let audit = AuditHookImpl::with_default_capacity();
 
         // Log some entries
-        audit.log(AuditLogEntry::new(
-            "tenant1".to_string(),
-            "store".to_string(),
-            "memory".to_string(),
-            AuditResult::Success,
-        ).with_user("user1".to_string()));
+        audit.log(
+            AuditLogEntry::new(
+                "tenant1".to_string(),
+                "store".to_string(),
+                "memory".to_string(),
+                AuditResult::Success,
+            )
+            .with_user("user1".to_string()),
+        );
 
-        audit.log(AuditLogEntry::new(
-            "tenant1".to_string(),
-            "delete".to_string(),
-            "memory".to_string(),
-            AuditResult::Denied,
-        ).with_user("user2".to_string()));
+        audit.log(
+            AuditLogEntry::new(
+                "tenant1".to_string(),
+                "delete".to_string(),
+                "memory".to_string(),
+                AuditResult::Denied,
+            )
+            .with_user("user2".to_string()),
+        );
 
         // Query
         let filter = AuditQueryFilter {

@@ -134,7 +134,10 @@ impl LTMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Created new knowledge entry: {} for tenant: {}", entry_id, tenant_id);
+        info!(
+            "Created new knowledge entry: {} for tenant: {}",
+            entry_id, tenant_id
+        );
         Ok(entry_id)
     }
 
@@ -332,15 +335,16 @@ impl LTMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1 AND status = 'active'")
-                .bind(tenant_source_pattern_clone)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| {
-                    error!("Failed to count knowledge entries: {}", e);
-                    AppError::Internal(format!("Database error: {}", e))
-                })?;
+        let total: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1 AND status = 'active'",
+        )
+        .bind(tenant_source_pattern_clone)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to count knowledge entries: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         Ok(KnowledgeEntryListResponse {
             entries,
@@ -355,16 +359,15 @@ impl LTMRepository {
         let prefix = tenant_id.prefix();
         let tenant_pattern = format!("{}%", prefix);
 
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1"
-        )
-        .bind(tenant_pattern)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| {
-            error!("Failed to count knowledge entries: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
-        })?;
+        let row: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1")
+                .bind(tenant_pattern)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count knowledge entries: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
 
         Ok(row.0)
     }
@@ -475,9 +478,7 @@ impl LTMRepository {
     }
 
     /// 获取条目的版本历史
-    pub async fn get_entry_history(
-        entry_id: &str,
-    ) -> Result<Vec<KnowledgeEntry>, AppError> {
+    pub async fn get_entry_history(entry_id: &str) -> Result<Vec<KnowledgeEntry>, AppError> {
         let pool = pool();
 
         let entries = sqlx::query_as::<_, KnowledgeEntry>(

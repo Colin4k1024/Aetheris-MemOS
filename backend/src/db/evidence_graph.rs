@@ -124,7 +124,11 @@ impl EvidenceGraphRepository {
                 .await
                 .map_err(|err| db_error("create workflow evidence run", err))?;
             }
-            None => return Err(AppError::DatabaseConnection("database pool not initialized".into())),
+            None => {
+                return Err(AppError::DatabaseConnection(
+                    "database pool not initialized".into(),
+                ))
+            }
         }
 
         Ok(run)
@@ -290,10 +294,12 @@ impl EvidenceGraphRepository {
         Ok(())
     }
 
-    pub async fn list_workflow_evidence(workflow_id: &str) -> Result<StoredWorkflowEvidence, AppError> {
-        let run = Self::latest_run(workflow_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("workflow evidence not found: {workflow_id}")))?;
+    pub async fn list_workflow_evidence(
+        workflow_id: &str,
+    ) -> Result<StoredWorkflowEvidence, AppError> {
+        let run = Self::latest_run(workflow_id).await?.ok_or_else(|| {
+            AppError::NotFound(format!("workflow evidence not found: {workflow_id}"))
+        })?;
         let nodes = Self::list_nodes(&run.run_id).await?;
         let edges = Self::list_edges(&run.run_id).await?;
 
@@ -324,15 +330,16 @@ impl EvidenceGraphRepository {
             .fetch_one(pool)
             .await
             .map_err(|err| db_error("read workflow evidence run sequence", err)),
-            None => Err(AppError::DatabaseConnection("database pool not initialized".into())),
+            None => Err(AppError::DatabaseConnection(
+                "database pool not initialized".into(),
+            )),
         }
     }
 
     async fn latest_run(workflow_id: &str) -> Result<Option<WorkflowEvidenceRun>, AppError> {
         let row = match DATABASE_POOL.get() {
-            Some(DatabasePool::Postgres(pool)) => {
-                sqlx::query_as::<_, WorkflowEvidenceRunRow>(
-                    r#"
+            Some(DatabasePool::Postgres(pool)) => sqlx::query_as::<_, WorkflowEvidenceRunRow>(
+                r#"
                     SELECT
                         run_id,
                         workflow_id,
@@ -350,15 +357,13 @@ impl EvidenceGraphRepository {
                     ORDER BY sequence_number DESC
                     LIMIT 1
                     "#,
-                )
-                .bind(workflow_id)
-                .fetch_optional(pool)
-                .await
-                .map_err(|err| db_error("read workflow evidence run", err))?
-            }
-            Some(DatabasePool::Sqlite(pool)) => {
-                sqlx::query_as::<_, WorkflowEvidenceRunRow>(
-                    r#"
+            )
+            .bind(workflow_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|err| db_error("read workflow evidence run", err))?,
+            Some(DatabasePool::Sqlite(pool)) => sqlx::query_as::<_, WorkflowEvidenceRunRow>(
+                r#"
                     SELECT
                         run_id,
                         workflow_id,
@@ -376,13 +381,16 @@ impl EvidenceGraphRepository {
                     ORDER BY sequence_number DESC
                     LIMIT 1
                     "#,
-                )
-                .bind(workflow_id)
-                .fetch_optional(pool)
-                .await
-                .map_err(|err| db_error("read workflow evidence run", err))?
+            )
+            .bind(workflow_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|err| db_error("read workflow evidence run", err))?,
+            None => {
+                return Err(AppError::DatabaseConnection(
+                    "database pool not initialized".into(),
+                ))
             }
-            None => return Err(AppError::DatabaseConnection("database pool not initialized".into())),
         };
 
         Ok(row.map(Into::into))
@@ -390,9 +398,8 @@ impl EvidenceGraphRepository {
 
     async fn list_nodes(run_id: &str) -> Result<Vec<WorkflowEvidenceNode>, AppError> {
         let rows = match DATABASE_POOL.get() {
-            Some(DatabasePool::Postgres(pool)) => {
-                sqlx::query_as::<_, WorkflowEvidenceNodeRow>(
-                    r#"
+            Some(DatabasePool::Postgres(pool)) => sqlx::query_as::<_, WorkflowEvidenceNodeRow>(
+                r#"
                     SELECT
                         node_id,
                         run_id,
@@ -413,15 +420,13 @@ impl EvidenceGraphRepository {
                     WHERE run_id = $1
                     ORDER BY sequence_number ASC
                     "#,
-                )
-                .bind(run_id)
-                .fetch_all(pool)
-                .await
-                .map_err(|err| db_error("list workflow evidence nodes", err))?
-            }
-            Some(DatabasePool::Sqlite(pool)) => {
-                sqlx::query_as::<_, WorkflowEvidenceNodeRow>(
-                    r#"
+            )
+            .bind(run_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|err| db_error("list workflow evidence nodes", err))?,
+            Some(DatabasePool::Sqlite(pool)) => sqlx::query_as::<_, WorkflowEvidenceNodeRow>(
+                r#"
                     SELECT
                         node_id,
                         run_id,
@@ -442,13 +447,16 @@ impl EvidenceGraphRepository {
                     WHERE run_id = $1
                     ORDER BY sequence_number ASC
                     "#,
-                )
-                .bind(run_id)
-                .fetch_all(pool)
-                .await
-                .map_err(|err| db_error("list workflow evidence nodes", err))?
+            )
+            .bind(run_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|err| db_error("list workflow evidence nodes", err))?,
+            None => {
+                return Err(AppError::DatabaseConnection(
+                    "database pool not initialized".into(),
+                ))
             }
-            None => return Err(AppError::DatabaseConnection("database pool not initialized".into())),
         };
 
         Ok(rows.into_iter().map(Into::into).collect())
@@ -456,9 +464,8 @@ impl EvidenceGraphRepository {
 
     async fn list_edges(run_id: &str) -> Result<Vec<WorkflowEvidenceEdge>, AppError> {
         let rows = match DATABASE_POOL.get() {
-            Some(DatabasePool::Postgres(pool)) => {
-                sqlx::query_as::<_, WorkflowEvidenceEdgeRow>(
-                    r#"
+            Some(DatabasePool::Postgres(pool)) => sqlx::query_as::<_, WorkflowEvidenceEdgeRow>(
+                r#"
                     SELECT
                         edge_id,
                         run_id,
@@ -479,15 +486,13 @@ impl EvidenceGraphRepository {
                     WHERE run_id = $1
                     ORDER BY sequence_number ASC
                     "#,
-                )
-                .bind(run_id)
-                .fetch_all(pool)
-                .await
-                .map_err(|err| db_error("list workflow evidence edges", err))?
-            }
-            Some(DatabasePool::Sqlite(pool)) => {
-                sqlx::query_as::<_, WorkflowEvidenceEdgeRow>(
-                    r#"
+            )
+            .bind(run_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|err| db_error("list workflow evidence edges", err))?,
+            Some(DatabasePool::Sqlite(pool)) => sqlx::query_as::<_, WorkflowEvidenceEdgeRow>(
+                r#"
                     SELECT
                         edge_id,
                         run_id,
@@ -508,13 +513,16 @@ impl EvidenceGraphRepository {
                     WHERE run_id = $1
                     ORDER BY sequence_number ASC
                     "#,
-                )
-                .bind(run_id)
-                .fetch_all(pool)
-                .await
-                .map_err(|err| db_error("list workflow evidence edges", err))?
+            )
+            .bind(run_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|err| db_error("list workflow evidence edges", err))?,
+            None => {
+                return Err(AppError::DatabaseConnection(
+                    "database pool not initialized".into(),
+                ))
             }
-            None => return Err(AppError::DatabaseConnection("database pool not initialized".into())),
         };
 
         Ok(rows.into_iter().map(Into::into).collect())

@@ -1,7 +1,7 @@
 //! User routes - simplified
 
 use axum::{
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
 

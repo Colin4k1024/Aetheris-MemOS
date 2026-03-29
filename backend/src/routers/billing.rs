@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
 
-use crate::services::usage_tracker::{
-    MetricType, SubscriptionTier, UsageTracker,
-};
+use crate::services::usage_tracker::{MetricType, SubscriptionTier, UsageTracker};
 use crate::{json_ok, JsonResult};
 
 // Global usage tracker instance
@@ -68,11 +66,12 @@ pub struct QuotaStatusResponse {
 }
 
 /// Initialize tenant for billing
-pub async fn init_tenant(
-    Json(req): Json<InitTenantRequest>,
-) -> JsonResult<serde_json::Value> {
+pub async fn init_tenant(Json(req): Json<InitTenantRequest>) -> JsonResult<serde_json::Value> {
     req.validate()?;
-    info!("Initializing billing for tenant {} with tier {:?}", req.tenant_id, req.tier);
+    info!(
+        "Initializing billing for tenant {} with tier {:?}",
+        req.tenant_id, req.tier
+    );
 
     get_usage_tracker()
         .init_tenant(&req.tenant_id, req.tier)
@@ -86,9 +85,7 @@ pub async fn init_tenant(
 }
 
 /// Record usage
-pub async fn record_usage(
-    Json(req): Json<RecordUsageRequest>,
-) -> JsonResult<serde_json::Value> {
+pub async fn record_usage(Json(req): Json<RecordUsageRequest>) -> JsonResult<serde_json::Value> {
     req.validate()?;
     info!(
         "Recording {} units for tenant {}",
@@ -105,9 +102,7 @@ pub async fn record_usage(
 }
 
 /// Get usage for tenant
-pub async fn get_usage(
-    Json(req): Json<GetUsageRequest>,
-) -> JsonResult<UsageResponse> {
+pub async fn get_usage(Json(req): Json<GetUsageRequest>) -> JsonResult<UsageResponse> {
     req.validate()?;
     info!("Getting usage for tenant {}", req.tenant_id);
 
@@ -119,9 +114,7 @@ pub async fn get_usage(
         .get_usage(&req.tenant_id, start, end)
         .await;
 
-    let estimated_cost = get_usage_tracker()
-        .calculate_cost(&req.tenant_id)
-        .await;
+    let estimated_cost = get_usage_tracker().calculate_cost(&req.tenant_id).await;
 
     json_ok(UsageResponse {
         tenant_id: req.tenant_id,
@@ -135,9 +128,7 @@ pub async fn get_usage(
 }
 
 /// Get current usage
-pub async fn get_current_usage(
-    Path(tenant_id): Path<String>,
-) -> JsonResult<UsageResponse> {
+pub async fn get_current_usage(Path(tenant_id): Path<String>) -> JsonResult<UsageResponse> {
     info!("Getting current usage for tenant {}", tenant_id);
 
     let usage = get_usage_tracker()
@@ -145,9 +136,7 @@ pub async fn get_current_usage(
         .await
         .ok_or_else(|| crate::AppError::NotFound(format!("Tenant {} not found", tenant_id)))?;
 
-    let estimated_cost = get_usage_tracker()
-        .calculate_cost(&tenant_id)
-        .await;
+    let estimated_cost = get_usage_tracker().calculate_cost(&tenant_id).await;
 
     json_ok(UsageResponse {
         tenant_id,
@@ -161,14 +150,10 @@ pub async fn get_current_usage(
 }
 
 /// Get quota status
-pub async fn get_quota_status(
-    Path(tenant_id): Path<String>,
-) -> JsonResult<QuotaStatusResponse> {
+pub async fn get_quota_status(Path(tenant_id): Path<String>) -> JsonResult<QuotaStatusResponse> {
     info!("Getting quota status for tenant {}", tenant_id);
 
-    let status = get_usage_tracker()
-        .check_quota(&tenant_id)
-        .await;
+    let status = get_usage_tracker().check_quota(&tenant_id).await;
 
     json_ok(QuotaStatusResponse {
         within_quota: status.within_quota,

@@ -122,7 +122,7 @@ async fn scalar_ui() -> Html<String> {
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
   </body>
 </html>"#
-        .to_string(),
+            .to_string(),
     )
 }
 
@@ -147,7 +147,10 @@ pub fn create_router() -> Router {
 
     Router::new()
         // Public routes - no auth required
-        .route("/api-doc/openapi.json", get(|| async { openapi_json().await }))
+        .route(
+            "/api-doc/openapi.json",
+            get(|| async { openapi_json().await }),
+        )
         .route("/scalar", get(scalar_ui))
         .route("/scalar/", get(scalar_ui))
         .merge(demo::router())

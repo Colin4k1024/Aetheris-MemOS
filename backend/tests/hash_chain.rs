@@ -15,9 +15,7 @@ static TEST_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
 
 async fn init_test_db() {
     let db_path = DB_PATH
-        .get_or_init(|| {
-            "file:hash-chain-tests?mode=memory&cache=shared".to_string()
-        })
+        .get_or_init(|| "file:hash-chain-tests?mode=memory&cache=shared".to_string())
         .clone();
 
     INIT_DB
@@ -39,10 +37,12 @@ async fn init_test_db() {
         })
         .await;
 
-    sqlx::raw_sql(include_str!("../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"))
-        .execute(backend::db::sqlite_pool())
-        .await
-        .expect("apply evidence graph sqlite schema");
+    sqlx::raw_sql(include_str!(
+        "../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"
+    ))
+    .execute(backend::db::sqlite_pool())
+    .await
+    .expect("apply evidence graph sqlite schema");
 }
 
 fn sample_task_context(task_id: &str) -> TaskContext {
@@ -90,7 +90,10 @@ async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTr
 
 #[tokio::test]
 async fn verify_chain_accepts_the_unmodified_persisted_nodes() {
-    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-hash-chain-valid").await;
@@ -111,7 +114,10 @@ async fn verify_chain_accepts_the_unmodified_persisted_nodes() {
 
 #[tokio::test]
 async fn verify_chain_rejects_prev_hash_and_node_hash_tampering() {
-    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-hash-chain-prev-hash").await;
@@ -128,7 +134,10 @@ async fn verify_chain_rejects_prev_hash_and_node_hash_tampering() {
     )
     .expect("verify tampered prev hash");
     assert!(!verification.verified);
-    assert!(verification.violations.iter().any(|item| item.contains("prev_hash")));
+    assert!(verification
+        .violations
+        .iter()
+        .any(|item| item.contains("prev_hash")));
 
     let mut tampered_node_hash = recorded.nodes.clone();
     tampered_node_hash[1].node_hash = "tampered-node-hash".to_string();
@@ -139,12 +148,18 @@ async fn verify_chain_rejects_prev_hash_and_node_hash_tampering() {
     )
     .expect("verify tampered node hash");
     assert!(!verification.verified);
-    assert!(verification.violations.iter().any(|item| item.contains("node_hash")));
+    assert!(verification
+        .violations
+        .iter()
+        .any(|item| item.contains("node_hash")));
 }
 
 #[tokio::test]
 async fn verify_chain_rejects_context_snapshot_byte_changes() {
-    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-hash-chain-context").await;

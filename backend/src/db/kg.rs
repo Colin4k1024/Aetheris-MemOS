@@ -140,7 +140,10 @@ impl KGRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Created new entity: {} for tenant: {}", entity_id, tenant_id);
+        info!(
+            "Created new entity: {} for tenant: {}",
+            entity_id, tenant_id
+        );
         Ok(entity_id)
     }
 
@@ -351,7 +354,9 @@ impl KGRepository {
         let mut result = Vec::new();
         for relation in relations {
             // 查询对应的目标实体（租户隔离）
-            if let Some(entity) = Self::get_entity_by_id(pool, tenant_id, &relation.target_entity_id).await? {
+            if let Some(entity) =
+                Self::get_entity_by_id(pool, tenant_id, &relation.target_entity_id).await?
+            {
                 result.push((entity, relation));
             }
         }
@@ -574,9 +579,7 @@ impl KGRepository {
     }
 
     /// 获取实体的版本历史
-    pub async fn get_entity_history(
-        entity_id: &str,
-    ) -> Result<Vec<Entity>, AppError> {
+    pub async fn get_entity_history(entity_id: &str) -> Result<Vec<Entity>, AppError> {
         let pool = pool();
 
         let entities = sqlx::query_as::<_, Entity>(
@@ -618,7 +621,10 @@ impl KGRepository {
         // 获取当前实体（租户隔离）
         let current = Self::get_entity_by_id(&pool, tenant_id, entity_id).await?;
         if current.is_none() {
-            return Err(AppError::NotFound(format!("Entity {} not found", entity_id)));
+            return Err(AppError::NotFound(format!(
+                "Entity {} not found",
+                entity_id
+            )));
         }
         let current = current.unwrap();
 
@@ -672,7 +678,10 @@ impl KGRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Superseded entity {} with new version {}", entity_id, new_entity_id);
+        info!(
+            "Superseded entity {} with new version {}",
+            entity_id, new_entity_id
+        );
         Ok(new_entity_id)
     }
 }

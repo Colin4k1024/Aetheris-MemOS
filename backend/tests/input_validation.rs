@@ -3,9 +3,13 @@
 //! Integration tests for SQL injection, XSS, and other input validation scenarios.
 //! These tests verify that the validation layer properly rejects malicious input.
 
-use backend::hoops::validation::{contains_sql_injection, contains_xss, validate_content_length, ValidationError};
-use backend::models::validation::{ToolCallParams, ValidatedMemoryWrite, ValidatedSearchQuery, ValidatedToolCall};
 use axum::http::StatusCode;
+use backend::hoops::validation::{
+    contains_sql_injection, contains_xss, validate_content_length, ValidationError,
+};
+use backend::models::validation::{
+    ToolCallParams, ValidatedMemoryWrite, ValidatedSearchQuery, ValidatedToolCall,
+};
 
 /// Test SQL injection detection in various patterns
 #[test]
@@ -31,7 +35,10 @@ fn test_sql_injection_keyword_detected() {
         arguments: None,
     });
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::SqlInjectionAttempt(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::SqlInjectionAttempt(..)
+    ));
 }
 
 /// Test SQL injection with UNION SELECT
@@ -42,7 +49,10 @@ fn test_sql_injection_union_select() {
         arguments: None,
     });
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::SqlInjectionAttempt(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::SqlInjectionAttempt(..)
+    ));
 }
 
 /// Test XSS detection in memory content
@@ -54,7 +64,10 @@ fn test_xss_detected_script_tag() {
     });
     let result = ValidatedMemoryWrite::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::XssAttempt(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::XssAttempt(..)
+    ));
 }
 
 /// Test XSS detection with javascript protocol
@@ -66,7 +79,10 @@ fn test_xss_detected_javascript_protocol() {
     });
     let result = ValidatedMemoryWrite::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::XssAttempt(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::XssAttempt(..)
+    ));
 }
 
 /// Test XSS detection with event handlers
@@ -78,7 +94,10 @@ fn test_xss_detected_event_handler() {
     });
     let result = ValidatedMemoryWrite::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::XssAttempt(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::XssAttempt(..)
+    ));
 }
 
 /// Test valid tool call passes validation
@@ -119,7 +138,10 @@ fn test_invalid_layer_rejected() {
     });
     let result = ValidatedMemoryWrite::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::InvalidFormat(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::InvalidFormat(..)
+    ));
 }
 
 /// Test content exceeds max length is rejected
@@ -132,7 +154,10 @@ fn test_content_exceeds_max_length_rejected() {
     });
     let result = ValidatedMemoryWrite::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::ExceedsMaxLength(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::ExceedsMaxLength(..)
+    ));
 }
 
 /// Test missing required field is rejected
@@ -143,7 +168,10 @@ fn test_missing_content_field_rejected() {
     });
     let result = ValidatedMemoryWrite::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::MissingField(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::MissingField(..)
+    ));
 }
 
 /// Test missing layer field is rejected
@@ -154,7 +182,10 @@ fn test_missing_layer_field_rejected() {
     });
     let result = ValidatedMemoryWrite::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::MissingField(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::MissingField(..)
+    ));
 }
 
 /// Test search query XSS detection
@@ -165,7 +196,10 @@ fn test_search_query_xss_detected() {
     });
     let result = ValidatedSearchQuery::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::XssAttempt(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::XssAttempt(..)
+    ));
 }
 
 /// Test search query length limit
@@ -176,7 +210,10 @@ fn test_search_query_exceeds_length_limit() {
     });
     let result = ValidatedSearchQuery::from_json(json);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::ExceedsMaxLength(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::ExceedsMaxLength(..)
+    ));
 }
 
 /// Test contains_sql_injection function directly
@@ -263,7 +300,10 @@ fn test_tool_name_with_hyphen_fails() {
         arguments: None,
     });
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::DisallowedCharacters(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::DisallowedCharacters(..)
+    ));
 }
 
 /// Test tool name length limit
@@ -282,7 +322,10 @@ fn test_tool_name_length_limit() {
         arguments: None,
     });
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::ExceedsMaxLength(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::ExceedsMaxLength(..)
+    ));
 }
 
 /// Test empty tool name fails
@@ -293,7 +336,10 @@ fn test_empty_tool_name_fails() {
         arguments: None,
     });
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ValidationError::MissingField(..)));
+    assert!(matches!(
+        result.unwrap_err(),
+        ValidationError::MissingField(..)
+    ));
 }
 
 /// Test ValidationError status codes

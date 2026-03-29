@@ -57,9 +57,7 @@ pub struct RollbackRequest {
 }
 
 /// Create a new task
-pub async fn create_task(
-    Json(req): Json<CreateTaskRequest>,
-) -> JsonResult<OrisTaskState> {
+pub async fn create_task(Json(req): Json<CreateTaskRequest>) -> JsonResult<OrisTaskState> {
     req.validate()?;
     info!("Creating task for agent: {}", req.agent_id);
 
@@ -77,12 +75,18 @@ pub async fn create_snapshot(
     info!("Creating snapshot for task: {}", req.task_id);
 
     let service = ContextSnapshotService::new();
-    let working_memory = req
-        .working_memory
-        .map(|ids| ids.into_iter().map(|s| crate::kernel::types::MemoryId(s)).collect());
+    let working_memory = req.working_memory.map(|ids| {
+        ids.into_iter()
+            .map(|s| crate::kernel::types::MemoryId(s))
+            .collect()
+    });
 
     let snapshot = service
-        .create_snapshot(&req.task_id, working_memory.unwrap_or_default(), req.metadata)
+        .create_snapshot(
+            &req.task_id,
+            working_memory.unwrap_or_default(),
+            req.metadata,
+        )
         .await?;
 
     json_ok(snapshot)
@@ -104,9 +108,7 @@ pub async fn restore_snapshot(
 }
 
 /// Create a checkpoint
-pub async fn create_checkpoint(
-    Json(req): Json<CreateCheckpointRequest>,
-) -> JsonResult<Checkpoint> {
+pub async fn create_checkpoint(Json(req): Json<CreateCheckpointRequest>) -> JsonResult<Checkpoint> {
     req.validate()?;
     info!("Creating checkpoint for task: {}", req.task_id);
 
@@ -119,9 +121,7 @@ pub async fn create_checkpoint(
 }
 
 /// Rollback to checkpoint
-pub async fn rollback_to_checkpoint(
-    Json(req): Json<RollbackRequest>,
-) -> JsonResult<OrisTaskState> {
+pub async fn rollback_to_checkpoint(Json(req): Json<RollbackRequest>) -> JsonResult<OrisTaskState> {
     req.validate()?;
     info!(
         "Rolling back task {} to checkpoint {}",
@@ -137,9 +137,7 @@ pub async fn rollback_to_checkpoint(
 }
 
 /// Get task state
-pub async fn get_task(
-    Path(task_id): Path<String>,
-) -> JsonResult<Option<OrisTaskState>> {
+pub async fn get_task(Path(task_id): Path<String>) -> JsonResult<Option<OrisTaskState>> {
     info!("Getting task: {}", task_id);
 
     let service = ContextSnapshotService::new();
@@ -149,9 +147,7 @@ pub async fn get_task(
 }
 
 /// List checkpoints for a task
-pub async fn list_checkpoints(
-    Path(task_id): Path<String>,
-) -> JsonResult<Vec<Checkpoint>> {
+pub async fn list_checkpoints(Path(task_id): Path<String>) -> JsonResult<Vec<Checkpoint>> {
     info!("Listing checkpoints for task: {}", task_id);
 
     let service = ContextSnapshotService::new();

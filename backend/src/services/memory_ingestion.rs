@@ -113,7 +113,10 @@ pub fn classify_tier(importance_score: f32, content: &str, cfg: &IngestionConfig
         "definition:",
         "fact:",
     ];
-    if semantic_keywords.iter().any(|kw| content_lower.contains(kw)) {
+    if semantic_keywords
+        .iter()
+        .any(|kw| content_lower.contains(kw))
+    {
         return IngestionTier::Semantic;
     }
 
@@ -197,20 +200,37 @@ async fn run_reflection_cycle(cfg: &IngestionConfig) -> anyhow::Result<()> {
 
     for user_id in &user_ids {
         // Fetch active agent IDs for this user
-        let agent_ids = match STMRepository::get_active_agent_ids(pool(), &get_default_tenant(), user_id).await {
-            Ok(ids) => ids,
-            Err(_) => continue,
-        };
+        let agent_ids =
+            match STMRepository::get_active_agent_ids(pool(), &get_default_tenant(), user_id).await
+            {
+                Ok(ids) => ids,
+                Err(_) => continue,
+            };
 
         for agent_id in &agent_ids {
             // Fetch recent sessions (limit 50 per agent to keep cycles bounded)
-            let sessions = match STMRepository::get_recent_sessions(pool(), &get_default_tenant(), user_id, agent_id, Some(50)).await {
+            let sessions = match STMRepository::get_recent_sessions(
+                pool(),
+                &get_default_tenant(),
+                user_id,
+                agent_id,
+                Some(50),
+            )
+            .await
+            {
                 Ok(s) => s,
                 Err(_) => continue,
             };
 
             for session in &sessions {
-                let msgs = match STMRepository::get_session_messages(pool(), &get_default_tenant(), &session.session_id, Some(1000)).await {
+                let msgs = match STMRepository::get_session_messages(
+                    pool(),
+                    &get_default_tenant(),
+                    &session.session_id,
+                    Some(1000),
+                )
+                .await
+                {
                     Ok(m) => m,
                     Err(_) => continue,
                 };

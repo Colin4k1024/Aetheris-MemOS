@@ -62,12 +62,7 @@ impl ClusterManager {
     }
 
     /// Register a node in the cluster
-    pub async fn register_node(
-        &self,
-        node_id: &str,
-        host: &str,
-        port: u16,
-    ) -> ClusterNode {
+    pub async fn register_node(&self, node_id: &str, host: &str, port: u16) -> ClusterNode {
         let node = ClusterNode {
             node_id: node_id.to_string(),
             host: host.to_string(),
@@ -119,9 +114,9 @@ impl ClusterManager {
     /// Become leader (simplified election)
     pub async fn become_leader(&self) -> Result<ClusterNode, crate::AppError> {
         let mut nodes = self.nodes.write().await;
-        let mut leader = nodes.get_mut(&self.current_node_id).ok_or_else(|| {
-            crate::AppError::NotFound("Current node not registered".to_string())
-        })?;
+        let mut leader = nodes
+            .get_mut(&self.current_node_id)
+            .ok_or_else(|| crate::AppError::NotFound("Current node not registered".to_string()))?;
 
         leader.role = ClusterNodeRole::Leader;
         leader.term += 1;
@@ -233,10 +228,7 @@ impl EnterpriseShardManager {
             key_range_end,
         };
 
-        self.shards
-            .write()
-            .await
-            .insert(shard_id, config.clone());
+        self.shards.write().await.insert(shard_id, config.clone());
 
         info!("Created shard {} with primary {}", shard_id, primary_node);
         config

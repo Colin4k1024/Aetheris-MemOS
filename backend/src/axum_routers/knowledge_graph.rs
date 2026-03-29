@@ -25,7 +25,11 @@ async fn get_entity_by_name(Path(_name): Path<String>) -> impl axum::response::I
 }
 
 /// Get related entities
-#[utoipa::path(get, path = "/api/kg/entities/{entity_id}/related", tag = "KnowledgeGraph")]
+#[utoipa::path(
+    get,
+    path = "/api/kg/entities/{entity_id}/related",
+    tag = "KnowledgeGraph"
+)]
 async fn get_related_entities(Path(_entity_id): Path<String>) -> impl axum::response::IntoResponse {
     "[]"
 }
@@ -48,7 +52,10 @@ pub fn router() -> Router {
         .route("/api/kg/entities", get(list_entities))
         .route("/api/kg/entities", post(create_entity))
         .route("/api/kg/entities/by-name/{name}", get(get_entity_by_name))
-        .route("/api/kg/entities/{entity_id}/related", get(get_related_entities))
+        .route(
+            "/api/kg/entities/{entity_id}/related",
+            get(get_related_entities),
+        )
         .route("/api/kg/relations", post(create_relation))
         .route("/api/kg/search", post(search_by_entity))
 }

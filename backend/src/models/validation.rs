@@ -5,7 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::hoops::validation::{contains_sql_injection, contains_xss, validate_content_length, ValidationError};
+use crate::hoops::validation::{
+    contains_sql_injection, contains_xss, validate_content_length, ValidationError,
+};
 
 /// MCP tool call params (mirrors routers::mcp::ToolCallParams for validation)
 #[derive(Debug, Clone, Deserialize)]
@@ -191,7 +193,10 @@ mod tests {
             arguments: None,
         });
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::MissingField(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::MissingField(_)
+        ));
     }
 
     #[test]
@@ -214,7 +219,10 @@ mod tests {
             arguments: None,
         });
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::DisallowedCharacters(..)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::DisallowedCharacters(..)
+        ));
     }
 
     #[test]
@@ -225,7 +233,10 @@ mod tests {
             arguments: None,
         });
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::ExceedsMaxLength(..)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::ExceedsMaxLength(..)
+        ));
     }
 
     #[test]
@@ -251,7 +262,10 @@ mod tests {
         });
         let result = ValidatedMemoryWrite::from_json(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::XssAttempt(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::XssAttempt(_)
+        ));
     }
 
     #[test]
@@ -262,7 +276,10 @@ mod tests {
         });
         let result = ValidatedMemoryWrite::from_json(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::InvalidFormat(..)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::InvalidFormat(..)
+        ));
     }
 
     #[test]
@@ -272,7 +289,10 @@ mod tests {
         });
         let result = ValidatedMemoryWrite::from_json(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::MissingField(..)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::MissingField(..)
+        ));
     }
 
     #[test]
@@ -297,7 +317,10 @@ mod tests {
         });
         let result = ValidatedSearchQuery::from_json(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::XssAttempt(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::XssAttempt(_)
+        ));
     }
 
     #[test]
@@ -307,6 +330,9 @@ mod tests {
         });
         let result = ValidatedSearchQuery::from_json(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::ExceedsMaxLength(..)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::ExceedsMaxLength(..)
+        ));
     }
 }

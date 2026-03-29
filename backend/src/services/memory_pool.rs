@@ -25,7 +25,7 @@ pub struct NetworkAgent {
     pub name: String,
     pub status: AgentStatus,
     pub visible_memories: HashSet<String>, // Memory IDs
-    pub shared_with: HashSet<String>,       // Agent IDs
+    pub shared_with: HashSet<String>,      // Agent IDs
     pub connected_at: i64,
 }
 
@@ -165,9 +165,7 @@ impl MemoryPool {
         // Update agent's visible memories
         let mut agents = self.agents.write().await;
         if let Some(agent) = agents.get_mut(owner_agent_id) {
-            agent
-                .visible_memories
-                .insert(request.memory_id.clone());
+            agent.visible_memories.insert(request.memory_id.clone());
         }
 
         // Update target agents' shared_with

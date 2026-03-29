@@ -77,7 +77,15 @@ async fn export_as_json(layer: &str, limit: i32) -> JsonResult<serde_json::Value
 
     match layer {
         "stm" | "all" => {
-            let response = STMRepository::list_sessions(&pool, &default_tenant, None, None, Some(limit), Some(0)).await?;
+            let response = STMRepository::list_sessions(
+                &pool,
+                &default_tenant,
+                None,
+                None,
+                Some(limit),
+                Some(0),
+            )
+            .await?;
             data["stm"] = serde_json::json!({
                 "sessions": response.sessions,
                 "count": response.sessions.len()
@@ -88,7 +96,15 @@ async fn export_as_json(layer: &str, limit: i32) -> JsonResult<serde_json::Value
 
     match layer {
         "ltm" | "all" => {
-            let response = LTMRepository::list_entries(&pool, &default_tenant, None, None, Some(limit), Some(0)).await?;
+            let response = LTMRepository::list_entries(
+                &pool,
+                &default_tenant,
+                None,
+                None,
+                Some(limit),
+                Some(0),
+            )
+            .await?;
             data["ltm"] = serde_json::json!({
                 "entries": response.entries,
                 "count": response.entries.len()
@@ -99,7 +115,9 @@ async fn export_as_json(layer: &str, limit: i32) -> JsonResult<serde_json::Value
 
     match layer {
         "kg" | "all" => {
-            let response = KGRepository::list_entities(&pool, &default_tenant, None, Some(limit), Some(0)).await?;
+            let response =
+                KGRepository::list_entities(&pool, &default_tenant, None, Some(limit), Some(0))
+                    .await?;
             data["kg"] = serde_json::json!({
                 "entities": response.entities,
                 "count": response.entities.len()
@@ -135,11 +153,16 @@ async fn export_as_markdown(layer: &str, limit: i32) -> JsonResult<serde_json::V
     let default_tenant = TenantId::from_string("default");
 
     content.push_str("# Adaptive Memory System Export\n\n");
-    content.push_str(&format!("Exported at: {}\n\n", chrono::Utc::now().to_rfc3339()));
+    content.push_str(&format!(
+        "Exported at: {}\n\n",
+        chrono::Utc::now().to_rfc3339()
+    ));
 
     if layer == "stm" || layer == "all" {
         content.push_str("## Short-Term Memory (STM)\n\n");
-        let response = STMRepository::list_sessions(&pool, &default_tenant, None, None, Some(limit), Some(0)).await?;
+        let response =
+            STMRepository::list_sessions(&pool, &default_tenant, None, None, Some(limit), Some(0))
+                .await?;
         for session in response.sessions {
             content.push_str(&format!(
                 "### Session: {}\n- User: {}\n- Agent: {}\n- Type: {}\n- Status: {}\n- Created: {}\n\n",
@@ -155,7 +178,9 @@ async fn export_as_markdown(layer: &str, limit: i32) -> JsonResult<serde_json::V
 
     if layer == "ltm" || layer == "all" {
         content.push_str("## Long-Term Memory (LTM)\n\n");
-        let response = LTMRepository::list_entries(&pool, &default_tenant, None, None, Some(limit), Some(0)).await?;
+        let response =
+            LTMRepository::list_entries(&pool, &default_tenant, None, None, Some(limit), Some(0))
+                .await?;
         for entry in response.entries {
             content.push_str(&format!(
                 "### {}\n{}\n\n---\n\n",
@@ -167,7 +192,8 @@ async fn export_as_markdown(layer: &str, limit: i32) -> JsonResult<serde_json::V
 
     if layer == "kg" || layer == "all" {
         content.push_str("## Knowledge Graph (KG)\n\n");
-        let response = KGRepository::list_entities(&pool, &default_tenant, None, Some(limit), Some(0)).await?;
+        let response =
+            KGRepository::list_entities(&pool, &default_tenant, None, Some(limit), Some(0)).await?;
         for entity in response.entities {
             content.push_str(&format!(
                 "### {} ({})\n{}\n\n",

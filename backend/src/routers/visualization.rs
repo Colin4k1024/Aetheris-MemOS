@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use utoipa::ToSchema;
 
-use crate::db::ltm::LTMRepository;
 use crate::db::kg::KGRepository;
+use crate::db::ltm::LTMRepository;
 use crate::db::pool;
 use crate::tenant::get_default_tenant;
 use crate::{json_ok, JsonResult};
@@ -73,17 +73,22 @@ pub struct TimelineQuery {
 }
 
 /// Get timeline data for visualization
-pub async fn get_timeline(
-    Query(query): Query<TimelineQuery>,
-) -> JsonResult<Vec<TimelineEntry>> {
+pub async fn get_timeline(Query(query): Query<TimelineQuery>) -> JsonResult<Vec<TimelineEntry>> {
     info!("Getting timeline data");
 
     let limit = query.limit.unwrap_or(50);
 
     // Get LTM entries for timeline
-    let entries = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(limit), Some(0))
-        .await?
-        .entries;
+    let entries = LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(limit),
+        Some(0),
+    )
+    .await?
+    .entries;
 
     let timeline: Vec<TimelineEntry> = entries
         .into_iter()
@@ -108,9 +113,10 @@ pub async fn get_graph_visualization(
     let limit = query.limit.unwrap_or(100) as i32;
 
     // Get entities from KG
-    let entities = KGRepository::list_entities(pool(), &get_default_tenant(), None, Some(limit), Some(0))
-        .await?
-        .entities;
+    let entities =
+        KGRepository::list_entities(pool(), &get_default_tenant(), None, Some(limit), Some(0))
+            .await?
+            .entities;
 
     let nodes: Vec<VisualGraphNode> = entities
         .iter()
@@ -130,17 +136,22 @@ pub async fn get_graph_visualization(
 }
 
 /// Get importance heatmap data
-pub async fn get_heatmap(
-    Query(query): Query<TimelineQuery>,
-) -> JsonResult<HeatmapData> {
+pub async fn get_heatmap(Query(query): Query<TimelineQuery>) -> JsonResult<HeatmapData> {
     info!("Getting heatmap data");
 
     let limit = query.limit.unwrap_or(100) as i32;
 
     // Get LTM entries for heatmap
-    let entries = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(limit), Some(0))
-        .await?
-        .entries;
+    let entries = LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(limit),
+        Some(0),
+    )
+    .await?
+    .entries;
 
     // Create heatmap cells (7 days x 24 hours grid)
     let mut cells = Vec::new();
@@ -150,7 +161,7 @@ pub async fn get_heatmap(
     for (i, entry) in entries.iter().enumerate() {
         let importance = entry.quality_score.unwrap_or(0.5) as f64;
         let x = (i / 24) as i32 % 7; // Day of week
-        let y = (i % 24) as i32;      // Hour of day
+        let y = (i % 24) as i32; // Hour of day
 
         cells.push(HeatmapCell {
             x,
@@ -187,9 +198,16 @@ pub async fn get_dashboard_stats() -> JsonResult<MemoryStatsDashboard> {
     info!("Getting dashboard statistics");
 
     // Get LTM count
-    let ltm_count = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(1000), Some(0))
-        .await?
-        .total;
+    let ltm_count = LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(1000),
+        Some(0),
+    )
+    .await?
+    .total;
 
     let mut by_layer = std::collections::HashMap::new();
     by_layer.insert("ltm".to_string(), ltm_count);
@@ -197,9 +215,16 @@ pub async fn get_dashboard_stats() -> JsonResult<MemoryStatsDashboard> {
 
     // Calculate average importance from LTM
     let avg_importance = if ltm_count > 0 {
-        let entries = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(ltm_count as i32), Some(0))
-            .await?
-            .entries;
+        let entries = LTMRepository::list_entries(
+            pool(),
+            &get_default_tenant(),
+            None,
+            None,
+            Some(ltm_count as i32),
+            Some(0),
+        )
+        .await?
+        .entries;
 
         let sum: f64 = entries
             .iter()

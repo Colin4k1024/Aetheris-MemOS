@@ -124,10 +124,7 @@ pub fn detect() -> HardwareCapabilities {
 fn detect_cuda() -> (bool, u32, u64) {
     // Primary: nvidia-smi query
     match std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=memory.total",
-            "--format=csv,noheader,nounits",
-        ])
+        .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
         .output()
     {
         Ok(output) if output.status.success() => {

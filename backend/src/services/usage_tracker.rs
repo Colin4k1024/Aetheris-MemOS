@@ -2,12 +2,12 @@
 //!
 //! This module provides usage tracking for billing purposes.
 
+use chrono::{Datelike, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
-use chrono::{Datelike, TimeZone, Utc};
 
 /// Usage metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,11 +53,11 @@ pub enum MetricType {
 impl MetricType {
     pub fn unit_price(&self) -> f64 {
         match self {
-            MetricType::ApiCall => 0.001,      // $0.001 per call
-            MetricType::StorageMb => 0.01,      // $0.01 per MB/month
-            MetricType::CognitiveUnit => 0.1,  // $0.1 per cognitive unit
+            MetricType::ApiCall => 0.001,          // $0.001 per call
+            MetricType::StorageMb => 0.01,         // $0.01 per MB/month
+            MetricType::CognitiveUnit => 0.1,      // $0.1 per cognitive unit
             MetricType::MemoryOperation => 0.0001, // $0.0001 per operation
-            MetricType::VectorQuery => 0.002,   // $0.002 per vector query
+            MetricType::VectorQuery => 0.002,      // $0.002 per vector query
         }
     }
 }
@@ -144,7 +144,10 @@ impl UsageTracker {
                 reset_at,
             },
         );
-        info!("Initialized usage tracking for tenant {} with tier {:?}", tenant_id, tier);
+        info!(
+            "Initialized usage tracking for tenant {} with tier {:?}",
+            tenant_id, tier
+        );
     }
 
     /// Record a usage event
@@ -194,20 +197,12 @@ impl UsageTracker {
             }
         }
 
-        info!(
-            "Recorded {} units for tenant {}",
-            quantity, tenant_id
-        );
+        info!("Recorded {} units for tenant {}", quantity, tenant_id);
         Ok(record)
     }
 
     /// Get usage for a tenant in a period
-    pub async fn get_usage(
-        &self,
-        tenant_id: &str,
-        start: i64,
-        end: i64,
-    ) -> UsageMetrics {
+    pub async fn get_usage(&self, tenant_id: &str, start: i64, end: i64) -> UsageMetrics {
         let records = self.records.read().await;
 
         let filtered: Vec<&UsageRecord> = records
@@ -323,7 +318,8 @@ impl UsageTracker {
         let next_month = if now.month() == 12 {
             Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 0, 0, 0).unwrap()
         } else {
-            Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 0, 0, 0).unwrap()
+            Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 0, 0, 0)
+                .unwrap()
         };
         next_month.timestamp()
     }
@@ -349,7 +345,9 @@ mod tests {
     #[tokio::test]
     async fn test_record_usage() {
         let tracker = UsageTracker::new();
-        tracker.init_tenant("tenant_1", SubscriptionTier::Free).await;
+        tracker
+            .init_tenant("tenant_1", SubscriptionTier::Free)
+            .await;
 
         tracker
             .record_usage("tenant_1", MetricType::ApiCall, 10.0, None)
@@ -383,7 +381,9 @@ mod tests {
     #[tokio::test]
     async fn test_cost_calculation() {
         let tracker = UsageTracker::new();
-        tracker.init_tenant("tenant_1", SubscriptionTier::Free).await;
+        tracker
+            .init_tenant("tenant_1", SubscriptionTier::Free)
+            .await;
 
         tracker
             .record_usage("tenant_1", MetricType::ApiCall, 100.0, None)

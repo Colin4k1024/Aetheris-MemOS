@@ -2,9 +2,9 @@
 //!
 //! This module provides resource quota management for multi-tenancy.
 
+use crate::tenant::context::QuotaResource;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::tenant::context::QuotaResource;
 
 /// Resource quota for a tenant.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,7 +55,9 @@ impl ResourceQuota {
         match resource {
             QuotaResource::StorageMB => self.used.storage_mb < self.storage_mb,
             QuotaResource::ApiCallsPerDay => self.used.api_calls_today < self.api_calls_per_day,
-            QuotaResource::ConcurrentSessions => self.used.concurrent_sessions < self.concurrent_sessions,
+            QuotaResource::ConcurrentSessions => {
+                self.used.concurrent_sessions < self.concurrent_sessions
+            }
             QuotaResource::MemoryEntries => self.used.memory_entries < self.memory_entries,
         }
     }
@@ -64,9 +66,14 @@ impl ResourceQuota {
     pub fn remaining(&self, resource: &QuotaResource) -> u64 {
         match resource {
             QuotaResource::StorageMB => self.storage_mb.saturating_sub(self.used.storage_mb),
-            QuotaResource::ApiCallsPerDay => self.api_calls_per_day.saturating_sub(self.used.api_calls_today),
-            QuotaResource::ConcurrentSessions => (self.concurrent_sessions as u64).saturating_sub(self.used.concurrent_sessions as u64),
-            QuotaResource::MemoryEntries => self.memory_entries.saturating_sub(self.used.memory_entries),
+            QuotaResource::ApiCallsPerDay => self
+                .api_calls_per_day
+                .saturating_sub(self.used.api_calls_today),
+            QuotaResource::ConcurrentSessions => (self.concurrent_sessions as u64)
+                .saturating_sub(self.used.concurrent_sessions as u64),
+            QuotaResource::MemoryEntries => {
+                self.memory_entries.saturating_sub(self.used.memory_entries)
+            }
         }
     }
 
@@ -110,7 +117,7 @@ impl QuotaUsage {
     pub fn reset_if_needed(&mut self) {
         let now = chrono::Utc::now().timestamp();
         let day_seconds = 86400;
-        
+
         if now - self.last_reset > day_seconds {
             self.api_calls_today = 0;
             self.last_reset = now;

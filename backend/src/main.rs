@@ -4,6 +4,7 @@ use tokio::signal;
 use tracing::info;
 use utoipa::ToSchema;
 
+mod axum_routers;
 mod config;
 mod db;
 mod error;
@@ -14,7 +15,6 @@ mod mcp;
 mod models;
 mod protocol;
 mod routers;
-mod axum_routers;
 mod services;
 mod tenant;
 mod utils;

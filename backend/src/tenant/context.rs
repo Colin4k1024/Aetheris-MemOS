@@ -2,14 +2,11 @@
 //!
 //! This module provides tenant context management.
 
-use axum::{
-    extract::FromRequestParts,
-    http::request::Parts,
-};
+use axum::{extract::FromRequestParts, http::request::Parts};
 use serde::{Deserialize, Serialize};
 
-use crate::tenant::TenantId;
 use crate::tenant::quota::ResourceQuota;
+use crate::tenant::TenantId;
 use crate::AppError;
 
 /// Tenant context containing tenant-specific information.
@@ -142,9 +139,7 @@ where
             .extensions
             .get::<crate::hoops::jwt::JwtClaims>()
             .ok_or_else(|| {
-                AppError::Unauthorized(
-                    "Authentication required for this endpoint".to_string(),
-                )
+                AppError::Unauthorized("Authentication required for this endpoint".to_string())
             })?;
 
         // MVP: each user is their own tenant

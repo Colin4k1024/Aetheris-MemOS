@@ -42,7 +42,14 @@ impl MemorySearchService {
         );
 
         // 获取最近会话
-        let sessions = STMRepository::get_recent_sessions(pool(), &get_default_tenant(), user_id, agent_id, limit).await?;
+        let sessions = STMRepository::get_recent_sessions(
+            pool(),
+            &get_default_tenant(),
+            user_id,
+            agent_id,
+            limit,
+        )
+        .await?;
 
         // 获取所有会话的消息
         let mut all_messages = Vec::new();
@@ -54,8 +61,13 @@ impl MemorySearchService {
                 }
             }
 
-            let messages =
-                STMRepository::get_session_messages(pool(), &get_default_tenant(), &session.session_id, Some(100)).await?;
+            let messages = STMRepository::get_session_messages(
+                pool(),
+                &get_default_tenant(),
+                &session.session_id,
+                Some(100),
+            )
+            .await?;
             all_messages.extend(messages);
         }
 
@@ -137,7 +149,9 @@ impl MemorySearchService {
                 "Processing Qdrant result: id={}, score={:.4}",
                 qdrant_result.id, qdrant_result.score
             );
-            match LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &qdrant_result.id).await {
+            match LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &qdrant_result.id)
+                .await
+            {
                 Ok(Some(entry)) => {
                     info!("Found entry in SQLite: entry_id={}", entry.entry_id);
                     search_results.push(SearchResult {
@@ -243,8 +257,12 @@ impl MemorySearchService {
                 );
             } else {
                 // 如果关键词搜索结果不在向量搜索结果中，尝试获取完整的知识条目
-                if let Ok(Some(entry)) =
-                    crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id).await
+                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                    pool(),
+                    &get_default_tenant(),
+                    &entry_id,
+                )
+                .await
                 {
                     // 创建一个新的SearchResult
                     let search_result = SearchResult {
@@ -358,8 +376,12 @@ impl MemorySearchService {
 
             for (entry_id, mut score) in rows {
                 // 获取完整的知识条目
-                if let Ok(Some(entry)) =
-                    crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id).await
+                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                    pool(),
+                    &get_default_tenant(),
+                    &entry_id,
+                )
+                .await
                 {
                     let content_lower = entry.content.to_lowercase();
                     let title_lower = entry.title.unwrap_or_default().to_lowercase();
@@ -404,7 +426,13 @@ impl MemorySearchService {
         let limit_i32 = limit.unwrap_or(10);
 
         // 1. 首先尝试在知识图谱中查找该实体
-        let entity_result = crate::db::KGRepository::get_entity_by_name(pool(), &get_default_tenant(), entity, None).await?;
+        let entity_result = crate::db::KGRepository::get_entity_by_name(
+            pool(),
+            &get_default_tenant(),
+            entity,
+            None,
+        )
+        .await?;
 
         let mut entry_ids_with_scores: Vec<(String, f64)> = Vec::new();
 
@@ -476,7 +504,12 @@ impl MemorySearchService {
         // 6. 获取完整的知识条目信息
         let mut results = Vec::new();
         for (entry_id, score) in sorted_entries {
-            if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id).await
+            if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                pool(),
+                &get_default_tenant(),
+                &entry_id,
+            )
+            .await
             {
                 results.push(SearchResult {
                     entry_id: entry.entry_id,
@@ -643,7 +676,11 @@ impl MemorySearchService {
         }
 
         // 关键词结果：分数需要归一化到 [0,1]
-        let max_keyword_score = keyword_results.iter().map(|(_, s)| *s as f32).fold(0.0_f32, f32::max).max(1.0);
+        let max_keyword_score = keyword_results
+            .iter()
+            .map(|(_, s)| *s as f32)
+            .fold(0.0_f32, f32::max)
+            .max(1.0);
         for (entry_id, kw_score) in &keyword_results {
             let normalized = (*kw_score as f32) / max_keyword_score;
             let entry = if let Some(e) = score_map.get_mut(entry_id) {
@@ -651,7 +688,13 @@ impl MemorySearchService {
                 continue;
             } else {
                 // 关键词命中但向量未命中 — 拉取条目内容
-                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), entry_id).await {
+                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                    pool(),
+                    &get_default_tenant(),
+                    entry_id,
+                )
+                .await
+                {
                     (entry.content, entry.title)
                 } else {
                     continue;
@@ -670,7 +713,11 @@ impl MemorySearchService {
         }
 
         // 图谱结果：分数已在 [0,1] 区间（popularity_score乘权重后）
-        let max_graph_score = graph_results.iter().map(|r| r.score).fold(0.0_f32, f32::max).max(1.0);
+        let max_graph_score = graph_results
+            .iter()
+            .map(|r| r.score)
+            .fold(0.0_f32, f32::max)
+            .max(1.0);
         for r in &graph_results {
             let normalized = r.score / max_graph_score;
             if let Some(e) = score_map.get_mut(&r.entry_id) {
@@ -693,7 +740,8 @@ impl MemorySearchService {
         let mut combined: Vec<SearchResult> = score_map
             .into_iter()
             .map(|(entry_id, s)| {
-                let combined_score = vw * s.vector_score + kw * s.keyword_score + gw * s.graph_score;
+                let combined_score =
+                    vw * s.vector_score + kw * s.keyword_score + gw * s.graph_score;
                 SearchResult {
                     entry_id,
                     score: combined_score,
@@ -708,12 +756,19 @@ impl MemorySearchService {
             })
             .collect();
 
-        combined.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        combined.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // --- 6. 可选 rerank ---
         let mut results = combined;
         if should_rerank && !results.is_empty() {
-            info!("Applying rerank to {} triple-hybrid candidates", results.len());
+            info!(
+                "Applying rerank to {} triple-hybrid candidates",
+                results.len()
+            );
             results = Self::apply_rerank(query, results).await?;
         }
 

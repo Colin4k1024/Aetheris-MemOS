@@ -154,9 +154,15 @@ pub async fn get_related_entities(
 ) -> JsonResult<Vec<RelationInfo>> {
     let limit = query.limit.unwrap_or(10) as i32;
 
-    let relations = KGRepository::get_related_entities(pool(), &get_default_tenant(), &entity_id, None, Some(limit))
-        .await
-        .map_err(|e| crate::AppError::Internal(format!("Failed to get related entities: {}", e)))?;
+    let relations = KGRepository::get_related_entities(
+        pool(),
+        &get_default_tenant(),
+        &entity_id,
+        None,
+        Some(limit),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to get related entities: {}", e)))?;
 
     let infos: Vec<RelationInfo> = relations
         .into_iter()
@@ -211,10 +217,15 @@ pub async fn list_entities(
     let limit = query.limit.unwrap_or(20) as i32;
     let offset = query.offset.unwrap_or(0) as i32;
 
-    let response =
-        KGRepository::list_entities(pool(), &get_default_tenant(), query.entity_type.as_deref(), Some(limit), Some(offset))
-            .await
-            .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
+    let response = KGRepository::list_entities(
+        pool(),
+        &get_default_tenant(),
+        query.entity_type.as_deref(),
+        Some(limit),
+        Some(offset),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to list entities: {}", e)))?;
 
     let entities: Vec<EntityInfo> = response
         .entities

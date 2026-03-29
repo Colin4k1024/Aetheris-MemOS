@@ -14,20 +14,23 @@ use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 use crate::hoops::jwt::auth_middleware;
-use crate::mcp::signing::{verify_component, verify_unsigned, ComponentSignature, TrustedKeyBundle};
+use crate::mcp::signing::{
+    verify_component, verify_unsigned, ComponentSignature, TrustedKeyBundle,
+};
 
 use crate::db::kg::KGRepository;
 use crate::db::ltm::LTMRepository;
 use crate::db::mm::MMRepository;
 use crate::db::pool;
 use crate::db::stm::STMRepository;
-use crate::tenant::get_default_tenant;
 use crate::protocol::mcp::{
     get_memory_resources, get_memory_tools, Resource as McpResource, ResourceContent,
-    ResourceContentResponse, ServerCapabilities, Tool as McpTool, ToolCallResponse, ToolsListResponse,
-    TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST, TOOL_MEMORY_RECALL, TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
+    ResourceContentResponse, ServerCapabilities, Tool as McpTool, ToolCallResponse,
+    ToolsListResponse, TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST, TOOL_MEMORY_RECALL,
+    TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
 };
 use crate::services::{memory_search::MemorySearchService, memory_storage::MemoryStorageService};
+use crate::tenant::get_default_tenant;
 use crate::{json_ok, AppError, JsonResult};
 
 /// MCP Router State
@@ -169,7 +172,8 @@ async fn list_tools(State(state): State<McpState>) -> JsonResult<ToolsListRespon
 
     // Try to load signatures from environment
     let signatures_json = std::env::var("MCP_TOOL_SIGNATURES").unwrap_or_default();
-    let signatures: Vec<ComponentSignature> = serde_json::from_str(&signatures_json).unwrap_or_default();
+    let signatures: Vec<ComponentSignature> =
+        serde_json::from_str(&signatures_json).unwrap_or_default();
 
     for tool in all_tools {
         // Find signature for this tool
@@ -204,7 +208,9 @@ async fn list_tools(State(state): State<McpState>) -> JsonResult<ToolsListRespon
         }
     }
 
-    json_ok(ToolsListResponse { tools: verified_tools })
+    json_ok(ToolsListResponse {
+        tools: verified_tools,
+    })
 }
 
 /// MCP tool call request
@@ -306,11 +312,11 @@ async fn handle_memory_write(
         "kg" => {
             let entity_name = args["entity_name"]
                 .as_str()
-                .ok_or_else(|| AppError::BadRequest("Missing 'entity_name' parameter for KG".to_string()))?
+                .ok_or_else(|| {
+                    AppError::BadRequest("Missing 'entity_name' parameter for KG".to_string())
+                })?
                 .to_string();
-            let entity_type = args["entity_type"]
-                .as_str()
-                .unwrap_or("concept");
+            let entity_type = args["entity_type"].as_str().unwrap_or("concept");
             let description = args["description"].as_str();
 
             let entity_id = KGRepository::create_entity(
@@ -323,7 +329,8 @@ async fn handle_memory_write(
                 None,
                 None,
                 1.0,
-            ).await?;
+            )
+            .await?;
 
             Ok(vec![crate::protocol::mcp::ToolContent::Text(
                 serde_json::json!({
@@ -337,9 +344,7 @@ async fn handle_memory_write(
             )])
         }
         "mm" => {
-            let modality_type = args["modality_type"]
-                .as_str()
-                .unwrap_or("text");
+            let modality_type = args["modality_type"].as_str().unwrap_or("text");
             let session_id = session_id.or(Some("mcp_session".to_string()));
             let source_id = format!("mcp_{}", ulid::Ulid::new());
 
@@ -352,7 +357,8 @@ async fn handle_memory_write(
                 None,
                 None,
                 None,
-            ).await?;
+            )
+            .await?;
 
             Ok(vec![crate::protocol::mcp::ToolContent::Text(
                 serde_json::json!({
@@ -420,7 +426,14 @@ async fn handle_memory_search(
         }
         "kg" => {
             // Search in knowledge graph entities
-            let entities = KGRepository::list_entities(pool(), &get_default_tenant(), Some(&query), Some(limit), Some(0)).await?;
+            let entities = KGRepository::list_entities(
+                pool(),
+                &get_default_tenant(),
+                Some(&query),
+                Some(limit),
+                Some(0),
+            )
+            .await?;
             let results_json: Vec<serde_json::Value> = entities
                 .entities
                 .iter()
@@ -443,7 +456,9 @@ async fn handle_memory_search(
             let results_json: Vec<serde_json::Value> = entries
                 .iter()
                 .filter(|e| {
-                    e.text_content.as_ref().map_or(false, |t| t.contains(&query))
+                    e.text_content
+                        .as_ref()
+                        .map_or(false, |t| t.contains(&query))
                 })
                 .map(|e| {
                     serde_json::json!({
@@ -479,7 +494,13 @@ async fn handle_memory_recall(
     let limit = args["limit"].as_u64().unwrap_or(10) as i32;
 
     // Recall memories from a session
-    let messages = STMRepository::get_session_messages(pool(), &get_default_tenant(), &session_id, Some(limit)).await?;
+    let messages = STMRepository::get_session_messages(
+        pool(),
+        &get_default_tenant(),
+        &session_id,
+        Some(limit),
+    )
+    .await?;
 
     let text = serde_json::json!({
         "success": true,
@@ -542,8 +563,15 @@ async fn handle_memory_list(
     let entries = match layer.as_str() {
         "stm" => {
             // List STM sessions
-            let response =
-                STMRepository::list_sessions(pool(), &get_default_tenant(), user_id, None, Some(limit), Some(offset)).await?;
+            let response = STMRepository::list_sessions(
+                pool(),
+                &get_default_tenant(),
+                user_id,
+                None,
+                Some(limit),
+                Some(offset),
+            )
+            .await?;
 
             serde_json::json!({
                 "type": "stm_sessions",
@@ -563,8 +591,15 @@ async fn handle_memory_list(
         }
         "ltm" => {
             // List LTM entries
-            let response =
-                LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(limit), Some(offset)).await?;
+            let response = LTMRepository::list_entries(
+                pool(),
+                &get_default_tenant(),
+                None,
+                None,
+                Some(limit),
+                Some(offset),
+            )
+            .await?;
 
             serde_json::json!({
                 "type": "ltm_entries",
@@ -583,8 +618,14 @@ async fn handle_memory_list(
         "kg" => {
             // List KG entities
             let entity_type = args["entity_type"].as_str();
-            let response =
-                KGRepository::list_entities(pool(), &get_default_tenant(), entity_type, Some(limit), Some(offset)).await?;
+            let response = KGRepository::list_entities(
+                pool(),
+                &get_default_tenant(),
+                entity_type,
+                Some(limit),
+                Some(offset),
+            )
+            .await?;
 
             serde_json::json!({
                 "type": "kg_entities",
@@ -642,7 +683,8 @@ async fn list_resources(State(state): State<McpState>) -> JsonResult<serde_json:
 
     // Try to load signatures from environment
     let signatures_json = std::env::var("MCP_RESOURCE_SIGNATURES").unwrap_or_default();
-    let signatures: Vec<ComponentSignature> = serde_json::from_str(&signatures_json).unwrap_or_default();
+    let signatures: Vec<ComponentSignature> =
+        serde_json::from_str(&signatures_json).unwrap_or_default();
 
     for resource in all_resources {
         // Find signature for this resource
@@ -712,7 +754,13 @@ async fn read_resource(
     let content = match layer {
         "stm" => {
             if let Some(session_id) = id {
-                let messages = STMRepository::get_session_messages(pool(), &get_default_tenant(), &session_id, Some(50)).await?;
+                let messages = STMRepository::get_session_messages(
+                    pool(),
+                    &get_default_tenant(),
+                    &session_id,
+                    Some(50),
+                )
+                .await?;
 
                 serde_json::json!({
                     "sessionId": session_id,
@@ -721,7 +769,15 @@ async fn read_resource(
                 .to_string()
             } else {
                 // List all sessions
-                let response = STMRepository::list_sessions(pool(), &get_default_tenant(), None, None, Some(20), Some(0)).await?;
+                let response = STMRepository::list_sessions(
+                    pool(),
+                    &get_default_tenant(),
+                    None,
+                    None,
+                    Some(20),
+                    Some(0),
+                )
+                .await?;
 
                 serde_json::json!({
                     "sessions": response.sessions
@@ -731,7 +787,9 @@ async fn read_resource(
         }
         "ltm" => {
             if let Some(entry_id) = id {
-                let entry = LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id).await?;
+                let entry =
+                    LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id)
+                        .await?;
 
                 match entry {
                     Some(e) => serde_json::json!({
@@ -748,7 +806,15 @@ async fn read_resource(
                     }
                 }
             } else {
-                let response = LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(20), Some(0)).await?;
+                let response = LTMRepository::list_entries(
+                    pool(),
+                    &get_default_tenant(),
+                    None,
+                    None,
+                    Some(20),
+                    Some(0),
+                )
+                .await?;
 
                 serde_json::json!({
                     "entries": response.entries
@@ -759,20 +825,32 @@ async fn read_resource(
         "kg" => {
             // Knowledge graph resources
             if let Some(entity_id) = id {
-                let entity = KGRepository::get_entity_by_id(pool(), &get_default_tenant(), &entity_id).await?;
+                let entity =
+                    KGRepository::get_entity_by_id(pool(), &get_default_tenant(), &entity_id)
+                        .await?;
 
                 match entity {
                     Some(e) => {
                         // Get related entities
-                        let related = KGRepository::get_related_entities(pool(), &get_default_tenant(), &entity_id, None, Some(5)).await?;
-                        let relations: Vec<serde_json::Value> = related.iter().map(|(ent, rel)| {
-                            serde_json::json!({
-                                "entityId": ent.entity_id,
-                                "entityName": ent.entity_name,
-                                "relationType": rel.relation_type,
-                                "weight": rel.weight
+                        let related = KGRepository::get_related_entities(
+                            pool(),
+                            &get_default_tenant(),
+                            &entity_id,
+                            None,
+                            Some(5),
+                        )
+                        .await?;
+                        let relations: Vec<serde_json::Value> = related
+                            .iter()
+                            .map(|(ent, rel)| {
+                                serde_json::json!({
+                                    "entityId": ent.entity_id,
+                                    "entityName": ent.entity_name,
+                                    "relationType": rel.relation_type,
+                                    "weight": rel.weight
+                                })
                             })
-                        }).collect();
+                            .collect();
 
                         serde_json::json!({
                             "entity": {
@@ -791,12 +869,22 @@ async fn read_resource(
                         .to_string()
                     }
                     None => {
-                        return Err(AppError::NotFound(format!("Entity {} not found", entity_id)));
+                        return Err(AppError::NotFound(format!(
+                            "Entity {} not found",
+                            entity_id
+                        )));
                     }
                 }
             } else {
                 // List all entities
-                let response = KGRepository::list_entities(pool(), &get_default_tenant(), None, Some(20), Some(0)).await?;
+                let response = KGRepository::list_entities(
+                    pool(),
+                    &get_default_tenant(),
+                    None,
+                    Some(20),
+                    Some(0),
+                )
+                .await?;
 
                 serde_json::json!({
                     "entities": response.entities.iter().map(|e| {
@@ -821,14 +909,17 @@ async fn read_resource(
                     Some(e) => {
                         // Get related entries
                         let related = MMRepository::get_related_entries(&entry_id, Some(5)).await?;
-                        let relations: Vec<serde_json::Value> = related.iter().map(|(ent, rel)| {
-                            serde_json::json!({
-                                "entryId": ent.entry_id,
-                                "modalityType": ent.modality_type,
-                                "relationType": rel.relation_type,
-                                "strength": rel.relation_strength
+                        let relations: Vec<serde_json::Value> = related
+                            .iter()
+                            .map(|(ent, rel)| {
+                                serde_json::json!({
+                                    "entryId": ent.entry_id,
+                                    "modalityType": ent.modality_type,
+                                    "relationType": rel.relation_type,
+                                    "strength": rel.relation_strength
+                                })
                             })
-                        }).collect();
+                            .collect();
 
                         serde_json::json!({
                             "entry": {

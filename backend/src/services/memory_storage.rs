@@ -221,7 +221,13 @@ impl MemoryStorageService {
         info!("Auto transferring STM to LTM: session_id={}", session_id);
 
         // 获取会话消息
-        let messages = STMRepository::get_session_messages(pool(), &get_default_tenant(), session_id, Some(1000)).await?;
+        let messages = STMRepository::get_session_messages(
+            pool(),
+            &get_default_tenant(),
+            session_id,
+            Some(1000),
+        )
+        .await?;
 
         if messages.len() < message_count_threshold as usize {
             info!(

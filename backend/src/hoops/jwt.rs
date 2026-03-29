@@ -1,9 +1,5 @@
 use anyhow::Result;
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, middleware::Next, response::Response};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, EncodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};

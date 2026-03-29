@@ -6,12 +6,12 @@
 //! - Tenant-specific configurations
 
 pub mod context;
-pub mod quota;
 pub mod isolation;
+pub mod quota;
 
-pub use context::{TenantContext, RequestTenantContext};
-pub use quota::QuotaManager;
+pub use context::{RequestTenantContext, TenantContext};
 pub use isolation::TenantIsolation;
+pub use quota::QuotaManager;
 
 pub use crate::tenant::context::QuotaResource;
 

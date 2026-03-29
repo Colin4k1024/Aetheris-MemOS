@@ -11,7 +11,6 @@
 ///
 /// 最终公式（可配置权重）：
 /// `confidence = w_quality * quality + w_relevance * relevance + w_recency * recency + w_access * access + w_completeness * completeness`
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -169,8 +168,12 @@ impl ConfidenceScorer {
         let mut scored = Vec::with_capacity(results.len());
         for r in results {
             // 尝试从 LTM 获取完整条目元数据
-            let breakdown = if let Ok(Some(entry)) =
-                crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &r.entry_id).await
+            let breakdown = if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                pool(),
+                &get_default_tenant(),
+                &r.entry_id,
+            )
+            .await
             {
                 Self::score(
                     r.score,
@@ -183,7 +186,15 @@ impl ConfidenceScorer {
                 )
             } else {
                 // 回退：只用检索分数
-                Self::score(r.score, None, "", None, r.content.len(), r.title.is_some(), cfg)
+                Self::score(
+                    r.score,
+                    None,
+                    "",
+                    None,
+                    r.content.len(),
+                    r.title.is_some(),
+                    cfg,
+                )
             };
 
             scored.push(ScoredSearchResult {

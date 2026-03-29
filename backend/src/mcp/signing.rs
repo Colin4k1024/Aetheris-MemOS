@@ -98,8 +98,9 @@ pub fn compute_signature(
     timestamp: i64,
     key: &[u8],
 ) -> Result<String, SigningError> {
-    let mut mac = HmacSha256::new_from_slice(key)
-        .map_err(|e| SigningError::VerificationFailed("HMAC init failed".to_string(), e.to_string()))?;
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|e| {
+        SigningError::VerificationFailed("HMAC init failed".to_string(), e.to_string())
+    })?;
 
     // Input: sha256_hash + issuer + version + timestamp
     let mut hasher = Sha256::new();
@@ -163,13 +164,12 @@ pub fn verify_component(
         }
     };
 
-    mac.verify_slice(&expected)
-        .map_err(|_| {
-            SigningError::VerificationFailed(
-                component_id.to_string(),
-                "HMAC signature verification failed".to_string(),
-            )
-        })
+    mac.verify_slice(&expected).map_err(|_| {
+        SigningError::VerificationFailed(
+            component_id.to_string(),
+            "HMAC signature verification failed".to_string(),
+        )
+    })
 }
 
 /// Constant-time byte comparison to prevent timing attacks
@@ -271,7 +271,10 @@ mod tests {
         let tampered_artifact = b"test_tool_v2";
 
         let result = verify_component("test_tool", tampered_artifact, &signature, &bundle);
-        assert!(matches!(result, Err(SigningError::VerificationFailed(_, _))));
+        assert!(matches!(
+            result,
+            Err(SigningError::VerificationFailed(_, _))
+        ));
     }
 
     #[test]

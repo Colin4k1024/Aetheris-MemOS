@@ -21,13 +21,7 @@ pub const WORKFLOW_EVIDENCE_HASH_ALGORITHM: &str = "sha256";
 pub fn build_evidence_nodes(trace: &DecisionTrace) -> Result<Vec<WorkflowEvidenceNode>, AppError> {
     let run_id = Ulid::new().to_string();
     let attempt_id = Ulid::new().to_string();
-    build_evidence_nodes_for_run(
-        trace,
-        &run_id,
-        &trace.task_id,
-        &attempt_id,
-        Utc::now(),
-    )
+    build_evidence_nodes_for_run(trace, &run_id, &trace.task_id, &attempt_id, Utc::now())
 }
 
 pub async fn record_decision_trace_as_evidence(
@@ -37,9 +31,18 @@ pub async fn record_decision_trace_as_evidence(
     let run_id = Ulid::new().to_string();
     let attempt_id = Ulid::new().to_string();
     let started_at = Utc::now();
-    let nodes = build_evidence_nodes_for_run(trace, &run_id, &workflow_id, &attempt_id, started_at)?;
+    let nodes =
+        build_evidence_nodes_for_run(trace, &run_id, &workflow_id, &attempt_id, started_at)?;
     let edges = build_evidence_edges_for_run(&nodes, &attempt_id, started_at)?;
-    let run = build_run(trace, &run_id, &workflow_id, &attempt_id, &nodes, &edges, started_at)?;
+    let run = build_run(
+        trace,
+        &run_id,
+        &workflow_id,
+        &attempt_id,
+        &nodes,
+        &edges,
+        started_at,
+    )?;
     let run = EvidenceGraphRepository::create_run(run).await?;
     EvidenceGraphRepository::append_nodes(&nodes).await?;
     EvidenceGraphRepository::append_edges(&edges).await?;
@@ -88,7 +91,10 @@ pub fn verify_chain(
         }
 
         if node.prev_hash != last_hash {
-            violations.push(format!("node {} has broken prev_hash linkage", node.node_id));
+            violations.push(format!(
+                "node {} has broken prev_hash linkage",
+                node.node_id
+            ));
         }
 
         let expected_hash = compute_node_hash(node)?;
@@ -142,9 +148,7 @@ pub fn build_workflow_evidence_export(
     }
 }
 
-pub fn canonical_export_body_bytes(
-    export: &WorkflowEvidenceExport,
-) -> Result<Vec<u8>, AppError> {
+pub fn canonical_export_body_bytes(export: &WorkflowEvidenceExport) -> Result<Vec<u8>, AppError> {
     let body = CanonicalWorkflowEvidenceExport {
         schema_version: &export.schema_version,
         hash_algorithm: &export.hash_algorithm,
@@ -180,15 +184,18 @@ fn build_evidence_nodes_for_run(
                 "task_id": trace.task_id,
                 "initial_memory_config": trace.initial_memory_config,
             }),
-            serde_json::to_value(&trace.analyzer)
-                .map_err(|err| AppError::Serialization(format!("serialize analyzer stage: {err}")))?,
+            serde_json::to_value(&trace.analyzer).map_err(|err| {
+                AppError::Serialization(format!("serialize analyzer stage: {err}"))
+            })?,
         ),
         stage_spec(
             "predictor",
-            serde_json::to_value(&trace.analyzer)
-                .map_err(|err| AppError::Serialization(format!("serialize analyzer stage input: {err}")))?,
-            serde_json::to_value(&trace.predictor)
-                .map_err(|err| AppError::Serialization(format!("serialize predictor stage: {err}")))?,
+            serde_json::to_value(&trace.analyzer).map_err(|err| {
+                AppError::Serialization(format!("serialize analyzer stage input: {err}"))
+            })?,
+            serde_json::to_value(&trace.predictor).map_err(|err| {
+                AppError::Serialization(format!("serialize predictor stage: {err}"))
+            })?,
         ),
         stage_spec(
             "weight_adjustment",
@@ -206,8 +213,9 @@ fn build_evidence_nodes_for_run(
                 "weight_adjustment": trace.weight_adjustment,
                 "memory_contributions": trace.memory_contributions,
             }),
-            serde_json::to_value(&trace.final_result)
-                .map_err(|err| AppError::Serialization(format!("serialize final result stage: {err}")))?,
+            serde_json::to_value(&trace.final_result).map_err(|err| {
+                AppError::Serialization(format!("serialize final result stage: {err}"))
+            })?,
         ),
     ];
 
@@ -329,19 +337,15 @@ fn build_run(
     let mut context_snapshot = BTreeMap::new();
     context_snapshot.insert(
         "resource_status".to_string(),
-        canonicalize_json(
-            serde_json::to_value(&trace.resource_status).map_err(|err| {
-                AppError::Serialization(format!("serialize workflow resource status: {err}"))
-            })?,
-        ),
+        canonicalize_json(serde_json::to_value(&trace.resource_status).map_err(|err| {
+            AppError::Serialization(format!("serialize workflow resource status: {err}"))
+        })?),
     );
     context_snapshot.insert(
         "final_result".to_string(),
-        canonicalize_json(
-            serde_json::to_value(&trace.final_result).map_err(|err| {
-                AppError::Serialization(format!("serialize workflow final result: {err}"))
-            })?,
-        ),
+        canonicalize_json(serde_json::to_value(&trace.final_result).map_err(|err| {
+            AppError::Serialization(format!("serialize workflow final result: {err}"))
+        })?),
     );
     context_snapshot.insert(
         "memory_contributions".to_string(),
@@ -458,8 +462,9 @@ fn compute_node_hash(node: &WorkflowEvidenceNode) -> Result<String, AppError> {
         metadata: &node.metadata,
         prev_hash: &node.prev_hash,
     };
-    let bytes = serde_json::to_vec(&payload)
-        .map_err(|err| AppError::Serialization(format!("serialize canonical node payload: {err}")))?;
+    let bytes = serde_json::to_vec(&payload).map_err(|err| {
+        AppError::Serialization(format!("serialize canonical node payload: {err}"))
+    })?;
     Ok(sha256_hex(&bytes))
 }
 
@@ -479,16 +484,15 @@ fn compute_edge_hash(edge: &WorkflowEvidenceEdge) -> Result<String, AppError> {
         metadata: &edge.metadata,
         prev_hash: &edge.prev_hash,
     };
-    let bytes = serde_json::to_vec(&payload)
-        .map_err(|err| AppError::Serialization(format!("serialize canonical edge payload: {err}")))?;
+    let bytes = serde_json::to_vec(&payload).map_err(|err| {
+        AppError::Serialization(format!("serialize canonical edge payload: {err}"))
+    })?;
     Ok(sha256_hex(&bytes))
 }
 
 fn canonicalize_json(value: Value) -> Value {
     match value {
-        Value::Array(values) => {
-            Value::Array(values.into_iter().map(canonicalize_json).collect())
-        }
+        Value::Array(values) => Value::Array(values.into_iter().map(canonicalize_json).collect()),
         Value::Object(map) => {
             let ordered = map
                 .into_iter()

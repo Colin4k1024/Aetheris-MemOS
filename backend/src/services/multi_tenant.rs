@@ -6,10 +6,9 @@
 /// - 支持**跨智能体知识共享**：同一租户内的 Agent 可以访问共享知识库
 /// - 提供租户级配额管理（最大 STM 会话数、最大 LTM 条目数）
 /// - 跨租户访问控制：只有 super-admin 角色可执行跨租户查询
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use tracing::{info, warn};
 
 use crate::db::pool;
@@ -159,16 +158,16 @@ impl TenantIsolationLayer {
     }
 
     /// 为租户生成带前缀的 source_id。
-    pub fn create_tenant_query(
-        &self,
-        tenant_id: &TenantId,
-        agent_id: &str,
-    ) -> String {
+    pub fn create_tenant_query(&self, tenant_id: &TenantId, agent_id: &str) -> String {
         format!("{}:agent:{}", tenant_id.prefix(), agent_id)
     }
 
     /// 判断是否允许跨租户访问（仅 SuperAdmin 允许）。
-    pub fn can_access_cross_tenant(&self, _tenant_id: &TenantId, _target_tenant_id: &TenantId) -> bool {
+    pub fn can_access_cross_tenant(
+        &self,
+        _tenant_id: &TenantId,
+        _target_tenant_id: &TenantId,
+    ) -> bool {
         // 本层不携带角色信息，由调用方在 AccessController 中校验
         false
     }
@@ -259,9 +258,7 @@ impl AccessController {
                 {
                     return AccessDecision {
                         allowed: true,
-                        reason: format!(
-                            "Cross-tenant read allowed via shared knowledge config"
-                        ),
+                        reason: format!("Cross-tenant read allowed via shared knowledge config"),
                     };
                 }
             }
@@ -336,16 +333,21 @@ impl CrossAgentMemoryQuery {
         tenant_id: &TenantId,
         limit: Option<i32>,
     ) -> Result<Vec<crate::db::stm::Session>, AppError> {
-        let all_sessions =
-            crate::db::stm::STMRepository::list_sessions(pool(), &crate::tenant::TenantId::from_string(tenant_id.as_str()), None, None, limit, None).await?;
+        let all_sessions = crate::db::stm::STMRepository::list_sessions(
+            pool(),
+            &crate::tenant::TenantId::from_string(tenant_id.as_str()),
+            None,
+            None,
+            limit,
+            None,
+        )
+        .await?;
 
         let prefix = tenant_id.prefix();
         let tenant_sessions: Vec<_> = all_sessions
             .sessions
             .into_iter()
-            .filter(|s| {
-                s.user_id.starts_with(&prefix) || s.agent_id.starts_with(&prefix)
-            })
+            .filter(|s| s.user_id.starts_with(&prefix) || s.agent_id.starts_with(&prefix))
             .collect();
 
         Ok(tenant_sessions)
@@ -412,8 +414,15 @@ impl QuotaEnforcer {
         // 粗略统计：查询带前缀的条目数（实际应走缓存计数器）
         let pool = crate::db::pool();
         let tenant_id_obj = crate::tenant::TenantId::from_string(tenant_id);
-        let result =
-            crate::db::ltm::LTMRepository::list_entries(&pool, &tenant_id_obj, None, None, Some(1), Some(0)).await?;
+        let result = crate::db::ltm::LTMRepository::list_entries(
+            &pool,
+            &tenant_id_obj,
+            None,
+            None,
+            Some(1),
+            Some(0),
+        )
+        .await?;
         // 注：完整实现需要 tenant-scoped COUNT；此处保守地检查总量
         if result.total >= max {
             warn!(

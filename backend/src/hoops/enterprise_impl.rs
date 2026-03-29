@@ -184,7 +184,12 @@ impl RbacHookImpl {
     }
 
     /// Synchronous permission check (for use in sync contexts)
-    pub fn blocking_has_permission(&self, tenant_id: &str, user_id: &str, permission: Permission) -> bool {
+    pub fn blocking_has_permission(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        permission: Permission,
+    ) -> bool {
         // Try to acquire read lock and check
         if let Ok(roles) = self.rbac.roles().try_read() {
             if let Some(tenant_roles) = roles.get(tenant_id) {
@@ -551,11 +556,8 @@ pub fn create_enterprise_hook_set() -> crate::hoops::enterprise::EnterpriseHookS
         });
 
     // Create governance hook
-    let governance_hook = GovernanceHookImpl::new(
-        Arc::new(rbac_hook),
-        Arc::new(quota_hook),
-        audit_callback,
-    );
+    let governance_hook =
+        GovernanceHookImpl::new(Arc::new(rbac_hook), Arc::new(quota_hook), audit_callback);
 
     // Build and return enterprise hook set
     crate::hoops::enterprise::EnterpriseHookSet::new()

@@ -129,14 +129,25 @@ pub async fn snapshot_at(valid_at: &str) -> Result<KgSnapshot> {
     // For each entity collect its current relations
     let mut relations: Vec<RelationVersion> = Vec::new();
     for entity in &entities {
-        match KGRepository::get_related_entities(pool(), &get_default_tenant(), &entity.entity_id, None, Some(500)).await {
+        match KGRepository::get_related_entities(
+            pool(),
+            &get_default_tenant(),
+            &entity.entity_id,
+            None,
+            Some(500),
+        )
+        .await
+        {
             Ok(pairs) => {
                 for (_related_entity, rel) in pairs {
                     relations.push(rel.into());
                 }
             }
             Err(e) => {
-                warn!("Could not fetch relations for entity {}: {}", entity.entity_id, e);
+                warn!(
+                    "Could not fetch relations for entity {}: {}",
+                    entity.entity_id, e
+                );
             }
         }
     }
@@ -196,16 +207,17 @@ pub async fn diff_intervals(from_time: &str, to_time: &str) -> Result<TemporalDi
     let modified_entities: Vec<(Entity, Entity)> = old_entities
         .iter()
         .filter_map(|old| {
-            new_map.get(old.entity_name.as_str()).map(|new| {
-                // Consider modified if type or description changed
-                if old.entity_type != new.entity_type
-                    || old.description != new.description
-                {
-                    Some((old.clone(), (*new).clone()))
-                } else {
-                    None
-                }
-            }).flatten()
+            new_map
+                .get(old.entity_name.as_str())
+                .map(|new| {
+                    // Consider modified if type or description changed
+                    if old.entity_type != new.entity_type || old.description != new.description {
+                        Some((old.clone(), (*new).clone()))
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
         })
         .collect();
 
@@ -238,7 +250,14 @@ pub async fn diff_intervals(from_time: &str, to_time: &str) -> Result<TemporalDi
 /// this function works with the *current* relations and flags logical-type
 /// conflicts (e.g. an entity having two `is_a` relations for the same target).
 pub async fn detect_contradictions(entity_id: &str) -> Result<Vec<TemporalContradiction>> {
-    let relation_pairs = KGRepository::get_related_entities(pool(), &get_default_tenant(), entity_id, None, Some(1000)).await?;
+    let relation_pairs = KGRepository::get_related_entities(
+        pool(),
+        &get_default_tenant(),
+        entity_id,
+        None,
+        Some(1000),
+    )
+    .await?;
 
     // Group by (target_entity_id, relation_type)
     let mut groups: std::collections::HashMap<(String, String), Vec<Relation>> =
@@ -264,7 +283,10 @@ pub async fn detect_contradictions(entity_id: &str) -> Result<Vec<TemporalContra
                     overlap_description: format!(
                         "Entity '{}' has {} concurrent '{}' relations to target '{}'. \
                          Review valid-time windows to ensure only one is current.",
-                        entity_id, rels.len(), rel_type, target
+                        entity_id,
+                        rels.len(),
+                        rel_type,
+                        target
                     ),
                 });
             }
@@ -292,9 +314,15 @@ pub async fn supersede_entity(
     new_type: &str,
     new_description: Option<&str>,
 ) -> Result<String> {
-    let new_id = KGRepository::supersede_entity(&get_default_tenant(), entity_id, new_name, new_type, new_description)
-        .await
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let new_id = KGRepository::supersede_entity(
+        &get_default_tenant(),
+        entity_id,
+        new_name,
+        new_type,
+        new_description,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
     info!(
         old_id = %entity_id,
         new_id = %new_id,
@@ -316,8 +344,15 @@ pub async fn supersede_entity(
 async fn fetch_entities_at(valid_at: &str) -> Result<Vec<Entity>> {
     // `get_entity_at_time` takes a single id — we need a global snapshot.
     // Use `list_entities` with no filter and then post-filter by valid window.
-    let all = crate::db::kg::KGRepository::list_entities(pool(), &get_default_tenant(), None, Some(10000), Some(0)).await
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let all = crate::db::kg::KGRepository::list_entities(
+        pool(),
+        &get_default_tenant(),
+        None,
+        Some(10000),
+        Some(0),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let filtered: Vec<Entity> = all
         .entities

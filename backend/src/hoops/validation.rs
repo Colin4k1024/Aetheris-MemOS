@@ -4,12 +4,8 @@
 //! Implements D-04 and D-05: All external input enters through a dedicated
 //! validation layer using serde + custom validators.
 
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
 use axum::http::StatusCode;
+use axum::{extract::Request, middleware::Next, response::Response};
 
 /// Input validation error with structured details
 #[derive(Debug, thiserror::Error)]
@@ -59,10 +55,7 @@ impl ValidationError {
 /// to handlers.
 pub async fn validation_middleware(req: Request, next: Next) -> Result<Response, ValidationError> {
     // Extract path for route-specific validation
-    let path = req
-        .uri()
-        .path()
-        .to_string();
+    let path = req.uri().path().to_string();
 
     // High-risk routes that require validation
     let high_risk_paths = [

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use crate::db::pool;
-use crate::db::{stm::STMRepository, ltm::LTMRepository, kg::KGRepository, mm::MMRepository};
+use crate::db::{kg::KGRepository, ltm::LTMRepository, mm::MMRepository, stm::STMRepository};
 use crate::tenant::TenantId;
 use crate::AppError;
 
@@ -155,7 +155,11 @@ impl MemoryFusionService {
             })
             .collect();
 
-        merged.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
+        merged.sort_by(|a, b| {
+            b.relevance_score
+                .partial_cmp(&a.relevance_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let merged_results: Vec<MergedEntry> = merged.into_iter().take(limit as usize).collect();
 
@@ -295,7 +299,10 @@ impl MemoryFusionService {
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
             .map(|(id, title, content, quality_score, created_at)| {
-                let relevance = if title.as_ref().map_or(false, |t| t.to_lowercase().contains(&query.to_lowercase())) {
+                let relevance = if title
+                    .as_ref()
+                    .map_or(false, |t| t.to_lowercase().contains(&query.to_lowercase()))
+                {
                     0.8
                 } else {
                     0.6
@@ -354,8 +361,8 @@ impl MemoryFusionService {
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
-            .map(|(id, name, description, confidence_score, created_at)| {
-                MemoryEntry {
+            .map(
+                |(id, name, description, confidence_score, created_at)| MemoryEntry {
                     id,
                     layer: MemoryLayer::Kg,
                     title: name,
@@ -363,8 +370,8 @@ impl MemoryFusionService {
                     relevance_score: confidence_score as f64,
                     created_at,
                     quality_score: Some(confidence_score),
-                }
-            })
+                },
+            )
             .collect();
 
         info!(
@@ -386,8 +393,9 @@ impl MemoryFusionService {
         let pattern = format!("{}%", prefix);
 
         // Search MM entries by text content or title
-        let rows: Vec<(String, Option<String>, Option<String>, Option<f32>, String)> = sqlx::query_as(
-            r#"
+        let rows: Vec<(String, Option<String>, Option<String>, Option<f32>, String)> =
+            sqlx::query_as(
+                r#"
             SELECT entry_id, title, text_content, quality_score, created_at::text
             FROM multimodal_entries
             WHERE source_id LIKE $1
@@ -396,21 +404,21 @@ impl MemoryFusionService {
             ORDER BY quality_score DESC NULLS LAST, created_at DESC
             LIMIT $3
             "#,
-        )
-        .bind(&pattern)
-        .bind(query)
-        .bind(limit)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            error!("Failed to query MM: {}", e);
-            AppError::Internal(format!("MM query failed: {}", e))
-        })?;
+            )
+            .bind(&pattern)
+            .bind(query)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to query MM: {}", e);
+                AppError::Internal(format!("MM query failed: {}", e))
+            })?;
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
-            .map(|(id, title, text_content, quality_score, created_at)| {
-                MemoryEntry {
+            .map(
+                |(id, title, text_content, quality_score, created_at)| MemoryEntry {
                     id,
                     layer: MemoryLayer::Mm,
                     title: title.unwrap_or_else(|| "Untitled".to_string()),
@@ -418,8 +426,8 @@ impl MemoryFusionService {
                     relevance_score: quality_score.unwrap_or(0.5) as f64,
                     created_at,
                     quality_score,
-                }
-            })
+                },
+            )
             .collect();
 
         info!(
@@ -486,15 +494,14 @@ impl MemoryFusionService {
     }
 
     async fn count_mm(pool: &sqlx::PgPool) -> Result<i64, AppError> {
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active'",
-        )
-        .fetch_one(pool)
-        .await
-        .map_err(|e| {
-            error!("Failed to count MM: {}", e);
-            AppError::Internal(format!("MM count failed: {}", e))
-        })?;
+        let row: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active'")
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count MM: {}", e);
+                    AppError::Internal(format!("MM count failed: {}", e))
+                })?;
 
         Ok(row.0)
     }

@@ -20,14 +20,14 @@ use axum::{
     Router,
 };
 
-use super::auth;
-use super::user;
 use super::agent;
-use super::memory;
-use super::memory_storage;
-use super::memory_search;
+use super::auth;
 use super::knowledge_graph;
+use super::memory;
+use super::memory_search;
+use super::memory_storage;
 use super::multimodal;
+use super::user;
 use crate::hoops::jwt::auth_middleware;
 
 /// Create a router with all protected (auth-required) routes.

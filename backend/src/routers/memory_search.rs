@@ -284,12 +284,24 @@ pub async fn scored_search(
     // 构建置信度评分配置
     let mut cfg = crate::services::confidence_scorer::ConfidenceScorerConfig::default();
     if let Some(cc) = req.confidence_config {
-        if let Some(v) = cc.quality_weight { cfg.quality_weight = v; }
-        if let Some(v) = cc.relevance_weight { cfg.relevance_weight = v; }
-        if let Some(v) = cc.recency_weight { cfg.recency_weight = v; }
-        if let Some(v) = cc.access_weight { cfg.access_weight = v; }
-        if let Some(v) = cc.completeness_weight { cfg.completeness_weight = v; }
-        if let Some(v) = cc.recency_half_life_days { cfg.recency_half_life_days = v; }
+        if let Some(v) = cc.quality_weight {
+            cfg.quality_weight = v;
+        }
+        if let Some(v) = cc.relevance_weight {
+            cfg.relevance_weight = v;
+        }
+        if let Some(v) = cc.recency_weight {
+            cfg.recency_weight = v;
+        }
+        if let Some(v) = cc.access_weight {
+            cfg.access_weight = v;
+        }
+        if let Some(v) = cc.completeness_weight {
+            cfg.completeness_weight = v;
+        }
+        if let Some(v) = cc.recency_half_life_days {
+            cfg.recency_half_life_days = v;
+        }
     }
 
     let results = crate::services::confidence_scorer::ConfidenceScorer::score_search_results(
@@ -303,7 +315,15 @@ pub async fn scored_search(
 
 /// 获取所有知识条目列表
 pub async fn list_ltm_entries() -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
-    let result = crate::db::ltm::LTMRepository::list_entries(pool(), &get_default_tenant(), None, None, Some(20), Some(0)).await?;
+    let result = crate::db::ltm::LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(20),
+        Some(0),
+    )
+    .await?;
     info!("LTM list success: {} entries", result.entries.len());
     json_ok(result)
 }
@@ -314,9 +334,10 @@ pub async fn get_ltm_entry(
 ) -> JsonResult<crate::db::ltm::KnowledgeEntry> {
     info!("Getting LTM entry: entry_id={}", entry_id);
 
-    let entry = crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id)
-        .await?
-        .ok_or_else(|| crate::AppError::NotFound(format!("Entry {} not found", entry_id)))?;
+    let entry =
+        crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id)
+            .await?
+            .ok_or_else(|| crate::AppError::NotFound(format!("Entry {} not found", entry_id)))?;
 
     json_ok(entry)
 }
@@ -341,7 +362,13 @@ pub async fn get_ltm_at_time(
         entry_id, query.at
     );
 
-    let entry = crate::db::ltm::LTMRepository::get_entry_at_time(pool(), &get_default_tenant(), &entry_id, &query.at).await?;
+    let entry = crate::db::ltm::LTMRepository::get_entry_at_time(
+        pool(),
+        &get_default_tenant(),
+        &entry_id,
+        &query.at,
+    )
+    .await?;
 
     json_ok(entry)
 }

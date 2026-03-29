@@ -3,8 +3,7 @@
 use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
@@ -166,14 +165,12 @@ async fn post_login(Json(idata): Json<LoginInData>) -> Result<Response, AuthErro
         "jwt_token={}; Path=/; HttpOnly; Secure; SameSite=Strict",
         token
     );
-    response.headers_mut().append(
-        axum::http::header::SET_COOKIE,
-        cookie.parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .append(axum::http::header::SET_COOKIE, cookie.parse().unwrap());
 
     Ok(response)
 }
-
 
 /// Get current user (requires auth)
 #[utoipa::path(get, path = "/api/currentUser", tag = "Auth")]
@@ -217,6 +214,5 @@ pub fn router() -> Router {
 
 /// Create protected auth routes (auth required)
 pub fn protected_router() -> Router {
-    Router::new()
-        .route("/api/currentUser", get(get_current_user))
+    Router::new().route("/api/currentUser", get(get_current_user))
 }

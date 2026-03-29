@@ -8,7 +8,6 @@
 /// 2. **LLM 摘要**（有 LLM 调用）— 将多条历史消息合并为一条摘要消息
 /// 3. **重要性裁剪**（无 LLM 调用）— 按 importance_score 从低到高裁剪，直至满足 token 预算
 /// 4. **分层压缩**（混合）— 先用窗口保留最新 K 条，再对旧消息做 LLM 摘要，合并后返回
-
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -243,8 +242,10 @@ impl ContextCompressor {
     ) -> Result<CompressionResult, AppError> {
         let recent_k = cfg.hierarchical_recent_k.min(messages.len());
         let split = messages.len() - recent_k;
-        let (old_msgs, recent_msgs): (Vec<_>, Vec<_>) =
-            messages.into_iter().enumerate().partition(|(i, _)| *i < split);
+        let (old_msgs, recent_msgs): (Vec<_>, Vec<_>) = messages
+            .into_iter()
+            .enumerate()
+            .partition(|(i, _)| *i < split);
         let old_msgs: Vec<MessageEntry> = old_msgs.into_iter().map(|(_, m)| m).collect();
         let recent_msgs: Vec<MessageEntry> = recent_msgs.into_iter().map(|(_, m)| m).collect();
 
@@ -275,12 +276,8 @@ impl ContextCompressor {
                 window_size: cfg.window_size,
                 hierarchical_recent_k: cfg.hierarchical_recent_k,
             };
-            let r = Self::sliding_window(
-                result_msgs,
-                &window_cfg,
-                original_count,
-                original_tokens,
-            )?;
+            let r =
+                Self::sliding_window(result_msgs, &window_cfg, original_count, original_tokens)?;
             return Ok(CompressionResult {
                 has_summary,
                 strategy_used: CompressionStrategy::Hierarchical,
@@ -338,17 +335,22 @@ impl ContextCompressor {
         session_id: &str,
         cfg: &CompressionConfig,
     ) -> Result<CompressionResult, AppError> {
-        let messages = crate::db::stm::STMRepository::get_session_messages(pool(), &get_default_tenant(), session_id, None)
-            .await?
-            .into_iter()
-            .map(|m| MessageEntry {
-                id: m.message_id,
-                role: m.role,
-                content: m.content,
-                importance_score: m.importance_score,
-                created_at: Some(m.created_at),
-            })
-            .collect();
+        let messages = crate::db::stm::STMRepository::get_session_messages(
+            pool(),
+            &get_default_tenant(),
+            session_id,
+            None,
+        )
+        .await?
+        .into_iter()
+        .map(|m| MessageEntry {
+            id: m.message_id,
+            role: m.role,
+            content: m.content,
+            importance_score: m.importance_score,
+            created_at: Some(m.created_at),
+        })
+        .collect();
 
         Self::compress(messages, cfg).await
     }

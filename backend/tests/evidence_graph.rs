@@ -5,7 +5,9 @@ use backend::models::{
     Modality, ReasoningDepth, ResourceConstraints, TaskContext, TaskPreferences, TaskType,
     TemporalScope,
 };
-use backend::services::evidence_graph::{list_workflow_evidence, record_decision_trace_as_evidence};
+use backend::services::evidence_graph::{
+    list_workflow_evidence, record_decision_trace_as_evidence,
+};
 use backend::services::memory_orchestrator::{list_decision_traces, select_memory_trace};
 use backend::services::AdaptiveMemoryScheduler;
 
@@ -15,9 +17,7 @@ static TEST_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
 
 async fn init_test_db() {
     let db_path = DB_PATH
-        .get_or_init(|| {
-            "file:evidence-graph-tests?mode=memory&cache=shared".to_string()
-        })
+        .get_or_init(|| "file:evidence-graph-tests?mode=memory&cache=shared".to_string())
         .clone();
 
     INIT_DB
@@ -39,10 +39,12 @@ async fn init_test_db() {
         })
         .await;
 
-    sqlx::raw_sql(include_str!("../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"))
-        .execute(backend::db::sqlite_pool())
-        .await
-        .expect("apply evidence graph sqlite schema");
+    sqlx::raw_sql(include_str!(
+        "../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"
+    ))
+    .execute(backend::db::sqlite_pool())
+    .await
+    .expect("apply evidence graph sqlite schema");
     sqlx::raw_sql(
         r#"
         CREATE TABLE IF NOT EXISTS decision_trace (
@@ -105,7 +107,10 @@ async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTr
 
 #[tokio::test]
 async fn record_decision_trace_as_evidence_persists_locked_fields() {
-    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-evidence-locked-fields").await;
@@ -138,7 +143,10 @@ async fn record_decision_trace_as_evidence_persists_locked_fields() {
 
 #[tokio::test]
 async fn list_workflow_evidence_returns_nodes_and_edges_in_sequence_order() {
-    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
     init_test_db().await;
 
     let trace = sample_trace("workflow-evidence-listing").await;
@@ -174,7 +182,10 @@ async fn list_workflow_evidence_returns_nodes_and_edges_in_sequence_order() {
 
 #[tokio::test]
 async fn select_memory_trace_persist_trace_record_keeps_legacy_blob_and_workflow_evidence() {
-    let _guard = TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
     init_test_db().await;
 
     let scheduler = AdaptiveMemoryScheduler::new();

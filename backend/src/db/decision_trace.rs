@@ -49,7 +49,11 @@ impl DecisionTraceRepository {
                 .await
                 .map_err(db_error)?;
             }
-            None => return Err(AppError::DatabaseConnection("database pool not initialized".into())),
+            None => {
+                return Err(AppError::DatabaseConnection(
+                    "database pool not initialized".into(),
+                ))
+            }
         }
 
         info!("Created decision trace: {} for task: {}", trace_id, task_id);
@@ -63,39 +67,39 @@ impl DecisionTraceRepository {
     ) -> Result<Vec<DecisionTraceRow>, AppError> {
         let limit = limit.unwrap_or(50);
         let rows = match DATABASE_POOL.get() {
-            Some(DatabasePool::Postgres(pool)) => {
-                sqlx::query_as::<_, DecisionTraceRow>(
-                    r#"
+            Some(DatabasePool::Postgres(pool)) => sqlx::query_as::<_, DecisionTraceRow>(
+                r#"
                     SELECT trace_id, task_id, trace_json, created_at::text AS created_at
                     FROM decision_trace
                     WHERE task_id = $1
                     ORDER BY created_at DESC
                     LIMIT $2
                     "#,
-                )
-                .bind(task_id)
-                .bind(limit)
-                .fetch_all(pool)
-                .await
-                .map_err(db_error)?
-            }
-            Some(DatabasePool::Sqlite(pool)) => {
-                sqlx::query_as::<_, DecisionTraceRow>(
-                    r#"
+            )
+            .bind(task_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .map_err(db_error)?,
+            Some(DatabasePool::Sqlite(pool)) => sqlx::query_as::<_, DecisionTraceRow>(
+                r#"
                     SELECT trace_id, task_id, trace_json, created_at
                     FROM decision_trace
                     WHERE task_id = $1
                     ORDER BY created_at DESC
                     LIMIT $2
                     "#,
-                )
-                .bind(task_id)
-                .bind(limit)
-                .fetch_all(pool)
-                .await
-                .map_err(db_error)?
+            )
+            .bind(task_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .map_err(db_error)?,
+            None => {
+                return Err(AppError::DatabaseConnection(
+                    "database pool not initialized".into(),
+                ))
             }
-            None => return Err(AppError::DatabaseConnection("database pool not initialized".into())),
         };
 
         Ok(rows)
@@ -171,7 +175,11 @@ impl DecisionTraceRepository {
                 }
                 .map_err(db_error)?
             }
-            None => return Err(AppError::DatabaseConnection("database pool not initialized".into())),
+            None => {
+                return Err(AppError::DatabaseConnection(
+                    "database pool not initialized".into(),
+                ))
+            }
         };
         Ok(rows)
     }

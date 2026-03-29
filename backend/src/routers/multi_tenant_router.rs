@@ -88,15 +88,15 @@ pub async fn tenant_search(
     Path(tenant_id): Path<String>,
     Json(req): Json<TenantSearchRequest>,
 ) -> JsonResult<Vec<crate::services::memory_search::SearchResult>> {
-    info!("Tenant search: tenant={}, query_len={}", tenant_id, req.query.len());
+    info!(
+        "Tenant search: tenant={}, query_len={}",
+        tenant_id,
+        req.query.len()
+    );
 
     let tid = TenantId::new(tenant_id);
-    let results = CrossAgentMemoryQuery::search_tenant_ltm(
-        &tid,
-        &req.query,
-        req.top_k.unwrap_or(10),
-    )
-    .await?;
+    let results =
+        CrossAgentMemoryQuery::search_tenant_ltm(&tid, &req.query, req.top_k.unwrap_or(10)).await?;
 
     json_ok(results)
 }
@@ -114,9 +114,7 @@ pub async fn tenant_sessions(
 }
 
 /// 检查跨租户访问权限
-pub async fn check_access(
-    Json(req): Json<CheckAccessRequest>,
-) -> JsonResult<AccessDecision> {
+pub async fn check_access(Json(req): Json<CheckAccessRequest>) -> JsonResult<AccessDecision> {
     let role = match req.requester_role.as_str() {
         "admin" => TenantRole::Admin,
         "super_admin" => TenantRole::SuperAdmin,

@@ -49,10 +49,12 @@ async fn init_test_db() {
         })
         .await;
 
-    sqlx::raw_sql(include_str!("../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"))
-        .execute(backend::db::sqlite_pool())
-        .await
-        .expect("apply evidence graph sqlite schema");
+    sqlx::raw_sql(include_str!(
+        "../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"
+    ))
+    .execute(backend::db::sqlite_pool())
+    .await
+    .expect("apply evidence graph sqlite schema");
 }
 
 fn sample_task_context(task_id: &str) -> TaskContext {
@@ -127,10 +129,17 @@ async fn get_workflow_evidence_returns_workflow_metadata_nodes_edges_and_verific
 
     assert_eq!(json["run"]["workflow_id"], trace.task_id);
     assert_eq!(json["run"]["attempt_id"], recorded.run.attempt_id);
-    assert!(json["nodes"].as_array().is_some_and(|nodes| !nodes.is_empty()));
-    assert!(json["edges"].as_array().is_some_and(|edges| !edges.is_empty()));
+    assert!(json["nodes"]
+        .as_array()
+        .is_some_and(|nodes| !nodes.is_empty()));
+    assert!(json["edges"]
+        .as_array()
+        .is_some_and(|edges| !edges.is_empty()));
     assert_eq!(json["verification"]["verified"], Value::Bool(true));
-    assert_eq!(json["verification"]["root_hash"], Value::String(recorded.verification.root_hash.unwrap()));
+    assert_eq!(
+        json["verification"]["root_hash"],
+        Value::String(recorded.verification.root_hash.unwrap())
+    );
 }
 
 #[tokio::test]

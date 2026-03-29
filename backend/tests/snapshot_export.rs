@@ -48,10 +48,12 @@ async fn init_test_db() {
         })
         .await;
 
-    sqlx::raw_sql(include_str!("../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"))
-        .execute(backend::db::sqlite_pool())
-        .await
-        .expect("apply evidence graph sqlite schema");
+    sqlx::raw_sql(include_str!(
+        "../migrations_sqlite/20260326000100_workflow_evidence_graph.sql"
+    ))
+    .execute(backend::db::sqlite_pool())
+    .await
+    .expect("apply evidence graph sqlite schema");
 }
 
 fn sample_task_context(task_id: &str) -> TaskContext {
