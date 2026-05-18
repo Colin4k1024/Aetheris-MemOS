@@ -447,47 +447,61 @@ fn hash_json(value: &Value) -> Result<String, AppError> {
 }
 
 fn compute_node_hash(node: &WorkflowEvidenceNode) -> Result<String, AppError> {
-    let payload = CanonicalNodeHash {
-        run_id: &node.run_id,
-        workflow_id: &node.workflow_id,
-        task_id: &node.task_id,
-        attempt_id: &node.attempt_id,
-        sequence_number: node.sequence_number,
-        node_kind: &node.node_kind,
-        timestamp: &node.timestamp,
-        llm_input_hash: &node.llm_input_hash,
-        llm_output_hash: &node.llm_output_hash,
-        tool_invocations: &node.tool_invocations,
-        context_snapshot: &node.context_snapshot,
-        metadata: &node.metadata,
-        prev_hash: &node.prev_hash,
-    };
-    let bytes = serde_json::to_vec(&payload).map_err(|err| {
+    let tool_invocations = canonicalize_value(&node.tool_invocations)?;
+    let context_snapshot = canonicalize_value(&node.context_snapshot)?;
+    let metadata = canonicalize_value(&node.metadata)?;
+    let payload = json!({
+        "run_id": node.run_id,
+        "workflow_id": node.workflow_id,
+        "task_id": node.task_id,
+        "attempt_id": node.attempt_id,
+        "sequence_number": node.sequence_number,
+        "node_kind": node.node_kind,
+        "timestamp": node.timestamp,
+        "llm_input_hash": node.llm_input_hash,
+        "llm_output_hash": node.llm_output_hash,
+        "tool_invocations": tool_invocations,
+        "context_snapshot": context_snapshot,
+        "metadata": metadata,
+        "prev_hash": node.prev_hash,
+    });
+    let canonical = canonicalize_json(payload);
+    let bytes = serde_json::to_vec(&canonical).map_err(|err| {
         AppError::Serialization(format!("serialize canonical node payload: {err}"))
     })?;
     Ok(sha256_hex(&bytes))
 }
 
 fn compute_edge_hash(edge: &WorkflowEvidenceEdge) -> Result<String, AppError> {
-    let payload = CanonicalEdgeHash {
-        run_id: &edge.run_id,
-        workflow_id: &edge.workflow_id,
-        task_id: &edge.task_id,
-        attempt_id: &edge.attempt_id,
-        sequence_number: edge.sequence_number,
-        source_node_id: &edge.source_node_id,
-        target_node_id: &edge.target_node_id,
-        edge_kind: &edge.edge_kind,
-        timestamp: &edge.timestamp,
-        tool_invocations: &edge.tool_invocations,
-        context_snapshot: &edge.context_snapshot,
-        metadata: &edge.metadata,
-        prev_hash: &edge.prev_hash,
-    };
-    let bytes = serde_json::to_vec(&payload).map_err(|err| {
+    let tool_invocations = canonicalize_value(&edge.tool_invocations)?;
+    let context_snapshot = canonicalize_value(&edge.context_snapshot)?;
+    let metadata = canonicalize_value(&edge.metadata)?;
+    let payload = json!({
+        "run_id": edge.run_id,
+        "workflow_id": edge.workflow_id,
+        "task_id": edge.task_id,
+        "attempt_id": edge.attempt_id,
+        "sequence_number": edge.sequence_number,
+        "source_node_id": edge.source_node_id,
+        "target_node_id": edge.target_node_id,
+        "edge_kind": edge.edge_kind,
+        "timestamp": edge.timestamp,
+        "tool_invocations": tool_invocations,
+        "context_snapshot": context_snapshot,
+        "metadata": metadata,
+        "prev_hash": edge.prev_hash,
+    });
+    let canonical = canonicalize_json(payload);
+    let bytes = serde_json::to_vec(&canonical).map_err(|err| {
         AppError::Serialization(format!("serialize canonical edge payload: {err}"))
     })?;
     Ok(sha256_hex(&bytes))
+}
+
+fn canonicalize_value(value: &impl Serialize) -> Result<Value, AppError> {
+    let v = serde_json::to_value(value)
+        .map_err(|err| AppError::Serialization(format!("canonicalize to value: {err}")))?;
+    Ok(canonicalize_json(v))
 }
 
 fn canonicalize_json(value: Value) -> Value {
@@ -527,39 +541,6 @@ struct StageSpec {
     output: Value,
 }
 
-#[derive(Serialize)]
-struct CanonicalNodeHash<'a> {
-    run_id: &'a str,
-    workflow_id: &'a str,
-    task_id: &'a str,
-    attempt_id: &'a str,
-    sequence_number: i64,
-    node_kind: &'a str,
-    timestamp: &'a str,
-    llm_input_hash: &'a str,
-    llm_output_hash: &'a str,
-    tool_invocations: &'a [WorkflowEvidenceToolInvocation],
-    context_snapshot: &'a WorkflowEvidenceMap,
-    metadata: &'a WorkflowEvidenceMap,
-    prev_hash: &'a Option<String>,
-}
-
-#[derive(Serialize)]
-struct CanonicalEdgeHash<'a> {
-    run_id: &'a str,
-    workflow_id: &'a str,
-    task_id: &'a str,
-    attempt_id: &'a str,
-    sequence_number: i64,
-    source_node_id: &'a str,
-    target_node_id: &'a str,
-    edge_kind: &'a str,
-    timestamp: &'a str,
-    tool_invocations: &'a [WorkflowEvidenceToolInvocation],
-    context_snapshot: &'a WorkflowEvidenceMap,
-    metadata: &'a WorkflowEvidenceMap,
-    prev_hash: &'a Option<String>,
-}
 
 #[derive(Serialize)]
 struct CanonicalWorkflowEvidenceExport<'a> {

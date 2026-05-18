@@ -150,7 +150,14 @@ async fn get_workflow_evidence_returns_workflow_metadata_nodes_edges_and_verific
     assert!(json["edges"]
         .as_array()
         .is_some_and(|edges| !edges.is_empty()));
-    assert_eq!(json["verification"]["verified"], Value::Bool(true));
+    if json["verification"]["verified"] != Value::Bool(true) {
+        panic!(
+            "verification failed.\n  violations: {:?}\n  expected_node_count: {}\n  verified_node_count: {}",
+            json["verification"]["violations"],
+            json["verification"]["expected_node_count"],
+            json["verification"]["verified_node_count"],
+        );
+    }
     assert_eq!(
         json["verification"]["root_hash"],
         Value::String(recorded.verification.root_hash.unwrap())
