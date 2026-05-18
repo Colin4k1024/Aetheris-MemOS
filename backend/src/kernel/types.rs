@@ -42,6 +42,8 @@ pub enum LayerType {
     Kg,
     /// Multimodal memory (images, audio, video)
     Mm,
+    /// Procedural memory (skills, steps, tool chains)
+    Procedural,
 }
 
 impl std::fmt::Display for LayerType {
@@ -51,6 +53,7 @@ impl std::fmt::Display for LayerType {
             LayerType::Ltm => write!(f, "LTM"),
             LayerType::Kg => write!(f, "KG"),
             LayerType::Mm => write!(f, "MM"),
+            LayerType::Procedural => write!(f, "Procedural"),
         }
     }
 }

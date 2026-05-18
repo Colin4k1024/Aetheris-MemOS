@@ -7,6 +7,7 @@ pub mod dry_run;
 pub mod evidence;
 pub mod memory;
 pub mod performance;
+pub mod procedural;
 pub mod resource;
 pub mod task;
 pub mod validation;

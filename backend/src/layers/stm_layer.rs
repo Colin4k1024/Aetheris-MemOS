@@ -40,6 +40,7 @@ impl Default for StmMemoryLayer {
     }
 }
 
+#[async_trait::async_trait]
 impl MemoryLayer for StmMemoryLayer {
     fn layer_type(&self) -> LayerType {
         LayerType::Stm

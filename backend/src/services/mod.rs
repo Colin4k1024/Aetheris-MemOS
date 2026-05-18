@@ -63,6 +63,8 @@ pub mod weight_adjuster;
 pub mod weight_decay;
 #[allow(dead_code)]
 pub mod weight_strategy;
+#[allow(dead_code)]
+pub mod hybrid_search;
 pub mod write_queue;
 
 pub use analyzer::*;

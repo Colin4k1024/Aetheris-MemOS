@@ -34,6 +34,7 @@ impl Default for KgMemoryLayer {
     }
 }
 
+#[async_trait::async_trait]
 impl MemoryLayer for KgMemoryLayer {
     fn layer_type(&self) -> LayerType {
         LayerType::Kg
@@ -156,6 +157,7 @@ impl MemoryLayer for KgMemoryLayer {
     }
 }
 
+#[async_trait::async_trait]
 impl GraphMemory for KgMemoryLayer {
     async fn add_node(&self, node: GraphNode) -> MemoryResult<()> {
         let mut nodes = self.nodes.write().await;

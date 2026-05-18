@@ -97,94 +97,74 @@ pub struct LayerStats {
 }
 
 /// Trait for individual memory layer implementations.
+#[async_trait::async_trait]
 pub trait MemoryLayer: Send + Sync {
     /// Get the layer type.
     fn layer_type(&self) -> LayerType;
 
     /// Store memory in this layer.
-    fn store(
-        &self,
-        entry: MemoryEntry,
-    ) -> impl std::future::Future<Output = MemoryResult<MemoryId>> + Send;
+    async fn store(&self, entry: MemoryEntry) -> MemoryResult<MemoryId>;
 
     /// Retrieve memory from this layer.
-    fn retrieve(
-        &self,
-        id: &MemoryId,
-    ) -> impl std::future::Future<Output = MemoryResult<MemoryEntry>> + Send;
+    async fn retrieve(&self, id: &MemoryId) -> MemoryResult<MemoryEntry>;
 
     /// Search within this layer.
-    fn search(
-        &self,
-        query: &MemoryQuery,
-    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
+    async fn search(&self, query: &MemoryQuery) -> MemoryResult<Vec<MemoryMatch>>;
 
     /// Update memory in this layer.
-    fn update(
-        &self,
-        id: &MemoryId,
-        entry: MemoryEntry,
-    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+    async fn update(&self, id: &MemoryId, entry: MemoryEntry) -> MemoryResult<()>;
 
     /// Delete memory from this layer.
-    fn delete(&self, id: &MemoryId) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+    async fn delete(&self, id: &MemoryId) -> MemoryResult<()>;
 
     /// Get layer statistics.
-    fn stats(&self) -> impl std::future::Future<Output = MemoryResult<LayerStats>> + Send;
+    async fn stats(&self) -> MemoryResult<LayerStats>;
 }
 
 /// Trait for vector similarity search.
+#[async_trait::async_trait]
 pub trait VectorSearch: Send + Sync {
     /// Search by embedding vector.
-    fn search_by_vector(
+    async fn search_by_vector(
         &self,
         vector: &[f32],
         limit: usize,
         filters: &MemoryFilters,
-    ) -> impl std::future::Future<Output = MemoryResult<Vec<MemoryMatch>>> + Send;
+    ) -> MemoryResult<Vec<MemoryMatch>>;
 
     /// Add vectors to the index.
-    fn upsert_vectors(
+    async fn upsert_vectors(
         &self,
         entries: Vec<(MemoryId, Vec<f32>, MemoryEntry)>,
-    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+    ) -> MemoryResult<()>;
 }
 
 /// Trait for graph operations (Knowledge Graph).
+#[async_trait::async_trait]
 pub trait GraphMemory: Send + Sync {
     /// Add a node to the graph.
-    fn add_node(
-        &self,
-        node: GraphNode,
-    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+    async fn add_node(&self, node: GraphNode) -> MemoryResult<()>;
 
     /// Add an edge to the graph.
-    fn add_edge(
-        &self,
-        edge: GraphEdge,
-    ) -> impl std::future::Future<Output = MemoryResult<()>> + Send;
+    async fn add_edge(&self, edge: GraphEdge) -> MemoryResult<()>;
 
     /// Query nodes.
-    fn query_nodes(
+    async fn query_nodes(
         &self,
         labels: &[String],
         properties: &HashMap<String, serde_json::Value>,
-    ) -> impl std::future::Future<Output = MemoryResult<Vec<GraphNode>>> + Send;
+    ) -> MemoryResult<Vec<GraphNode>>;
 
     /// Query edges.
-    fn query_edges(
+    async fn query_edges(
         &self,
         from: Option<&str>,
         to: Option<&str>,
         relation: Option<&str>,
-    ) -> impl std::future::Future<Output = MemoryResult<Vec<GraphEdge>>> + Send;
+    ) -> MemoryResult<Vec<GraphEdge>>;
 
     /// Traverse the graph.
-    fn traverse(
-        &self,
-        start: &str,
-        depth: usize,
-    ) -> impl std::future::Future<Output = MemoryResult<Vec<GraphNode>>> + Send;
+    async fn traverse(&self, start: &str, depth: usize) -> MemoryResult<Vec<GraphNode>>;
 }
 
 /// Trait for memory context management.

@@ -7,11 +7,13 @@ pub mod stm_layer;
 pub mod ltm_layer;
 pub mod kg_layer;
 pub mod mm_layer;
+pub mod procedural_layer;
 
 pub use stm_layer::StmMemoryLayer;
 pub use ltm_layer::LtmMemoryLayer;
 pub use kg_layer::KgMemoryLayer;
 pub use mm_layer::MmMemoryLayer;
+pub use procedural_layer::ProceduralMemoryLayer;
 
 use crate::kernel::types::*;
 use crate::kernel::error::MemoryResult;
@@ -23,5 +25,6 @@ pub fn create_layers() -> Vec<Box<dyn crate::kernel::MemoryLayer + Send + Sync>>
         Box::new(LtmMemoryLayer::new()),
         Box::new(KgMemoryLayer::new()),
         Box::new(MmMemoryLayer::new()),
+        Box::new(ProceduralMemoryLayer::new()),
     ]
 }

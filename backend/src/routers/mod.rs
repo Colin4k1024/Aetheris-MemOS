@@ -30,6 +30,7 @@ mod multi_tenant_router;
 mod multimodal;
 #[allow(dead_code)]
 mod planner;
+mod procedural;
 mod security;
 #[allow(dead_code)]
 mod snapshot;
@@ -40,6 +41,9 @@ mod user;
 mod visualization;
 mod workflows;
 
+use std::sync::Arc;
+
+use crate::layers::procedural_layer::ProceduralMemoryLayer;
 use crate::{config, hoops, services::prometheus_exporter};
 
 #[derive(RustEmbed)]
@@ -223,6 +227,18 @@ pub fn root() -> Router {
                 .route("/shards", get(enterprise::get_shards))
                 .route("/shards/{key}", get(enterprise::get_shard)),
         )
+        // Procedural memory routes
+        .nest(
+            "/procedural",
+            Router::new()
+                .route("/store", post(procedural::store_procedural))
+                .route("/search", post(procedural::search_procedural))
+                .with_state(Arc::new(ProceduralMemoryLayer::new())),
+        )
+        // GraphRAG hybrid search route
+        .route("/search/graphrag", post(procedural::graphrag_hybrid_search))
+        // Provider health route
+        .route("/provider/health", get(procedural::provider_health))
         // Visualization routes (for Widget Studio)
         .nest(
             "/visualization",
