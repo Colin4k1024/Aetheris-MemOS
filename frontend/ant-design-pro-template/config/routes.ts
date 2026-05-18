@@ -12,6 +12,12 @@
  */
 export default [
   {
+    path: '/home',
+    layout: false,
+    hideInMenu: true,
+    component: './Home',
+  },
+  {
     path: '/user',
     layout: false,
     routes: [
@@ -21,6 +27,12 @@ export default [
         component: './user/login',
       },
     ],
+  },
+  {
+    path: '/documentation',
+    name: 'documentation',
+    icon: 'book',
+    component: './Documentation',
   },
   {
     path: '/dashboard',
@@ -78,7 +90,7 @@ export default [
   },
   {
     path: '/',
-    redirect: '/dashboard',
+    redirect: '/home',
   },
   {
     component: '404',

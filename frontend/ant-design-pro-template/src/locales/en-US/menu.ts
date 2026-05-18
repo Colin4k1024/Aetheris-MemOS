@@ -56,4 +56,5 @@ export default {
   'menu.weight-history': 'Weight History',
   'menu.memory-management': 'Memory Management',
   'menu.memory-decision-trace': 'Memory Decision Trace',
+  'menu.documentation': 'Documentation',
 };

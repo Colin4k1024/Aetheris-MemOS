@@ -1,0 +1,173 @@
+import { createStyles } from 'antd-style';
+
+const useStyles = createStyles(({ token }) => ({
+  container: {
+    minHeight: '100vh',
+    background: '#fff',
+  },
+  header: {
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 48px',
+    height: 64,
+    background: 'rgba(255,255,255,0.95)',
+    backdropFilter: 'blur(8px)',
+    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+  },
+  logo: {
+    fontSize: 20,
+    fontWeight: 700,
+    color: token.colorPrimary,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  navLinks: {
+    display: 'flex',
+    gap: 24,
+    alignItems: 'center',
+  },
+  navLink: {
+    color: token.colorTextSecondary,
+    fontSize: 14,
+    textDecoration: 'none',
+    transition: 'color 0.2s',
+    '&:hover': {
+      color: token.colorPrimary,
+    },
+  },
+  hero: {
+    paddingTop: 160,
+    paddingBottom: 100,
+    textAlign: 'center' as const,
+    background: `linear-gradient(180deg, ${token.colorPrimaryBg} 0%, #fff 100%)`,
+  },
+  heroTitle: {
+    fontSize: 56,
+    fontWeight: 800,
+    lineHeight: 1.2,
+    marginBottom: 16,
+    background: `linear-gradient(135deg, ${token.colorPrimary} 0%, #722ed1 100%)`,
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+  },
+  heroSubtitle: {
+    fontSize: 20,
+    color: token.colorTextSecondary,
+    marginBottom: 12,
+  },
+  heroDescription: {
+    fontSize: 16,
+    color: token.colorTextTertiary,
+    maxWidth: 600,
+    margin: '0 auto 40px',
+    lineHeight: 1.6,
+  },
+  heroButtons: {
+    display: 'flex',
+    gap: 16,
+    justifyContent: 'center',
+  },
+  features: {
+    padding: '80px 48px',
+    maxWidth: 1200,
+    margin: '0 auto',
+  },
+  featuresTitle: {
+    textAlign: 'center' as const,
+    fontSize: 32,
+    fontWeight: 700,
+    marginBottom: 48,
+  },
+  featureCard: {
+    height: '100%',
+    borderRadius: 12,
+    transition: 'all 0.3s',
+    border: `1px solid ${token.colorBorderSecondary}`,
+    '&:hover': {
+      transform: 'translateY(-4px)',
+      boxShadow: token.boxShadowSecondary,
+    },
+  },
+  featureIcon: {
+    fontSize: 36,
+    marginBottom: 16,
+    color: token.colorPrimary,
+  },
+  featureTitle: {
+    fontSize: 18,
+    fontWeight: 600,
+    marginBottom: 8,
+  },
+  featureDesc: {
+    fontSize: 14,
+    color: token.colorTextSecondary,
+    lineHeight: 1.6,
+  },
+  architecture: {
+    padding: '80px 48px',
+    background: token.colorBgLayout,
+  },
+  architectureTitle: {
+    textAlign: 'center' as const,
+    fontSize: 32,
+    fontWeight: 700,
+    marginBottom: 48,
+  },
+  architectureDiagram: {
+    maxWidth: 900,
+    margin: '0 auto',
+    padding: 32,
+    background: '#fff',
+    borderRadius: 12,
+    border: `1px solid ${token.colorBorderSecondary}`,
+  },
+  archFlow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    flexWrap: 'wrap' as const,
+  },
+  archNode: {
+    padding: '12px 20px',
+    borderRadius: 8,
+    background: token.colorPrimaryBg,
+    border: `1px solid ${token.colorPrimaryBorder}`,
+    fontWeight: 500,
+    fontSize: 14,
+    textAlign: 'center' as const,
+  },
+  archArrow: {
+    color: token.colorTextQuaternary,
+    fontSize: 18,
+  },
+  archLayers: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: 16,
+    marginTop: 32,
+  },
+  archLayer: {
+    padding: '16px',
+    borderRadius: 8,
+    textAlign: 'center' as const,
+    fontWeight: 500,
+    fontSize: 13,
+  },
+  footer: {
+    padding: '48px',
+    textAlign: 'center' as const,
+    borderTop: `1px solid ${token.colorBorderSecondary}`,
+    color: token.colorTextTertiary,
+    fontSize: 14,
+  },
+}));
+
+export default useStyles;

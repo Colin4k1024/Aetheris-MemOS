@@ -56,4 +56,5 @@ export default {
   'menu.weight-history': '权重历史',
   'menu.memory-management': '记忆管理',
   'menu.memory-decision-trace': '决策链路追踪',
+  'menu.documentation': '文档中心',
 };
