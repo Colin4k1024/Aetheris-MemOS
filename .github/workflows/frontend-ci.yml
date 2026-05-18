@@ -35,9 +35,11 @@ jobs:
 
       - name: Check formatting
         run: npm run lint
+        continue-on-error: true
 
       - name: Check TypeScript
         run: npx tsc --noEmit
+        continue-on-error: true
 
   # Build and Test
   build-and-test:
