@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aetheris-MemOS Documentation</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown-dark.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f172a;--sidebar-bg:#1e293b;--border:#334155;--text:#f8fafc;--text-secondary:#94a3b8;--primary:#818cf8;--hover:#334155}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh}
+.header{position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:16px;padding:12px 24px;background:rgba(15,23,42,0.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+.header a{color:var(--text-secondary);font-size:14px;text-decoration:none}
+.header a:hover{color:var(--text)}
+.header .logo{font-weight:700;font-size:16px;color:var(--text);display:flex;align-items:center;gap:8px}
+.header .sep{color:var(--border)}
+.layout{display:flex;flex:1;overflow:hidden}
+.sidebar{width:280px;min-width:280px;overflow-y:auto;padding:16px 0;border-right:1px solid var(--border);background:var(--sidebar-bg);height:calc(100vh - 49px);position:sticky;top:49px}
+.sidebar h4{padding:8px 20px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-top:12px}
+.sidebar a{display:block;padding:7px 20px;font-size:13px;color:var(--text-secondary);text-decoration:none;transition:all .15s}
+.sidebar a:hover,.sidebar a.active{background:var(--hover);color:var(--text)}
+.sidebar a.active{border-right:2px solid var(--primary);color:var(--primary)}
+.content{flex:1;overflow-y:auto;padding:32px 48px;height:calc(100vh - 49px)}
+.markdown-body{max-width:860px;margin:0 auto;background:transparent !important;color:var(--text) !important}
+.markdown-body h1,.markdown-body h2,.markdown-body h3{border-color:var(--border) !important}
+.loading{text-align:center;padding:60px;color:var(--text-secondary)}
+@media(max-width:768px){
+  .sidebar{display:none}
+  .content{padding:20px 16px}
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <a href="../" class="logo">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    Aetheris-MemOS
+  </a>
+  <span class="sep">/</span>
+  <span style="font-size:14px;color:var(--text-secondary)">Documentation</span>
+  <div style="flex:1"></div>
+  <a href="../">Home</a>
+  <a href="https://github.com/Colin4k1024/Aetheris-MemOS" target="_blank" rel="noopener">GitHub</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="content">
+    <article class="markdown-body" id="content">
+      <div class="loading">Loading documentation...</div>
+    </article>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script>
+var docs = [
+  { cat: 'Getting Started', items: [
+    { id: 'readme', title: 'Introduction', file: 'README.md' },
+    { id: 'architecture', title: 'Architecture', file: 'ARCHITECTURE.md' },
+    { id: 'arch-deep', title: 'Architecture Deep Dive', file: 'ARCHITECTURE_DEEP_DIVE.md' },
+    { id: 'roadmap', title: 'Roadmap', file: 'ROADMAP.md' },
+  ]},
+  { cat: 'API Reference', items: [
+    { id: 'api-endpoints', title: 'API Endpoints', file: 'API_ENDPOINTS.md' },
+    { id: 'api-examples', title: 'API Examples', file: 'API_EXAMPLES.md' },
+    { id: 'api-usage', title: 'API Usage Guide', file: 'API_USAGE_GUIDE.en.md' },
+    { id: 'memory-api', title: 'Memory API Examples', file: 'MEMORY_API_EXAMPLES.md' },
+    { id: 'api-spec', title: 'API Specification', file: 'adaptive_memory_api_specification.md' },
+  ]},
+  { cat: 'Guides', items: [
+    { id: 'integration', title: 'Integration Guide', file: 'INTEGRATION_GUIDE.md' },
+    { id: 'cookbook', title: 'Integration Cookbook', file: 'INTEGRATION_COOKBOOK.md' },
+    { id: 'frontend-guide', title: 'Frontend Guide', file: 'FRONTEND_USAGE_GUIDE.en.md' },
+    { id: 'system-guide', title: 'System Usage Guide', file: 'SYSTEM_USAGE_GUIDE.en.md' },
+    { id: 'extension', title: 'Extension Guide', file: 'EXTENSION_GUIDE.md' },
+  ]},
+  { cat: 'Design', items: [
+    { id: 'algorithm', title: 'Algorithm Design', file: 'adaptive_memory_algorithm_design.en.md' },
+    { id: 'algo-viz', title: 'Algorithm Visualization', file: 'adaptive_memory_algorithm_visualization.md' },
+    { id: 'evidence-graph', title: 'Evidence Graph', file: 'evidence_graph.md' },
+    { id: 'why-axum', title: 'Why Axum', file: 'why-axum.md' },
+  ]},
+  { cat: 'Project', items: [
+    { id: 'use-cases', title: 'Use Cases', file: 'USE_CASES.md' },
+    { id: 'open-core', title: 'Open Core Boundary', file: 'OPEN_CORE_BOUNDARY.md' },
+    { id: 'checklist', title: 'Open Source Checklist', file: 'OPEN_SOURCE_CHECKLIST.md' },
+  ]},
+];
+
+function buildSidebar() {
+  var html = '';
+  docs.forEach(function(cat) {
+    html += '<h4>' + cat.cat + '</h4>';
+    cat.items.forEach(function(item) {
+      html += '<a href="#' + item.id + '" data-file="' + item.file + '">' + item.title + '</a>';
+    });
+  });
+  document.getElementById('sidebar').innerHTML = html;
+}
+
+function loadDoc(file, id) {
+  document.getElementById('content').innerHTML = '<div class="loading">Loading...</div>';
+  fetch('./' + file).then(function(r) {
+    if (!r.ok) throw new Error('Not found');
+    return r.text();
+  }).then(function(text) {
+    document.getElementById('content').innerHTML = marked.parse(text);
+    // Update active state
+    document.querySelectorAll('.sidebar a').forEach(function(a) {
+      a.classList.toggle('active', a.getAttribute('data-file') === file);
+    });
+  }).catch(function() {
+    document.getElementById('content').innerHTML = '<h1>Document not found</h1><p>Could not load ' + file + '</p>';
+  });
+}
+
+function handleHash() {
+  var hash = window.location.hash.slice(1) || 'readme';
+  for (var i = 0; i < docs.length; i++) {
+    for (var j = 0; j < docs[i].items.length; j++) {
+      if (docs[i].items[j].id === hash) {
+        loadDoc(docs[i].items[j].file, hash);
+        return;
+      }
+    }
+  }
+  loadDoc('README.md', 'readme');
+}
+
+buildSidebar();
+window.addEventListener('hashchange', handleHash);
+handleHash();
+
+document.getElementById('sidebar').addEventListener('click', function(e) {
+  if (e.target.tagName === 'A') {
+    e.preventDefault();
+    var file = e.target.getAttribute('data-file');
+    var href = e.target.getAttribute('href');
+    window.location.hash = href.slice(1);
+  }
+});
+</script>
+</body>
+</html>
