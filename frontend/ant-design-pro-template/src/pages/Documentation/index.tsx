@@ -1,5 +1,12 @@
-import { PageContainer } from '@ant-design/pro-components';
-import { useIntl } from '@umijs/max';
+import {
+  ArrowLeftOutlined,
+  DashboardOutlined,
+  GithubOutlined,
+  LoginOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { history, useIntl } from '@umijs/max';
+import { Button } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
 import DocContent from './components/DocContent';
 import DocSearch from './components/DocSearch';
@@ -27,7 +34,7 @@ const DocumentationPage: React.FC = () => {
       const filePath = isZh && doc.pathZh ? doc.pathZh : doc.path;
       setLoading(true);
       try {
-        const resp = await fetch(`/docs/${filePath}`);
+        const resp = await fetch(new URL(`docs/${filePath}`, document.baseURI).href);
         if (resp.ok) {
           const text = await resp.text();
           setMarkdown(text);
@@ -76,10 +83,35 @@ const DocumentationPage: React.FC = () => {
     : '';
 
   return (
-    <PageContainer
-      header={{ title: '', breadcrumb: {} }}
-      childrenContentStyle={{ padding: 0 }}
-    >
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <header className={styles.header}>
+        <div className={styles.headerLeft}>
+          <a className={styles.logo} onClick={() => history.push('/home')}>
+            <ThunderboltOutlined /> Aetheris-MemOS
+          </a>
+          <span className={styles.headerDivider} />
+          <span className={styles.headerTitle}>Documentation</span>
+        </div>
+        <nav className={styles.headerNav}>
+          <a onClick={() => history.push('/home')}>
+            <ArrowLeftOutlined /> Home
+          </a>
+          <a onClick={() => history.push('/dashboard')}>
+            <DashboardOutlined /> Dashboard
+          </a>
+          <a href="https://github.com/Colin4k1024/Aetheris-MemOS" target="_blank" rel="noopener noreferrer">
+            <GithubOutlined /> GitHub
+          </a>
+          <Button
+            type="primary"
+            size="small"
+            icon={<LoginOutlined />}
+            onClick={() => history.push('/user/login')}
+          >
+            Login
+          </Button>
+        </nav>
+      </header>
       <div className={styles.container}>
         <div className={styles.sidebar}>
           <DocSearch onSelect={handleDocSelect} locale={locale} />
@@ -103,7 +135,7 @@ const DocumentationPage: React.FC = () => {
           <DocToc markdown={markdown} />
         </div>
       </div>
-    </PageContainer>
+    </div>
   );
 };
 

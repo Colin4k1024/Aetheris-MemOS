@@ -57,7 +57,7 @@ export async function getInitialState(): Promise<{
   // 如果不是登录页面，执行
   const { location } = history;
   if (
-    ![loginPath, '/user/register', '/user/register-result', '/home'].includes(
+    ![loginPath, '/user/register', '/user/register-result', '/home', '/documentation'].includes(
       location.pathname,
     )
   ) {
@@ -103,6 +103,7 @@ export const layout: RunTimeLayoutConfig = ({
         !initialState?.currentUser &&
         location.pathname !== loginPath &&
         location.pathname !== '/home' &&
+        location.pathname !== '/documentation' &&
         !location.pathname.startsWith('/user/register')
       ) {
         console.log('[onPageChange] 未登录，重定向到登录页');

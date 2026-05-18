@@ -1,6 +1,53 @@
 import { createStyles } from 'antd-style';
 
 const useStyles = createStyles(({ token }) => ({
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 56,
+    padding: '0 24px',
+    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+    background: token.colorBgContainer,
+  },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logo: {
+    fontSize: 16,
+    fontWeight: 700,
+    color: token.colorText,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    '&:hover': { color: token.colorPrimary },
+  },
+  headerDivider: {
+    width: 1,
+    height: 20,
+    background: token.colorBorderSecondary,
+  },
+  headerTitle: {
+    fontSize: 14,
+    color: token.colorTextSecondary,
+  },
+  headerNav: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    'a': {
+      color: token.colorTextSecondary,
+      fontSize: 13,
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      '&:hover': { color: token.colorPrimary },
+    },
+  },
   container: {
     display: 'flex',
     height: 'calc(100vh - 56px)',

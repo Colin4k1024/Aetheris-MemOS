@@ -30,8 +30,8 @@ export default [
   },
   {
     path: '/documentation',
-    name: 'documentation',
-    icon: 'book',
+    layout: false,
+    hideInMenu: true,
     component: './Documentation',
   },
   {
