@@ -93,8 +93,8 @@ export default [
     redirect: '/home',
   },
   {
-    component: '404',
+    path: '*',
     layout: false,
-    path: './*',
+    component: './404',
   },
 ];
