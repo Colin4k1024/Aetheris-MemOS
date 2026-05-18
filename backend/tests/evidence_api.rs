@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{header, Request, StatusCode},
 };
 use backend::config::{DatabaseBackend, DbConfig};
 use backend::models::{
@@ -17,12 +17,25 @@ use tower::ServiceExt;
 static DB_PATH: OnceLock<String> = OnceLock::new();
 static INIT_DB: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 static TEST_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+static CONFIG_INIT: std::sync::Once = std::sync::Once::new();
 
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     TEST_LOCK
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn ensure_config() {
+    CONFIG_INIT.call_once(|| {
+        backend::config::init();
+    });
+}
+
+fn test_auth_header() -> String {
+    ensure_config();
+    let (token, _) = backend::hoops::jwt::get_token("test-user").expect("generate test JWT");
+    format!("Bearer {token}")
 }
 
 async fn init_test_db() {
@@ -111,10 +124,12 @@ async fn get_workflow_evidence_returns_workflow_metadata_nodes_edges_and_verific
         .expect("persist evidence graph");
     let app = backend::axum_routers::create_router();
 
+    let auth = test_auth_header();
     let response = app
         .oneshot(
             Request::builder()
                 .uri(format!("/api/v1/workflows/{}/evidence", trace.task_id))
+                .header(header::AUTHORIZATION, &auth)
                 .body(Body::empty())
                 .expect("build evidence request"),
         )
@@ -149,10 +164,12 @@ async fn get_workflow_evidence_returns_app_error_not_found_payload() {
 
     let app = backend::axum_routers::create_router();
 
+    let auth = test_auth_header();
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/api/v1/workflows/missing-workflow/evidence")
+                .header(header::AUTHORIZATION, &auth)
                 .body(Body::empty())
                 .expect("build missing evidence request"),
         )
