@@ -59,6 +59,7 @@ export async function getInitialState(): Promise<{
   if (
     ![
       loginPath,
+      '/',
       '/user/register',
       '/user/register-result',
       '/home',
@@ -106,6 +107,7 @@ export const layout: RunTimeLayoutConfig = ({
       if (
         !initialState?.currentUser &&
         location.pathname !== loginPath &&
+        location.pathname !== '/' &&
         location.pathname !== '/home' &&
         location.pathname !== '/documentation' &&
         !location.pathname.startsWith('/user/register')
@@ -182,6 +184,7 @@ export const layout: RunTimeLayoutConfig = ({
  * @doc https://umijs.org/docs/max/request#配置
  */
 export const request: RequestConfig = {
-  baseURL: isDev ? 'http://127.0.0.1:8008' : 'https://proapi.azurewebsites.net',
+  baseURL: isDev ? 'http://127.0.0.1:8008' : '',
+  timeout: 10000,
   ...errorConfig,
 };
