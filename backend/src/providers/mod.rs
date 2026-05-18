@@ -7,17 +7,17 @@
 //! - Letta: stub (interface only)
 
 pub mod builtin;
-pub mod mem0;
-pub mod zep;
-pub mod letta;
 pub mod circuit_breaker;
 pub mod config;
+pub mod letta;
+pub mod mem0;
+pub mod zep;
 
 pub use builtin::BuiltinProvider;
+pub use config::ProviderConfig;
+pub use letta::LettaProvider;
 pub use mem0::Mem0Provider;
 pub use zep::ZepProvider;
-pub use letta::LettaProvider;
-pub use config::ProviderConfig;
 
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::provider::{MemoryProvider, ProviderType};
@@ -42,12 +42,8 @@ pub fn validate_path_segment(segment: &str) -> MemoryResult<()> {
 pub fn create_provider(config: &ProviderConfig) -> Box<dyn MemoryProvider> {
     match config.active {
         ProviderType::Builtin => Box::new(BuiltinProvider::new()),
-        ProviderType::Mem0 => Box::new(Mem0Provider::new(
-            config.mem0.clone().unwrap_or_default(),
-        )),
-        ProviderType::Zep => Box::new(ZepProvider::new(
-            config.zep.clone().unwrap_or_default(),
-        )),
+        ProviderType::Mem0 => Box::new(Mem0Provider::new(config.mem0.clone().unwrap_or_default())),
+        ProviderType::Zep => Box::new(ZepProvider::new(config.zep.clone().unwrap_or_default())),
         ProviderType::Letta => Box::new(LettaProvider::new()),
     }
 }

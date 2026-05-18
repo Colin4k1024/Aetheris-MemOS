@@ -31,7 +31,10 @@ impl HybridSearchService {
         }
     }
 
-    pub async fn search(&self, request: &HybridSearchRequest) -> MemoryResult<HybridSearchResponse> {
+    pub async fn search(
+        &self,
+        request: &HybridSearchRequest,
+    ) -> MemoryResult<HybridSearchResponse> {
         let strategy = request.strategy.unwrap_or(self.config.default_strategy);
         let limit = request.limit.unwrap_or(self.config.max_results);
         let vector_weight = request.vector_weight.unwrap_or(self.config.vector_weight);
@@ -93,7 +96,8 @@ impl HybridSearchService {
         limit: usize,
     ) -> Vec<HybridSearchResult> {
         let k = self.config.rrf_k as f64;
-        let mut scores: HashMap<String, (f64, Option<u32>, Option<u32>, MemoryEntry)> = HashMap::new();
+        let mut scores: HashMap<String, (f64, Option<u32>, Option<u32>, MemoryEntry)> =
+            HashMap::new();
 
         for (rank, m) in vector_matches.iter().enumerate() {
             let rrf_score = 1.0 / (k + rank as f64 + 1.0);
@@ -136,7 +140,11 @@ impl HybridSearchService {
             })
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
         results
     }
@@ -158,11 +166,12 @@ impl HybridSearchService {
             .iter()
             .enumerate()
             .map(|(rank, m)| {
-                let (graph_rank, provenance) = if let Some(&(gr, _)) = graph_ids.get(m.entry.id.0.as_str()) {
-                    (Some(gr as u32), SearchProvenance::Both)
-                } else {
-                    (None, SearchProvenance::VectorOnly)
-                };
+                let (graph_rank, provenance) =
+                    if let Some(&(gr, _)) = graph_ids.get(m.entry.id.0.as_str()) {
+                        (Some(gr as u32), SearchProvenance::Both)
+                    } else {
+                        (None, SearchProvenance::VectorOnly)
+                    };
                 HybridSearchResult {
                     entry: m.entry.clone(),
                     score: m.score * vector_weight,
@@ -194,11 +203,12 @@ impl HybridSearchService {
             .iter()
             .enumerate()
             .map(|(rank, m)| {
-                let (vector_rank, provenance) = if let Some(&(vr, _)) = vector_ids.get(m.entry.id.0.as_str()) {
-                    (Some(vr as u32), SearchProvenance::Both)
-                } else {
-                    (None, SearchProvenance::GraphOnly)
-                };
+                let (vector_rank, provenance) =
+                    if let Some(&(vr, _)) = vector_ids.get(m.entry.id.0.as_str()) {
+                        (Some(vr as u32), SearchProvenance::Both)
+                    } else {
+                        (None, SearchProvenance::GraphOnly)
+                    };
                 HybridSearchResult {
                     entry: m.entry.clone(),
                     score: m.score * graph_weight,
@@ -220,7 +230,13 @@ impl HybridSearchService {
         filters: &MemoryFilters,
         timeout: std::time::Duration,
     ) -> MemoryResult<Vec<MemoryMatch>> {
-        match tokio::time::timeout(timeout, self.vector_search.search_by_vector(embedding, limit, filters)).await {
+        match tokio::time::timeout(
+            timeout,
+            self.vector_search
+                .search_by_vector(embedding, limit, filters),
+        )
+        .await
+        {
             Ok(result) => result,
             Err(_) => {
                 tracing::warn!("vector search timed out after {:?}", timeout);
@@ -236,11 +252,14 @@ impl HybridSearchService {
         timeout: std::time::Duration,
     ) -> MemoryResult<Vec<MemoryMatch>> {
         let labels = vec!["Entity".to_string()];
-        let properties: HashMap<String, serde_json::Value> = HashMap::from([
-            ("query".to_string(), serde_json::Value::String(query.to_string())),
-        ]);
+        let properties: HashMap<String, serde_json::Value> = HashMap::from([(
+            "query".to_string(),
+            serde_json::Value::String(query.to_string()),
+        )]);
 
-        match tokio::time::timeout(timeout, self.graph_memory.query_nodes(&labels, &properties)).await {
+        match tokio::time::timeout(timeout, self.graph_memory.query_nodes(&labels, &properties))
+            .await
+        {
             Ok(Ok(nodes)) => {
                 let matches: Vec<MemoryMatch> = nodes
                     .into_iter()
@@ -372,7 +391,11 @@ mod tests {
     #[tokio::test]
     async fn rrf_fusion_combines_results() {
         let vector = Arc::new(MockVectorSearch {
-            results: vec![make_match("a", 0.9), make_match("b", 0.8), make_match("c", 0.7)],
+            results: vec![
+                make_match("a", 0.9),
+                make_match("b", 0.8),
+                make_match("c", 0.7),
+            ],
         });
         let graph = Arc::new(MockGraphMemory {
             nodes: vec![make_node("b"), make_node("d")],
@@ -403,7 +426,10 @@ mod tests {
         let service = HybridSearchService::new(
             Arc::new(MockVectorSearch { results: vec![] }),
             Arc::new(MockGraphMemory { nodes: vec![] }),
-            HybridSearchConfig { rrf_k: 60, ..Default::default() },
+            HybridSearchConfig {
+                rrf_k: 60,
+                ..Default::default()
+            },
         );
 
         let vector = vec![make_match("a", 0.9), make_match("b", 0.8)];

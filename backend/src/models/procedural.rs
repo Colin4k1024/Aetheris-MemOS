@@ -56,10 +56,7 @@ impl ProceduralEntry {
     }
 
     pub fn tools_summary(&self) -> Vec<String> {
-        self.steps
-            .iter()
-            .filter_map(|s| s.tool.clone())
-            .collect()
+        self.steps.iter().filter_map(|s| s.tool.clone()).collect()
     }
 
     pub fn searchable_text(&self) -> String {
@@ -108,7 +105,10 @@ mod tests {
                     fallback: Some("Rollback deployment".to_string()),
                 },
             ],
-            preconditions: vec!["Docker running".to_string(), "kubectl configured".to_string()],
+            preconditions: vec![
+                "Docker running".to_string(),
+                "kubectl configured".to_string(),
+            ],
             tools_used: vec!["docker".to_string(), "kubectl".to_string()],
             success_rate: 0.85,
             execution_count: 12,

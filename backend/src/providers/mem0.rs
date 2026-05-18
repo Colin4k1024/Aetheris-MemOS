@@ -86,14 +86,19 @@ impl MemoryProvider for Mem0Provider {
         match resp {
             Ok(r) if r.status().is_success() => {
                 self.circuit_breaker.record_success();
-                let data: serde_json::Value = r.json().await
+                let data: serde_json::Value = r
+                    .json()
+                    .await
                     .map_err(|e| MemoryError::Serialization(e.to_string()))?;
                 let id_str = data["id"].as_str().unwrap_or(&entry.id.0);
                 Ok(MemoryId::from_string(id_str))
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Mem0 API error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Mem0 API error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
@@ -107,14 +112,19 @@ impl MemoryProvider for Mem0Provider {
         validate_path_segment(id.as_str())?;
 
         let resp = self
-            .build_request(reqwest::Method::GET, &format!("/v1/memories/{}/", id.as_str()))
+            .build_request(
+                reqwest::Method::GET,
+                &format!("/v1/memories/{}/", id.as_str()),
+            )
             .send()
             .await;
 
         match resp {
             Ok(r) if r.status().is_success() => {
                 self.circuit_breaker.record_success();
-                let data: serde_json::Value = r.json().await
+                let data: serde_json::Value = r
+                    .json()
+                    .await
                     .map_err(|e| MemoryError::Serialization(e.to_string()))?;
                 let content_text = data["memory"].as_str().unwrap_or("");
                 let now = chrono::Utc::now().timestamp();
@@ -129,11 +139,17 @@ impl MemoryProvider for Mem0Provider {
             }
             Ok(r) if r.status().as_u16() == 404 => {
                 self.circuit_breaker.record_success();
-                Err(MemoryError::NotFound(format!("Mem0 memory not found: {}", id.as_str())))
+                Err(MemoryError::NotFound(format!(
+                    "Mem0 memory not found: {}",
+                    id.as_str()
+                )))
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Mem0 API error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Mem0 API error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
@@ -160,7 +176,9 @@ impl MemoryProvider for Mem0Provider {
         match resp {
             Ok(r) if r.status().is_success() => {
                 self.circuit_breaker.record_success();
-                let data: serde_json::Value = r.json().await
+                let data: serde_json::Value = r
+                    .json()
+                    .await
                     .map_err(|e| MemoryError::Serialization(e.to_string()))?;
 
                 let results = data["results"]
@@ -191,7 +209,10 @@ impl MemoryProvider for Mem0Provider {
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Mem0 search error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Mem0 search error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
@@ -210,7 +231,10 @@ impl MemoryProvider for Mem0Provider {
         });
 
         let resp = self
-            .build_request(reqwest::Method::PUT, &format!("/v1/memories/{}/", id.as_str()))
+            .build_request(
+                reqwest::Method::PUT,
+                &format!("/v1/memories/{}/", id.as_str()),
+            )
             .json(&body)
             .send()
             .await;
@@ -222,7 +246,10 @@ impl MemoryProvider for Mem0Provider {
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Mem0 update error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Mem0 update error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
@@ -236,7 +263,10 @@ impl MemoryProvider for Mem0Provider {
         validate_path_segment(id.as_str())?;
 
         let resp = self
-            .build_request(reqwest::Method::DELETE, &format!("/v1/memories/{}/", id.as_str()))
+            .build_request(
+                reqwest::Method::DELETE,
+                &format!("/v1/memories/{}/", id.as_str()),
+            )
             .send()
             .await;
 
@@ -247,7 +277,10 @@ impl MemoryProvider for Mem0Provider {
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Mem0 delete error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Mem0 delete error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();

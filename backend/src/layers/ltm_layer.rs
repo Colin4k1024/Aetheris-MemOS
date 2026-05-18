@@ -3,11 +3,11 @@
 //! LTM provides persistent storage for long-term knowledge entries.
 //! Currently uses in-memory storage; will integrate Qdrant + PostgreSQL in production.
 
+use crate::kernel::error::{MemoryError, MemoryResult};
+use crate::kernel::traits::{LayerStats, MemoryLayer};
+use crate::kernel::types::*;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
-use crate::kernel::types::*;
-use crate::kernel::error::{MemoryError, MemoryResult};
-use crate::kernel::traits::{MemoryLayer, LayerStats};
 
 pub struct LtmMemoryLayer {
     store: RwLock<HashMap<String, MemoryEntry>>,
@@ -49,7 +49,8 @@ impl MemoryLayer for LtmMemoryLayer {
 
     async fn retrieve(&self, id: &MemoryId) -> MemoryResult<MemoryEntry> {
         let store = self.store.read().await;
-        store.get(&id.0)
+        store
+            .get(&id.0)
             .cloned()
             .ok_or_else(|| MemoryError::NotFound(format!("LTM entry not found: {}", id.0)))
     }
@@ -83,7 +84,10 @@ impl MemoryLayer for LtmMemoryLayer {
     async fn update(&self, id: &MemoryId, entry: MemoryEntry) -> MemoryResult<()> {
         let mut store = self.store.write().await;
         if !store.contains_key(&id.0) {
-            return Err(MemoryError::NotFound(format!("LTM entry not found: {}", id.0)));
+            return Err(MemoryError::NotFound(format!(
+                "LTM entry not found: {}",
+                id.0
+            )));
         }
         store.insert(id.0.clone(), entry);
         Ok(())
@@ -91,7 +95,8 @@ impl MemoryLayer for LtmMemoryLayer {
 
     async fn delete(&self, id: &MemoryId) -> MemoryResult<()> {
         let mut store = self.store.write().await;
-        store.remove(&id.0)
+        store
+            .remove(&id.0)
             .ok_or_else(|| MemoryError::NotFound(format!("LTM entry not found: {}", id.0)))?;
         Ok(())
     }

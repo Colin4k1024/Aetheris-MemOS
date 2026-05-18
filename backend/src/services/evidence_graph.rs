@@ -541,7 +541,6 @@ struct StageSpec {
     output: Value,
 }
 
-
 #[derive(Serialize)]
 struct CanonicalWorkflowEvidenceExport<'a> {
     schema_version: &'a str,

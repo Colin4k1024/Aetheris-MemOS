@@ -2,9 +2,9 @@
 
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::provider::*;
+use crate::kernel::traits::MemoryLayer;
 use crate::kernel::types::*;
 use crate::layers::create_layers;
-use crate::kernel::traits::MemoryLayer;
 
 pub struct BuiltinProvider {
     layers: Vec<Box<dyn MemoryLayer + Send + Sync>>,
@@ -18,7 +18,10 @@ impl BuiltinProvider {
     }
 
     fn find_layer(&self, layer_type: LayerType) -> Option<&(dyn MemoryLayer + Send + Sync)> {
-        self.layers.iter().find(|l| l.layer_type() == layer_type).map(|l| l.as_ref())
+        self.layers
+            .iter()
+            .find(|l| l.layer_type() == layer_type)
+            .map(|l| l.as_ref())
     }
 
     fn default_layer(&self) -> MemoryResult<&(dyn MemoryLayer + Send + Sync)> {
@@ -52,7 +55,8 @@ impl MemoryProvider for BuiltinProvider {
     }
 
     async fn store(&self, entry: MemoryEntry) -> MemoryResult<MemoryId> {
-        let layer = self.find_layer(entry.layer)
+        let layer = self
+            .find_layer(entry.layer)
             .ok_or_else(|| MemoryError::Layer(format!("no layer for type {:?}", entry.layer)))?;
         layer.store(entry).await
     }
@@ -65,7 +69,10 @@ impl MemoryProvider for BuiltinProvider {
                 Err(e) => return Err(e),
             }
         }
-        Err(MemoryError::NotFound(format!("memory not found across all layers: {}", id.as_str())))
+        Err(MemoryError::NotFound(format!(
+            "memory not found across all layers: {}",
+            id.as_str()
+        )))
     }
 
     async fn search(&self, query: &MemoryQuery) -> MemoryResult<Vec<MemoryMatch>> {
@@ -81,13 +88,18 @@ impl MemoryProvider for BuiltinProvider {
                 all_results.append(&mut results);
             }
         }
-        all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        all_results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         all_results.truncate(query.limit);
         Ok(all_results)
     }
 
     async fn update(&self, id: &MemoryId, entry: MemoryEntry) -> MemoryResult<()> {
-        let layer = self.find_layer(entry.layer)
+        let layer = self
+            .find_layer(entry.layer)
             .ok_or_else(|| MemoryError::Layer(format!("no layer for type {:?}", entry.layer)))?;
         layer.update(id, entry).await
     }
@@ -100,7 +112,10 @@ impl MemoryProvider for BuiltinProvider {
                 Err(e) => return Err(e),
             }
         }
-        Err(MemoryError::NotFound(format!("memory not found for deletion: {}", id.as_str())))
+        Err(MemoryError::NotFound(format!(
+            "memory not found for deletion: {}",
+            id.as_str()
+        )))
     }
 
     async fn health_check(&self) -> MemoryResult<ProviderHealth> {

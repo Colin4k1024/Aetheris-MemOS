@@ -35,11 +35,13 @@ impl ProceduralMemoryLayer {
     fn validate_procedural_content(content: &MemoryContent) -> MemoryResult<ProceduralEntry> {
         match content {
             MemoryContent::Json(value) => {
-                let entry: ProceduralEntry = serde_json::from_value(value.clone())
-                    .map_err(|e| MemoryError::Serialization(format!("invalid procedural entry: {e}")))?;
-                entry
-                    .validate()
-                    .map_err(|e| MemoryError::InvalidOperation(format!("validation failed: {e}")))?;
+                let entry: ProceduralEntry =
+                    serde_json::from_value(value.clone()).map_err(|e| {
+                        MemoryError::Serialization(format!("invalid procedural entry: {e}"))
+                    })?;
+                entry.validate().map_err(|e| {
+                    MemoryError::InvalidOperation(format!("validation failed: {e}"))
+                })?;
                 Ok(entry)
             }
             _ => Err(MemoryError::InvalidOperation(
@@ -48,7 +50,11 @@ impl ProceduralMemoryLayer {
         }
     }
 
-    fn matches_query(entry: &MemoryEntry, proc_entry: &ProceduralEntry, query: &MemoryQuery) -> bool {
+    fn matches_query(
+        entry: &MemoryEntry,
+        proc_entry: &ProceduralEntry,
+        query: &MemoryQuery,
+    ) -> bool {
         if let Some(ref text) = query.text {
             let lower = text.to_lowercase();
             let searchable = proc_entry.searchable_text().to_lowercase();
@@ -98,7 +104,11 @@ impl MemoryLayer for ProceduralMemoryLayer {
         let version_key = format!("{}:{}", proc_entry.task_type, proc_entry.name);
 
         let mut state = self.state.write().await;
-        state.versions.entry(version_key).or_default().push(id.0.clone());
+        state
+            .versions
+            .entry(version_key)
+            .or_default()
+            .push(id.0.clone());
         state.entries.insert(id.0.clone(), entry);
 
         Ok(id)
@@ -119,9 +129,7 @@ impl MemoryLayer for ProceduralMemoryLayer {
 
         for entry in state.entries.values() {
             let proc_entry = match &entry.content {
-                MemoryContent::Json(v) => {
-                    serde_json::from_value::<ProceduralEntry>(v.clone()).ok()
-                }
+                MemoryContent::Json(v) => serde_json::from_value::<ProceduralEntry>(v.clone()).ok(),
                 _ => None,
             };
 
@@ -137,7 +145,11 @@ impl MemoryLayer for ProceduralMemoryLayer {
             }
         }
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(query.limit);
 
         Ok(results)
@@ -178,7 +190,11 @@ impl MemoryLayer for ProceduralMemoryLayer {
         let total_size: u64 = state
             .entries
             .values()
-            .map(|e| serde_json::to_string(e).map(|s| s.len() as u64).unwrap_or(0))
+            .map(|e| {
+                serde_json::to_string(e)
+                    .map(|s| s.len() as u64)
+                    .unwrap_or(0)
+            })
             .sum();
 
         Ok(LayerStats {
@@ -242,7 +258,10 @@ mod tests {
     #[tokio::test]
     async fn rejects_non_json_content() {
         let layer = ProceduralMemoryLayer::new();
-        let entry = MemoryEntry::new(LayerType::Procedural, MemoryContent::Text("bad".to_string()));
+        let entry = MemoryEntry::new(
+            LayerType::Procedural,
+            MemoryContent::Text("bad".to_string()),
+        );
         let result = layer.store(entry).await;
         assert!(result.is_err());
     }
@@ -284,7 +303,14 @@ mod tests {
         layer.store(make_procedural_entry()).await.unwrap();
 
         let state = layer.state.read().await;
-        assert_eq!(state.versions.get("deployment:deploy-service").unwrap().len(), 2);
+        assert_eq!(
+            state
+                .versions
+                .get("deployment:deploy-service")
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[tokio::test]

@@ -330,7 +330,8 @@ impl RedisStmAdapter {
             if let Ok(mut session) = serde_json::from_str::<RedisSession>(&data) {
                 session.updated_at = chrono::Utc::now().to_rfc3339();
                 if let Ok(serialized) = serde_json::to_string(&session) {
-                    let _: Result<Option<String>, _> = conn.set_ex(&session_key, serialized, ttl as u64).await;
+                    let _: Result<Option<String>, _> =
+                        conn.set_ex(&session_key, serialized, ttl as u64).await;
                 }
             }
         }

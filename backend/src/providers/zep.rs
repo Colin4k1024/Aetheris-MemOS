@@ -89,7 +89,10 @@ impl MemoryProvider for ZepProvider {
         });
 
         let resp = self
-            .build_request(reqwest::Method::POST, &format!("/api/v2/sessions/{session_id}/messages"))
+            .build_request(
+                reqwest::Method::POST,
+                &format!("/api/v2/sessions/{session_id}/messages"),
+            )
             .json(&body)
             .send()
             .await;
@@ -101,7 +104,10 @@ impl MemoryProvider for ZepProvider {
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Zep API error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Zep API error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
@@ -115,14 +121,19 @@ impl MemoryProvider for ZepProvider {
         validate_path_segment(id.as_str())?;
 
         let resp = self
-            .build_request(reqwest::Method::GET, &format!("/api/v2/sessions/{}/messages", id.as_str()))
+            .build_request(
+                reqwest::Method::GET,
+                &format!("/api/v2/sessions/{}/messages", id.as_str()),
+            )
             .send()
             .await;
 
         match resp {
             Ok(r) if r.status().is_success() => {
                 self.circuit_breaker.record_success();
-                let data: serde_json::Value = r.json().await
+                let data: serde_json::Value = r
+                    .json()
+                    .await
                     .map_err(|e| MemoryError::Serialization(e.to_string()))?;
                 let content = data["messages"][0]["content"]
                     .as_str()
@@ -140,11 +151,17 @@ impl MemoryProvider for ZepProvider {
             }
             Ok(r) if r.status().as_u16() == 404 => {
                 self.circuit_breaker.record_success();
-                Err(MemoryError::NotFound(format!("Zep memory not found: {}", id.as_str())))
+                Err(MemoryError::NotFound(format!(
+                    "Zep memory not found: {}",
+                    id.as_str()
+                )))
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Zep API error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Zep API error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
@@ -166,7 +183,10 @@ impl MemoryProvider for ZepProvider {
         });
 
         let resp = self
-            .build_request(reqwest::Method::POST, &format!("/api/v2/sessions/{session_id}/search"))
+            .build_request(
+                reqwest::Method::POST,
+                &format!("/api/v2/sessions/{session_id}/search"),
+            )
             .json(&body)
             .send()
             .await;
@@ -174,7 +194,9 @@ impl MemoryProvider for ZepProvider {
         match resp {
             Ok(r) if r.status().is_success() => {
                 self.circuit_breaker.record_success();
-                let data: serde_json::Value = r.json().await
+                let data: serde_json::Value = r
+                    .json()
+                    .await
                     .map_err(|e| MemoryError::Serialization(e.to_string()))?;
 
                 let results = data["results"]
@@ -204,7 +226,10 @@ impl MemoryProvider for ZepProvider {
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Zep search error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Zep search error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
@@ -224,7 +249,10 @@ impl MemoryProvider for ZepProvider {
         validate_path_segment(id.as_str())?;
 
         let resp = self
-            .build_request(reqwest::Method::DELETE, &format!("/api/v2/sessions/{}/messages", id.as_str()))
+            .build_request(
+                reqwest::Method::DELETE,
+                &format!("/api/v2/sessions/{}/messages", id.as_str()),
+            )
             .send()
             .await;
 
@@ -235,7 +263,10 @@ impl MemoryProvider for ZepProvider {
             }
             Ok(r) => {
                 self.circuit_breaker.record_failure();
-                Err(MemoryError::Storage(format!("Zep delete error: {}", r.status())))
+                Err(MemoryError::Storage(format!(
+                    "Zep delete error: {}",
+                    r.status()
+                )))
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();

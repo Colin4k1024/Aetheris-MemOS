@@ -19,6 +19,8 @@ pub mod enterprise;
 pub mod evidence_graph;
 pub mod hardware_detector;
 #[allow(dead_code)]
+pub mod hybrid_search;
+#[allow(dead_code)]
 pub mod importance_evaluator;
 pub mod information_guard;
 #[allow(dead_code)]
@@ -63,8 +65,6 @@ pub mod weight_adjuster;
 pub mod weight_decay;
 #[allow(dead_code)]
 pub mod weight_strategy;
-#[allow(dead_code)]
-pub mod hybrid_search;
 pub mod write_queue;
 
 pub use analyzer::*;

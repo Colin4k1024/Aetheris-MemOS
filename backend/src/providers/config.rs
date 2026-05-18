@@ -42,7 +42,10 @@ impl std::fmt::Debug for ExternalProviderConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExternalProviderConfig")
             .field("api_url", &self.api_url)
-            .field("api_key_env", &self.api_key_env.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "api_key_env",
+                &self.api_key_env.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("timeout_ms", &self.timeout_ms)
             .field("max_retries", &self.max_retries)
             .finish()

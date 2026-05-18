@@ -73,7 +73,9 @@ pub async fn store_procedural(
     if let Some(tags) = req.tags {
         metadata.tags = tags;
     }
-    metadata.tags.push(format!("task_type:{}", req.entry.task_type));
+    metadata
+        .tags
+        .push(format!("task_type:{}", req.entry.task_type));
 
     let now = chrono::Utc::now().timestamp();
     let entry = MemoryEntry {
@@ -102,9 +104,9 @@ pub async fn search_procedural(
 ) -> JsonResult<SearchProceduralResponse> {
     if let Some(ref q) = req.query {
         if q.len() > MAX_QUERY_LENGTH {
-            return Err(crate::error::AppError::BadRequest(
-                format!("query exceeds max length of {MAX_QUERY_LENGTH}"),
-            ));
+            return Err(crate::error::AppError::BadRequest(format!(
+                "query exceeds max length of {MAX_QUERY_LENGTH}"
+            )));
         }
     }
 
@@ -255,13 +257,14 @@ pub async fn provider_health() -> JsonResult<ProviderHealthResponse> {
     let config = ProviderConfig::default();
     let provider = create_provider(&config);
 
-    let health = provider.health_check().await.unwrap_or(
-        crate::kernel::provider::ProviderHealth {
+    let health = provider
+        .health_check()
+        .await
+        .unwrap_or(crate::kernel::provider::ProviderHealth {
             status: HealthStatus::Unavailable,
             latency_ms: 0,
             message: Some("health check failed".to_string()),
-        },
-    );
+        });
 
     let caps = provider.capabilities();
 
