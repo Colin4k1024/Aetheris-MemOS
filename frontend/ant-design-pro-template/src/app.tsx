@@ -57,9 +57,13 @@ export async function getInitialState(): Promise<{
   // 如果不是登录页面，执行
   const { location } = history;
   if (
-    ![loginPath, '/user/register', '/user/register-result', '/home', '/documentation'].includes(
-      location.pathname,
-    )
+    ![
+      loginPath,
+      '/user/register',
+      '/user/register-result',
+      '/home',
+      '/documentation',
+    ].includes(location.pathname)
   ) {
     const currentUser = await fetchUserInfo();
     return {

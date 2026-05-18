@@ -1,10 +1,7 @@
 import { Spin } from 'antd';
-import React from 'react';
-import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
-import rehypeSlug from 'rehype-slug';
-import remarkGfm from 'remark-gfm';
-import CodeBlock from './CodeBlock';
+import hljs from 'highlight.js';
+import { marked, type Tokens } from 'marked';
+import React, { useEffect, useMemo, useRef } from 'react';
 
 interface DocContentProps {
   markdown: string;
@@ -12,11 +9,78 @@ interface DocContentProps {
   onLinkClick?: (href: string) => void;
 }
 
+const renderer = new marked.Renderer();
+
+renderer.code = ({ text, lang }: Tokens.Code): string => {
+  const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+  const highlighted = hljs.highlight(text, { language }).value;
+  const escaped = encodeURIComponent(text);
+  return `<div class="code-block-wrapper">
+    <span class="code-lang">${lang || ''}</span>
+    <button class="code-copy-btn" data-code="${escaped}">Copy</button>
+    <pre><code class="hljs language-${language}">${highlighted}</code></pre>
+  </div>`;
+};
+
+renderer.heading = ({ text, depth }: Tokens.Heading): string => {
+  const id = text
+    .toLowerCase()
+    .replace(/<[^>]*>/g, '')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-');
+  return `<h${depth} id="${id}">${text}</h${depth}>`;
+};
+
+marked.use({ renderer, gfm: true, breaks: false });
+
 const DocContent: React.FC<DocContentProps> = ({
   markdown,
   loading,
   onLinkClick,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+
+      const copyBtn = target.closest('.code-copy-btn') as HTMLElement;
+      if (copyBtn) {
+        e.preventDefault();
+        const code = decodeURIComponent(copyBtn.dataset.code || '');
+        navigator.clipboard.writeText(code).then(() => {
+          const original = copyBtn.textContent;
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => {
+            copyBtn.textContent = original;
+          }, 1500);
+        });
+        return;
+      }
+
+      const link = target.closest('a') as HTMLAnchorElement;
+      if (link && onLinkClick) {
+        const href = link.getAttribute('href') || '';
+        if (href.endsWith('.md')) {
+          e.preventDefault();
+          onLinkClick(href);
+        }
+      }
+    };
+
+    containerRef.current.addEventListener('click', handleClick);
+    return () => {
+      containerRef.current?.removeEventListener('click', handleClick);
+    };
+  }, [onLinkClick]);
+
+  const html = useMemo(() => {
+    if (!markdown) return '';
+    return marked.parse(markdown) as string;
+  }, [markdown]);
+
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '80px 0' }}>
@@ -26,106 +90,11 @@ const DocContent: React.FC<DocContentProps> = ({
   }
 
   return (
-    <div className="doc-content-body">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight, rehypeSlug]}
-        components={{
-          code({ className, children, ...props }) {
-            const isInline = !className;
-            if (isInline) {
-              return (
-                <code
-                  style={{
-                    background: '#f0f0f0',
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    fontSize: '0.9em',
-                  }}
-                  {...props}
-                >
-                  {children}
-                </code>
-              );
-            }
-            return <CodeBlock className={className}>{children}</CodeBlock>;
-          },
-          a({ href, children, ...props }) {
-            if (href && href.endsWith('.md') && onLinkClick) {
-              return (
-                <a
-                  {...props}
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onLinkClick(href);
-                  }}
-                >
-                  {children}
-                </a>
-              );
-            }
-            return (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                {...props}
-              >
-                {children}
-              </a>
-            );
-          },
-          table({ children, ...props }) {
-            return (
-              <div style={{ overflowX: 'auto', marginBottom: 16 }}>
-                <table
-                  style={{
-                    borderCollapse: 'collapse',
-                    width: '100%',
-                    fontSize: 14,
-                  }}
-                  {...props}
-                >
-                  {children}
-                </table>
-              </div>
-            );
-          },
-          th({ children, ...props }) {
-            return (
-              <th
-                style={{
-                  border: '1px solid #e8e8e8',
-                  padding: '8px 12px',
-                  background: '#fafafa',
-                  fontWeight: 600,
-                  textAlign: 'left',
-                }}
-                {...props}
-              >
-                {children}
-              </th>
-            );
-          },
-          td({ children, ...props }) {
-            return (
-              <td
-                style={{
-                  border: '1px solid #e8e8e8',
-                  padding: '8px 12px',
-                }}
-                {...props}
-              >
-                {children}
-              </td>
-            );
-          },
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
-    </div>
+    <div
+      ref={containerRef}
+      className="doc-content-body"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 };
 

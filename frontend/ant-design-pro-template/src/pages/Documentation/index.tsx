@@ -15,6 +15,7 @@ import DocToc from './components/DocToc';
 import { docsManifest, findDocById, getDefaultDocId } from './docsManifest';
 import useStyles from './style';
 import 'highlight.js/styles/github.css';
+import './docContent.css';
 
 const DocumentationPage: React.FC = () => {
   const { styles } = useStyles();
@@ -34,7 +35,9 @@ const DocumentationPage: React.FC = () => {
       const filePath = isZh && doc.pathZh ? doc.pathZh : doc.path;
       setLoading(true);
       try {
-        const resp = await fetch(new URL(`docs/${filePath}`, document.baseURI).href);
+        const resp = await fetch(
+          new URL(`docs/${filePath}`, document.baseURI).href,
+        );
         if (resp.ok) {
           const text = await resp.text();
           setMarkdown(text);
@@ -83,7 +86,9 @@ const DocumentationPage: React.FC = () => {
     : '';
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}
+    >
       <header className={styles.header}>
         <div className={styles.headerLeft}>
           <a className={styles.logo} onClick={() => history.push('/home')}>
@@ -99,7 +104,11 @@ const DocumentationPage: React.FC = () => {
           <a onClick={() => history.push('/dashboard')}>
             <DashboardOutlined /> Dashboard
           </a>
-          <a href="https://github.com/Colin4k1024/Aetheris-MemOS" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://github.com/Colin4k1024/Aetheris-MemOS"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <GithubOutlined /> GitHub
           </a>
           <Button

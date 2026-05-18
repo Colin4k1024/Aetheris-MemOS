@@ -38,7 +38,7 @@ const useStyles = createStyles(({ token }) => ({
     display: 'flex',
     alignItems: 'center',
     gap: 16,
-    'a': {
+    a: {
       color: token.colorTextSecondary,
       fontSize: 13,
       cursor: 'pointer',
