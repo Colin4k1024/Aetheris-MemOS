@@ -55,12 +55,12 @@ fn test_conflict_detector_no_conflicts() {
     let mut trace = ExecutionTrace::new();
     trace.add_step(ExecutionStep::new(
         0,
-        "read",
+        "action_a",
         serde_json::json!({"resource": "res_a"}),
     ));
     trace.add_step(ExecutionStep::new(
-        1,
-        "read",
+        10,
+        "action_b",
         serde_json::json!({"resource": "res_b"}),
     ));
 

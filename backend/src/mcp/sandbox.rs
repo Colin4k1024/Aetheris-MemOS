@@ -81,12 +81,10 @@ impl CapabilityPolicy {
 
     /// Checks if a capability is permitted under this policy.
     pub fn is_permitted(&self, capability: Capability) -> bool {
-        // Denied takes precedence over allowed
         if self.denied.contains(&capability) {
-            false
-        } else {
-            self.allowed.is_empty() || self.allowed.contains(&capability)
+            return false;
         }
+        self.allowed.contains(&capability)
     }
 
     /// Records a capability denial in logs.
@@ -185,8 +183,9 @@ mod tests {
 
         assert!(!policy.is_permitted(Capability::NetworkAccess));
         assert!(!policy.is_permitted(Capability::EnvVars));
-        assert!(policy.is_permitted(Capability::FilesystemRead));
-        assert!(policy.is_permitted(Capability::FilesystemWrite));
+        // Not in allowed set either, so still denied
+        assert!(!policy.is_permitted(Capability::FilesystemRead));
+        assert!(!policy.is_permitted(Capability::FilesystemWrite));
     }
 
     #[test]
@@ -200,25 +199,22 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_policy_allows_all() {
+    fn test_empty_policy_denies_all() {
         let policy = CapabilityPolicy::new();
 
-        // Empty policy: no deny, no explicit allow -> permits everything
-        assert!(policy.is_permitted(Capability::NetworkAccess));
-        assert!(policy.is_permitted(Capability::FilesystemRead));
-        assert!(policy.is_permitted(Capability::FilesystemWrite));
-        assert!(policy.is_permitted(Capability::EnvVars));
+        assert!(!policy.is_permitted(Capability::NetworkAccess));
+        assert!(!policy.is_permitted(Capability::FilesystemRead));
+        assert!(!policy.is_permitted(Capability::FilesystemWrite));
+        assert!(!policy.is_permitted(Capability::EnvVars));
     }
 
     #[test]
     fn test_deny_takes_precedence() {
-        // Explicitly allow NetworkAccess but then deny it
         let policy = CapabilityPolicy {
             allowed: [Capability::NetworkAccess].into_iter().collect(),
             denied: [Capability::NetworkAccess].into_iter().collect(),
         };
 
-        // Denied should take precedence
         assert!(!policy.is_permitted(Capability::NetworkAccess));
     }
 }
