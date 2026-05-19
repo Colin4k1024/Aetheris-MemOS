@@ -81,45 +81,63 @@ Aetheris MemOS is built around that thesis.
 
 ## Architecture
 
-```text
-+-------------------------------------------------------------------+
-|                       Agent / Application Layer                    |
-+-----------------------------------+-------------------------------+
-                                    | REST API / SDK
-+-----------------------------------v-------------------------------+
-|                         Aetheris MemOS Kernel                     |
-|                                                                   |
-|  +-------------------------------------------------------------+  |
-|  |                    Adaptive Scheduler                       |  |
-|  | Task Profiler -> Predictor -> Weight Adjuster -> Trace     |  |
-|  +------------------------------+------------------------------+  |
-|                                 |                                 |
-|  +-----------+  +-------------+ | +----------------+ +---------+ |
-|  |    STM    |  |     LTM     | | | Knowledge Graph| |   MM    | |
-|  | Sessions  |  | Persistence | | | Bi-temporal KG | | Modality| |
-|  +-----+-----+  +------+------+ | +--------+-------+ +----+----+ |
-|        |               |        |          |              |       |
-|  +-----v---------------v--------v----------v--------------v----+  |
-|  |                       Query Engine                           |  |
-|  | Vector Search | Keyword Search | Graph Traversal | Rerank   |  |
-|  +-------------------------------------------------------------+  |
-|                                                                   |
-|  +-----------------+ +-------------------+ +------------------+   |
-|  | Confidence      | | Context Compressor| | Strategy Mutator |   |
-|  | Scorer          | | Sliding/Summary   | | Auto-evolving    |   |
-|  +-----------------+ +-------------------+ +------------------+   |
-|                                                                   |
-|  +-----------------+ +-------------------+ +------------------+   |
-|  | Vector Guard    | | Integrity Guard   | | Tenant Isolation |   |
-|  | Model Signature | | Hash + Journal    | | RBAC + Quotas    |   |
-|  +-----------------+ +-------------------+ +------------------+   |
-+-----------------------------------+-------------------------------+
-                                    |
-+-----------------------------------v-------------------------------+
-|                           Storage Layer                           |
-|    PostgreSQL        Qdrant         Neo4j           SQLite        |
-|    relational        vector         graph           embedded      |
-+-------------------------------------------------------------------+
+> Full interactive diagram: [docs/architecture.drawio](docs/architecture.drawio)
+
+```mermaid
+flowchart TD
+    A["**① Clients & SDKs**
+    React Frontend · Python SDK · Rust SDK
+    Anthropic / OpenAI / LangChain · External AI Agents"]
+
+    B["**② Protocol / Transport**
+    HTTP/REST (Axum + TLS) · gRPC · WebSocket · MCP (Sandbox + Signing)"]
+
+    C["**③ Auth & Middleware**
+    JWT Auth · Rate Limiting · CORS · HTTP Trace · RBAC"]
+
+    D["**④ API Routes**
+    /v1/memory · /kg · /mm · /v1/agents · /v1/distributed
+    /v1/planner · /v1/security · /v1/workflows · /tenants"]
+
+    E1["Memory Intelligence
+    Scheduler · Analyzer · Predictor · Monitor
+    Cost Model · Model Router · Weight Adjuster"]
+
+    E2["Memory Processing Pipeline
+    Transfer · Ingestion Daemon · Hybrid Search · Fusion
+    Embedding · LLM · Rerank · Context Compressor"]
+
+    E3["Security & Integrity
+    Prompt Probe · Info Guard · Evidence Graph
+    Self-Healing · Vector Guard · Usage Tracker"]
+
+    F["**⑥ Memory Layer Abstractions**
+    STM · LTM (Bi-temporal) · KG · MM · Procedural (GraphRAG) · Memory Pool"]
+
+    G1["Runtime & Kernel
+    Planner Sandbox · Subagent Pool · Approval Node (HITL) · Fan Nodes"]
+
+    G2["Distributed System
+    Consensus · Replication · Sharding · Epoch Manager
+    Signaling Bus · Tenant Isolation"]
+
+    H["**⑧ Data Persistence**
+    PostgreSQL / SQLite · Qdrant (vector) · Neo4j (graph) · Event Store"]
+
+    I["**⑨ Observability**
+    OpenTelemetry · Prometheus"]
+
+    A --> B --> C --> D
+    D --> E1 & E2 & E3
+    E1 & E2 & E3 --> F
+    F --> G1 & G2
+    G1 & G2 --> H
+    E1 --> I
+
+    style E1 fill:#d5e8d4,stroke:#82b366,color:#1a1a1a
+    style E2 fill:#d5e8d4,stroke:#82b366,color:#1a1a1a
+    style E3 fill:#f8cecc,stroke:#b85450,color:#1a1a1a
+    style F fill:#fff2cc,stroke:#d6b656,color:#1a1a1a
 ```
 
 ## Core Capabilities

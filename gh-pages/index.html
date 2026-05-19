@@ -74,6 +74,39 @@ a:hover{color:var(--primary-light)}
 .footer a{color:var(--text-secondary)}
 .footer-links{display:flex;gap:20px;justify-content:center;margin-bottom:12px}
 
+/* Architecture Diagram */
+.arch-diagram{display:flex;flex-direction:column;gap:10px;margin:24px 0 28px}
+.arch-tier{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 18px;transition:border-color .2s}
+.arch-tier-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.arch-tier-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.arch-tier-name{font-size:13px;font-weight:600;color:var(--text)}
+.arch-chips{display:flex;flex-wrap:wrap;gap:6px}
+.arch-chip{padding:4px 10px;border-radius:5px;font-size:11px;font-weight:500}
+.arch-tier-row{display:grid;gap:10px;margin-top:2px}
+.arch-tier-row-3{grid-template-columns:1fr 1fr 1fr}
+.arch-tier-row-2{grid-template-columns:1fr 1fr}
+.arch-tier-col{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:7px;padding:10px 12px}
+.arch-tier-col h4{font-size:11px;font-weight:600;margin-bottom:7px;opacity:0.6;text-transform:uppercase;letter-spacing:.5px}
+.arch-drawio-link{text-align:center;margin-top:4px;font-size:13px}
+.tier-blue{border-color:rgba(56,189,248,0.3)}.tier-blue .arch-tier-num{background:rgba(56,189,248,0.2);color:#38bdf8}
+.tier-orange{border-color:rgba(251,146,60,0.3)}.tier-orange .arch-tier-num{background:rgba(251,146,60,0.2);color:#fb923c}
+.tier-red{border-color:rgba(248,113,113,0.3)}.tier-red .arch-tier-num{background:rgba(248,113,113,0.2);color:#f87171}
+.tier-purple{border-color:rgba(167,139,250,0.3)}.tier-purple .arch-tier-num{background:rgba(167,139,250,0.2);color:#a78bfa}
+.tier-green{border-color:rgba(74,222,128,0.3)}.tier-green .arch-tier-num{background:rgba(74,222,128,0.2);color:#4ade80}
+.tier-yellow{border-color:rgba(250,204,21,0.3)}.tier-yellow .arch-tier-num{background:rgba(250,204,21,0.2);color:#facc15}
+.tier-indigo{border-color:rgba(129,140,248,0.3)}.tier-indigo .arch-tier-num{background:rgba(129,140,248,0.2);color:#818cf8}
+.tier-teal{border-color:rgba(45,212,191,0.3)}.tier-teal .arch-tier-num{background:rgba(45,212,191,0.2);color:#2dd4bf}
+.tier-gray{border-color:rgba(148,163,184,0.3)}.tier-gray .arch-tier-num{background:rgba(148,163,184,0.2);color:#94a3b8}
+.chip-blue{background:rgba(56,189,248,0.12);color:#7dd3fc;border:1px solid rgba(56,189,248,0.25)}
+.chip-orange{background:rgba(251,146,60,0.12);color:#fdba74;border:1px solid rgba(251,146,60,0.25)}
+.chip-red{background:rgba(248,113,113,0.12);color:#fca5a5;border:1px solid rgba(248,113,113,0.25)}
+.chip-purple{background:rgba(167,139,250,0.12);color:#c4b5fd;border:1px solid rgba(167,139,250,0.25)}
+.chip-green{background:rgba(74,222,128,0.12);color:#86efac;border:1px solid rgba(74,222,128,0.25)}
+.chip-yellow{background:rgba(250,204,21,0.12);color:#fde68a;border:1px solid rgba(250,204,21,0.25)}
+.chip-indigo{background:rgba(129,140,248,0.12);color:#a5b4fc;border:1px solid rgba(129,140,248,0.25)}
+.chip-teal{background:rgba(45,212,191,0.12);color:#5eead4;border:1px solid rgba(45,212,191,0.25)}
+.chip-gray{background:rgba(148,163,184,0.12);color:#cbd5e1;border:1px solid rgba(148,163,184,0.25)}
+
 /* Responsive */
 @media(max-width:768px){
   .header{padding:12px 16px}
@@ -83,6 +116,7 @@ a:hover{color:var(--primary-light)}
   .grid{grid-template-columns:1fr}
   .arch-flow{flex-direction:column;gap:8px}
   .arch-arrow{transform:rotate(90deg)}
+  .arch-tier-row-3,.arch-tier-row-2{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -162,41 +196,158 @@ a:hover{color:var(--primary-light)}
 
 <section class="arch" id="architecture">
   <h2 class="section-title">System Architecture</h2>
-  <p class="section-subtitle">Request flow through the adaptive memory pipeline</p>
-  <div class="arch-flow">
-    <div class="arch-node">Client / Agent</div>
-    <span class="arch-arrow">&rarr;</span>
-    <div class="arch-node">API Gateway</div>
-    <span class="arch-arrow">&rarr;</span>
-    <div class="arch-node">Analyzer</div>
-    <span class="arch-arrow">&rarr;</span>
-    <div class="arch-node">Scheduler</div>
-    <span class="arch-arrow">&rarr;</span>
-    <div class="arch-node">Memory Layers</div>
-  </div>
-  <div class="arch-layers">
-    <div class="arch-layer" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.4)">
-      <strong>STM</strong><small>Short-Term</small>
+  <p class="section-subtitle">9-layer adaptive memory pipeline — from client to persistence</p>
+
+  <div class="arch-diagram">
+    <div class="arch-tier tier-blue">
+      <div class="arch-tier-header"><div class="arch-tier-num">①</div><span class="arch-tier-name">Clients &amp; SDKs</span></div>
+      <div class="arch-chips">
+        <span class="arch-chip chip-blue">React Frontend</span>
+        <span class="arch-chip chip-blue">Python SDK</span>
+        <span class="arch-chip chip-blue">Rust SDK</span>
+        <span class="arch-chip chip-blue">Anthropic / OpenAI / LangChain</span>
+        <span class="arch-chip chip-blue">External AI Agents</span>
+      </div>
     </div>
-    <div class="arch-layer" style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.4)">
-      <strong>LTM</strong><small>Long-Term</small>
+
+    <div class="arch-tier tier-orange">
+      <div class="arch-tier-header"><div class="arch-tier-num">②</div><span class="arch-tier-name">Protocol / Transport</span></div>
+      <div class="arch-chips">
+        <span class="arch-chip chip-orange">HTTP/REST (Axum + TLS)</span>
+        <span class="arch-chip chip-orange">gRPC</span>
+        <span class="arch-chip chip-orange">WebSocket</span>
+        <span class="arch-chip chip-orange">MCP (Sandbox + Signing)</span>
+      </div>
     </div>
-    <div class="arch-layer" style="background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.4)">
-      <strong>KG</strong><small>Knowledge Graph</small>
+
+    <div class="arch-tier tier-red">
+      <div class="arch-tier-header"><div class="arch-tier-num">③</div><span class="arch-tier-name">Auth &amp; Middleware</span></div>
+      <div class="arch-chips">
+        <span class="arch-chip chip-red">JWT Auth</span>
+        <span class="arch-chip chip-red">Rate Limiting</span>
+        <span class="arch-chip chip-red">CORS</span>
+        <span class="arch-chip chip-red">HTTP Trace</span>
+        <span class="arch-chip chip-red">RBAC</span>
+      </div>
     </div>
-    <div class="arch-layer" style="background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4)">
-      <strong>MM</strong><small>Multi-Modal</small>
+
+    <div class="arch-tier tier-purple">
+      <div class="arch-tier-header"><div class="arch-tier-num">④</div><span class="arch-tier-name">API Routes</span></div>
+      <div class="arch-chips">
+        <span class="arch-chip chip-purple">/v1/memory</span>
+        <span class="arch-chip chip-purple">/kg</span>
+        <span class="arch-chip chip-purple">/mm</span>
+        <span class="arch-chip chip-purple">/v1/agents</span>
+        <span class="arch-chip chip-purple">/v1/distributed</span>
+        <span class="arch-chip chip-purple">/v1/planner</span>
+        <span class="arch-chip chip-purple">/v1/security</span>
+        <span class="arch-chip chip-purple">/v1/workflows</span>
+        <span class="arch-chip chip-purple">/tenants</span>
+      </div>
+    </div>
+
+    <div class="arch-tier tier-green">
+      <div class="arch-tier-header"><div class="arch-tier-num">⑤</div><span class="arch-tier-name">Core Services</span></div>
+      <div class="arch-tier-row arch-tier-row-3">
+        <div class="arch-tier-col">
+          <h4>Memory Intelligence</h4>
+          <div class="arch-chips">
+            <span class="arch-chip chip-green">Scheduler</span>
+            <span class="arch-chip chip-green">Analyzer</span>
+            <span class="arch-chip chip-green">Predictor</span>
+            <span class="arch-chip chip-green">Monitor</span>
+            <span class="arch-chip chip-green">Cost Model</span>
+            <span class="arch-chip chip-green">Model Router</span>
+            <span class="arch-chip chip-green">Weight Adjuster</span>
+          </div>
+        </div>
+        <div class="arch-tier-col">
+          <h4>Memory Processing Pipeline</h4>
+          <div class="arch-chips">
+            <span class="arch-chip chip-green">Transfer</span>
+            <span class="arch-chip chip-green">Ingestion Daemon</span>
+            <span class="arch-chip chip-green">Hybrid Search</span>
+            <span class="arch-chip chip-green">Fusion</span>
+            <span class="arch-chip chip-green">Embedding</span>
+            <span class="arch-chip chip-green">LLM</span>
+            <span class="arch-chip chip-green">Rerank</span>
+            <span class="arch-chip chip-green">Context Compressor</span>
+          </div>
+        </div>
+        <div class="arch-tier-col">
+          <h4>Security &amp; Integrity</h4>
+          <div class="arch-chips">
+            <span class="arch-chip chip-red">Prompt Probe</span>
+            <span class="arch-chip chip-red">Info Guard</span>
+            <span class="arch-chip chip-red">Evidence Graph</span>
+            <span class="arch-chip chip-red">Self-Healing</span>
+            <span class="arch-chip chip-red">Vector Guard</span>
+            <span class="arch-chip chip-red">Usage Tracker</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arch-tier tier-yellow">
+      <div class="arch-tier-header"><div class="arch-tier-num">⑥</div><span class="arch-tier-name">Memory Layer Abstractions</span></div>
+      <div class="arch-chips">
+        <span class="arch-chip chip-yellow">STM · Short-Term</span>
+        <span class="arch-chip chip-yellow">LTM · Bi-temporal</span>
+        <span class="arch-chip chip-yellow">KG · Knowledge Graph</span>
+        <span class="arch-chip chip-yellow">MM · Multimodal</span>
+        <span class="arch-chip chip-yellow">Procedural · GraphRAG</span>
+        <span class="arch-chip chip-yellow">Memory Pool</span>
+      </div>
+    </div>
+
+    <div class="arch-tier tier-indigo">
+      <div class="arch-tier-header"><div class="arch-tier-num">⑦</div><span class="arch-tier-name">Runtime &amp; Distributed Systems</span></div>
+      <div class="arch-tier-row arch-tier-row-2">
+        <div class="arch-tier-col">
+          <h4>Runtime &amp; Kernel</h4>
+          <div class="arch-chips">
+            <span class="arch-chip chip-indigo">Planner Sandbox</span>
+            <span class="arch-chip chip-indigo">Subagent Pool</span>
+            <span class="arch-chip chip-indigo">Approval Node (HITL)</span>
+            <span class="arch-chip chip-indigo">Fan Nodes</span>
+          </div>
+        </div>
+        <div class="arch-tier-col">
+          <h4>Distributed System</h4>
+          <div class="arch-chips">
+            <span class="arch-chip chip-indigo">Consensus</span>
+            <span class="arch-chip chip-indigo">Replication</span>
+            <span class="arch-chip chip-indigo">Sharding</span>
+            <span class="arch-chip chip-indigo">Epoch Manager</span>
+            <span class="arch-chip chip-indigo">Signaling Bus</span>
+            <span class="arch-chip chip-indigo">Tenant Isolation</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arch-tier tier-teal">
+      <div class="arch-tier-header"><div class="arch-tier-num">⑧</div><span class="arch-tier-name">Data Persistence</span></div>
+      <div class="arch-chips">
+        <span class="arch-chip chip-teal">PostgreSQL / SQLite</span>
+        <span class="arch-chip chip-teal">Qdrant · Vector DB</span>
+        <span class="arch-chip chip-teal">Neo4j · Graph DB</span>
+        <span class="arch-chip chip-teal">Event Store</span>
+      </div>
+    </div>
+
+    <div class="arch-tier tier-gray">
+      <div class="arch-tier-header"><div class="arch-tier-num">⑨</div><span class="arch-tier-name">Observability</span></div>
+      <div class="arch-chips">
+        <span class="arch-chip chip-gray">OpenTelemetry</span>
+        <span class="arch-chip chip-gray">Prometheus</span>
+      </div>
     </div>
   </div>
 
-  <div class="tech-grid">
-    <div class="tech-badge">Rust + Axum</div>
-    <div class="tech-badge">PostgreSQL</div>
-    <div class="tech-badge">Qdrant</div>
-    <div class="tech-badge">Neo4j</div>
-    <div class="tech-badge">Redis</div>
-    <div class="tech-badge">gRPC / WebSocket / MCP</div>
-  </div>
+  <p class="arch-drawio-link">
+    <a href="https://github.com/Colin4k1024/adaptive-memory-system/blob/dev/docs/architecture.drawio" target="_blank" rel="noopener">View full interactive diagram (architecture.drawio) →</a>
+  </p>
 </section>
 
 <footer class="footer">
