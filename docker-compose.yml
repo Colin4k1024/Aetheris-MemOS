@@ -38,8 +38,40 @@ services:
       - NEO4J_AUTH=neo4j/password
       - NEO4J_PLUGINS=["apoc"]
 
+  # Backend (Rust/Axum)
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8008:8008"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_started
+    environment:
+      - APP_CONFIG=docker.toml
+    volumes:
+      - backend_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Frontend (React + Nginx)
+  frontend:
+    build:
+      context: ./frontend/ant-design-pro-template
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
   qdrant_data:
   neo4j_data:
   neo4j_logs:
+  backend_data:
