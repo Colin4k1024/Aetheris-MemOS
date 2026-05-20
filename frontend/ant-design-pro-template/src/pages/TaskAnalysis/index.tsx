@@ -180,8 +180,6 @@ const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loadi
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-import React from 'react';
-
 export default function TaskAnalysisPage() {
   const [analysisResult, setAnalysisResult] = useState<API.AnalyzeTaskResponse | null>(null);
 
