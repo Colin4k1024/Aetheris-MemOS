@@ -23,13 +23,12 @@ export const formatTime = (text: string | number): string => {
   return `${h}:${m}`;
 };
 
-/**
- * Format a Unix timestamp (ms) or ISO string as MM/DD HH:MM.
+/** Format a Unix timestamp (ms) or ISO string as MM/DD HH:MM.
  * Used in weight-history chart labels.
  */
 export const formatDateTime = (text: string | number): string => {
   try {
-    const date = new Date(typeof text === 'string' ? text : text);
+    const date = new Date(text as any);
     const month = (date.getMonth() + 1).toString();
     const day = date.getDate().toString();
     const h = date.getHours().toString().padStart(2, '0');
