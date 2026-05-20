@@ -33,20 +33,14 @@ export async function getInitialState(): Promise<{
       const msg = await queryCurrentUser({
         skipErrorHandler: true,
       });
-      console.log('[getInitialState] fetchUserInfo 返回:', msg);
-      // 确保返回正确的数据格式
       if (msg && msg.data) {
         return msg.data;
       }
-      // 如果 msg 本身就是用户数据（某些情况下可能直接返回数据）
       if (msg && (msg as any).name) {
         return msg as API.CurrentUser;
       }
-      console.warn('[getInitialState] fetchUserInfo 返回格式异常:', msg);
       return undefined;
     } catch (error) {
-      console.error('[getInitialState] fetchUserInfo 失败:', error);
-      // 只有在非登录页面时才重定向到登录页
       const { location } = history;
       if (location.pathname !== loginPath) {
         history.push(loginPath);
@@ -54,7 +48,6 @@ export async function getInitialState(): Promise<{
       return undefined;
     }
   };
-  // 如果不是登录页面，执行
   const { location } = history;
   if (
     ![
@@ -102,8 +95,6 @@ export const layout: RunTimeLayoutConfig = ({
     footerRender: () => <Footer />,
     onPageChange: () => {
       const { location } = history;
-      // 如果没有登录，重定向到 login
-      // 但排除登录页面和注册相关页面，避免循环重定向
       if (
         !initialState?.currentUser &&
         location.pathname !== loginPath &&
@@ -112,35 +103,9 @@ export const layout: RunTimeLayoutConfig = ({
         location.pathname !== '/documentation' &&
         !location.pathname.startsWith('/user/register')
       ) {
-        console.log('[onPageChange] 未登录，重定向到登录页');
         history.push(loginPath);
-      } else {
-        console.log('[onPageChange] 已登录或已在登录页，跳过重定向', {
-          hasUser: !!initialState?.currentUser,
-          pathname: location.pathname,
-        });
       }
     },
-    bgLayoutImgList: [
-      {
-        src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/D2LWSqNny4sAAAAAAAAAAAAAFl94AQBr',
-        left: 85,
-        bottom: 100,
-        height: '303px',
-      },
-      {
-        src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/C2TWRpJpiC0AAAAAAAAAAAAAFl94AQBr',
-        bottom: -68,
-        right: -45,
-        height: '303px',
-      },
-      {
-        src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/F6vSTbj8KpYAAAAAAAAAAAAAFl94AQBr',
-        bottom: 0,
-        left: 0,
-        width: '331px',
-      },
-    ],
     links: isDevOrTest
       ? [
           <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
@@ -150,11 +115,7 @@ export const layout: RunTimeLayoutConfig = ({
         ]
       : [],
     menuHeaderRender: undefined,
-    // 自定义 403 页面
-    // unAccessible: <div>unAccessible</div>,
-    // 增加一个 loading 的状态
     childrenRender: (children) => {
-      // if (initialState?.loading) return <PageLoading />;
       return (
         <>
           {children}
@@ -180,7 +141,6 @@ export const layout: RunTimeLayoutConfig = ({
 
 /**
  * @name request 配置，可以配置错误处理
- * 它基于 axios 和 ahooks 的 useRequest 提供了一套统一的网络请求和错误处理方案。
  * @doc https://umijs.org/docs/max/request#配置
  */
 export const request: RequestConfig = {

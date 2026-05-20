@@ -28,7 +28,9 @@ export const POLLING_INTERVALS = {
   VERY_SLOW: 30000,
 };
 
-// Chart colors
+// Chart configuration
+export const CHART_HEIGHT = 300;
+
 export const CHART_COLORS = {
   PRIMARY: '#1890ff',
   SUCCESS: '#52c41a',
@@ -53,6 +55,7 @@ export default {
   DEFAULT_AGENT_ID,
   API_CONFIG,
   POLLING_INTERVALS,
+  CHART_HEIGHT,
   CHART_COLORS,
   MEMORY_LAYER_COLORS,
 };
