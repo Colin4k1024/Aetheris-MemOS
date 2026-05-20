@@ -24,6 +24,15 @@ const MemoryDetails: React.FC = () => {
   const [kgStats, setKgStats] = useState({ entities: 0 });
   const [mmStats, setMmStats] = useState({ entries: 0 });
 
+  // Pre-fetch all four layer stats on mount so the metric cards at the top
+  // show real numbers before the user manually switches tabs.
+  useEffect(() => {
+    loadSessions();
+    loadLtmEntries();
+    loadKgEntities();
+    loadMmEntries();
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'stm') loadSessions();
     else if (activeTab === 'ltm') loadLtmEntries();

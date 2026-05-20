@@ -35,11 +35,12 @@ export default function DashboardPage() {
     },
   });
 
-  const { loading: healthLoading } = useRequest(healthCheck, {
+  const { loading: healthLoading, run: fetchHealth } = useRequest(healthCheck, {
+    manual: true,
     onSuccess: (data) => setHealth(data),
   });
 
-  usePolling(fetchStatus, { interval: POLLING_INTERVALS.NORMAL });
+  usePolling(() => { fetchStatus(); fetchHealth(); }, { interval: POLLING_INTERVALS.NORMAL });
 
   const perfChartData = performanceHistory.flatMap((item) => [
     { time: item.time, value: item.efficiency, type: '效率' },

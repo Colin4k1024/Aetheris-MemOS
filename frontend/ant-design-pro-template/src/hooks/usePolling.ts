@@ -14,6 +14,10 @@ export interface UsePollingOptions {
 const usePolling = (fn: () => void, options: UsePollingOptions): void => {
   const { enabled = true, interval } = options;
   const fnRef = useRef(fn);
+  // Tracks whether the initial immediate execution has already happened for the
+  // current "enabled: true" activation. Prevents duplicate calls when only
+  // `interval` changes while polling is already running.
+  const hasRunRef = useRef(false);
 
   // Always use the latest version of fn without re-creating the interval.
   useEffect(() => {
@@ -21,9 +25,17 @@ const usePolling = (fn: () => void, options: UsePollingOptions): void => {
   }, [fn]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      // Reset so the next enable → fires immediately again.
+      hasRunRef.current = false;
+      return undefined;
+    }
 
-    fnRef.current();
+    if (!hasRunRef.current) {
+      fnRef.current();
+      hasRunRef.current = true;
+    }
+
     const id = setInterval(() => {
       fnRef.current();
     }, interval);

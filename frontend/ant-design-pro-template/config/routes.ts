@@ -32,6 +32,7 @@ export default [
     name: 'monitor-group',
     icon: 'monitor',
     path: '/monitor',
+    redirect: '/dashboard',
     routes: [
       {
         path: '/dashboard',
@@ -58,6 +59,7 @@ export default [
     name: 'memory-group',
     icon: 'database',
     path: '/memory',
+    redirect: '/memory-management',
     routes: [
       {
         path: '/memory-management',
@@ -84,6 +86,7 @@ export default [
     name: 'analysis-group',
     icon: 'fileSearch',
     path: '/analysis',
+    redirect: '/task-analysis',
     routes: [
       {
         path: '/task-analysis',

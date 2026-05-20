@@ -29,10 +29,10 @@ export default function PerformancePage() {
             ...prev,
             {
               time: now,
-              efficiency: data.performance_metrics.efficiency_score * (0.9 + Math.random() * 0.2),
-              coherence: data.performance_metrics.coherence_score * (0.9 + Math.random() * 0.2),
-              responseTime: data.performance_metrics.response_time_ms * (0.8 + Math.random() * 0.4),
-              cpuUsage: data.performance_metrics.cpu_usage_percent * (0.8 + Math.random() * 0.4),
+              efficiency: data.performance_metrics.efficiency_score,
+              coherence: data.performance_metrics.coherence_score,
+              responseTime: data.performance_metrics.response_time_ms,
+              cpuUsage: data.performance_metrics.cpu_usage_percent,
             },
           ];
           return next.slice(-20);
