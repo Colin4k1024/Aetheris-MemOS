@@ -220,14 +220,15 @@ export default function MemoryConfigPage() {
   const [configHistory, setConfigHistory] = useState<API.SelectMemoryResponse[]>([]);
 
   useRequest(getMemoryStatus, {
-    onSuccess: (data) => setCurrentStatus(data),
+    onSuccess: (data: any) => setCurrentStatus(data as API.MemoryStatusResponse),
   });
 
   const { loading: configLoading, run: selectConfig } = useRequest(selectMemoryConfig, {
     manual: true,
-    onSuccess: (data) => {
-      setConfigResult(data);
-      setConfigHistory((prev) => [...prev, data].slice(-5));
+    onSuccess: (data: any) => {
+      const d = data as API.SelectMemoryResponse;
+      setConfigResult(d);
+      setConfigHistory((prev) => [...prev, d].slice(-5));
       message.success('配置选择完成');
     },
     onError: () => message.error('配置选择失败'),
@@ -235,8 +236,8 @@ export default function MemoryConfigPage() {
 
   const { loading: predictLoading, run: predict } = useRequest(predictPerformance, {
     manual: true,
-    onSuccess: (data) => {
-      setPredictionResult(data);
+    onSuccess: (data: any) => {
+      setPredictionResult(data as API.PredictPerformanceResponse);
       message.success('性能预测完成');
     },
   });

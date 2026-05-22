@@ -163,9 +163,10 @@ export default defineConfig({
   mock: {
     include: ['mock/**/*', 'src/pages/**/_mock.ts'],
   },
-  utoopack: {},
-  requestRecord: {},
-  exportStatic: {},
+  mfsu: {},
+  esbuildMinifyIIFE: true,
+  // exportStatic disabled — incompatible with hash routing + initialState context
+  // exportStatic: {},
   define: {
     'process.env.CI': process.env.CI,
   },

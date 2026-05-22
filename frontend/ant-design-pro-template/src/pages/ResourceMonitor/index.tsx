@@ -20,8 +20,8 @@ const CostBenefitSection: React.FC<CostBenefitSectionProps> = ({ resourceStatus 
 
   const { run: calculateCostBenefitRatio } = useRequest(calculateCostBenefit, {
     manual: true,
-    onSuccess: (data) => {
-      setCostBenefit(data);
+    onSuccess: (data: any) => {
+      setCostBenefit(data as API.CostBenefitResponse);
       message.success('成本效益分析完成');
     },
   });
@@ -91,8 +91,8 @@ const OptimizeSection: React.FC<OptimizeSectionProps> = ({ resourceStatus }) => 
 
   const { run: runOptimize } = useRequest(optimize, {
     manual: true,
-    onSuccess: (data) => {
-      setOptimization(data);
+    onSuccess: (data: any) => {
+      setOptimization(data as API.OptimizationResult);
       message.success('优化建议生成完成');
     },
   });
@@ -194,18 +194,20 @@ export default function ResourceMonitorPage() {
 
   const { loading: resourcesLoading, run: fetchResources } = useRequest(getResources, {
     manual: true,
-    onSuccess: (data) => {
-      setResourceStatus(data);
-      if (data) {
+    formatResult: (r: any) => r,
+    onSuccess: (data: any) => {
+      const d = data as API.CurrentResourceStatus;
+      setResourceStatus(d);
+      if (d?.current_status) {
         const now = Date.now();
         setResourceHistory((prev) => {
           const next = [
             ...prev,
             {
               time: now,
-              memory: data.current_status.memory_usage_percent,
-              cpu: data.current_status.cpu_usage_percent,
-              responseTime: data.current_status.response_time_ms,
+              memory: d.current_status.memory_usage_percent,
+              cpu: d.current_status.cpu_usage_percent,
+              responseTime: d.current_status.response_time_ms,
             },
           ];
           return next.slice(-20);
@@ -314,7 +316,7 @@ export default function ResourceMonitorPage() {
               xField="time"
               yField="value"
               smooth
-              area={{ style: { fill: 'l(270) 0:#ffffff 0.5:#7ec2f3 1:#6366f1' } }}
+              areaStyle={{ fill: 'l(270) 0:#ffffff 0.5:#7ec2f3 1:#6366f1' }}
               point={{ size: 3 }}
               xAxis={{ type: 'time', label: { formatter: formatTimeWithSeconds } }}
               yAxis={{ label: { formatter: (t: string) => `${t}ms` } }}

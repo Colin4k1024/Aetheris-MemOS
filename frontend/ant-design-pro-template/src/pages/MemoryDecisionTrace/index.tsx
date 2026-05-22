@@ -127,7 +127,7 @@ const PlaybackController: React.FC<PlaybackControllerProps> = ({
   onSpeedChange,
 }) => (
   <ChartCard title="回放控制">
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       <Progress percent={Math.round(((currentStep + 1) / totalSteps) * 100)} status="active" />
       <Space>
         <Button onClick={onReset} disabled={currentStep === 0}>⏮ 重置</Button>
@@ -161,8 +161,8 @@ export default function MemoryDecisionTracePage() {
 
   const { loading, run: fetchTrace } = useRequest(getDecisionTrace, {
     manual: true,
-    onSuccess: (data) => {
-      setTrace(data);
+    onSuccess: (data: any) => {
+      setTrace(data as API.DecisionTrace);
       setCurrentStep(0);
       setIsPlaying(false);
       message.success('决策链路获取成功');
@@ -395,7 +395,7 @@ export default function MemoryDecisionTracePage() {
           <div style={{ marginTop: 16 }}>
             <ChartCard title={`决策链路：${trace.task_id}`}>
               <Steps
-                direction="vertical"
+                orientation="vertical"
                 current={currentStep}
                 items={[
                   { title: '1. Analyzer 输出', description: <AnalyzerStep trace={trace} /> },

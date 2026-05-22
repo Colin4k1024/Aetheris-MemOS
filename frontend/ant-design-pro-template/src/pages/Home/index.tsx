@@ -188,7 +188,7 @@ const HomePage: React.FC = () => {
 
       {/* Footer */}
       <footer className={styles.footer}>
-        <Space direction="vertical" size={8}>
+        <Space orientation="vertical" size={8}>
           <div>Aetheris-MemOS — Adaptive Memory Operating System</div>
           <div>Built with Rust (Axum) + React (Ant Design Pro)</div>
         </Space>

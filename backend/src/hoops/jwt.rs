@@ -56,6 +56,18 @@ fn extract_token(req: &Request) -> Option<String> {
 }
 
 pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, AppError> {
+    // Allow disabling auth via config (for Docker demo/dev environments)
+    if config::get().jwt.disabled {
+        let claims = JwtClaims {
+            uid: "anonymous".to_string(),
+            exp: i64::MAX,
+        };
+        req.extensions_mut().insert(claims);
+        let tenant_ctx = RequestTenantContext::new("anonymous");
+        req.extensions_mut().insert(tenant_ctx);
+        return Ok(next.run(req).await);
+    }
+
     // Reject tokens in query strings (security: prevent token leakage in logs/referrer)
     if let Some(query) = req.uri().query() {
         if query.contains("token=") || query.contains("jwt_token=") {

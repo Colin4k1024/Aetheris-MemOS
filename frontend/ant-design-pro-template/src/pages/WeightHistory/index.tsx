@@ -10,7 +10,10 @@ import { formatDateTime, formatWeight } from '@/utils/formatters';
 import { CHART_HEIGHT } from '@/config/appConfig';
 
 export default function WeightHistoryPage() {
-  const { data, loading } = useRequest(getWeightHistory);
+  const { data: rawData, loading } = useRequest(getWeightHistory, {
+    formatResult: (r: any) => r,
+  });
+  const data = rawData as API.WeightHistoryResponse | undefined;
 
   const weightTrendData = useMemo(() => {
     if (!data?.adjustment_history) return [];
@@ -160,7 +163,7 @@ export default function WeightHistoryPage() {
               data={performanceImpactData}
               xField="weightChange"
               yField="performanceImpact"
-              point={{ size: 5, shape: 'circle' }}
+              pointStyle={{ size: 5 }}
               regressionLine={{ type: 'linear' }}
               xAxis={{ title: { text: '权重变化量' } }}
               yAxis={{ title: { text: '性能影响' } }}

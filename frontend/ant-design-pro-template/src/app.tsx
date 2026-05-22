@@ -19,6 +19,9 @@ const isDev = process.env.NODE_ENV === 'development';
 const isDevOrTest = isDev || process.env.CI;
 const loginPath = '/user/login';
 
+// Pages that don't require authentication
+const PUBLIC_PATHS = [loginPath, '/', '/home', '/documentation', '/user/register'];
+
 /**
  * @see https://umijs.org/docs/api/runtime-config#getinitialstate
  * */
@@ -33,33 +36,31 @@ export async function getInitialState(): Promise<{
       const msg = await queryCurrentUser({
         skipErrorHandler: true,
       });
+      // Backend may return { data: {...} } or directly { name, ... }
       if (msg && msg.data) {
+        // Reject invalid user (e.g. {isLogin: false} from mock 401)
+        if (msg.data.isLogin === false || !msg.data.name) {
+          return undefined;
+        }
         return msg.data;
       }
       if (msg && (msg as any).name) {
-        return msg as API.CurrentUser;
+        return msg as unknown as API.CurrentUser;
       }
       return undefined;
     } catch (error) {
-      const { location } = history;
-      if (location.pathname !== loginPath) {
-        history.push(loginPath);
-      }
       return undefined;
     }
   };
+
   const { location } = history;
-  if (
-    ![
-      loginPath,
-      '/',
-      '/user/register',
-      '/user/register-result',
-      '/home',
-      '/documentation',
-    ].includes(location.pathname)
-  ) {
+  // Only fetch user info for protected pages
+  if (!PUBLIC_PATHS.includes(location.pathname)) {
     const currentUser = await fetchUserInfo();
+    if (!currentUser) {
+      // No valid session — redirect to login
+      history.push(loginPath);
+    }
     return {
       fetchUserInfo,
       currentUser,
@@ -95,13 +96,10 @@ export const layout: RunTimeLayoutConfig = ({
     footerRender: () => <Footer />,
     onPageChange: () => {
       const { location } = history;
+      // Redirect to login if not authenticated and not on public page
       if (
         !initialState?.currentUser &&
-        location.pathname !== loginPath &&
-        location.pathname !== '/' &&
-        location.pathname !== '/home' &&
-        location.pathname !== '/documentation' &&
-        !location.pathname.startsWith('/user/register')
+        !PUBLIC_PATHS.includes(location.pathname)
       ) {
         history.push(loginPath);
       }
@@ -144,7 +142,7 @@ export const layout: RunTimeLayoutConfig = ({
  * @doc https://umijs.org/docs/max/request#配置
  */
 export const request: RequestConfig = {
-  baseURL: isDev ? 'http://127.0.0.1:8008' : '',
+  baseURL: isDev ? '' : '',
   timeout: 10000,
   ...errorConfig,
 };

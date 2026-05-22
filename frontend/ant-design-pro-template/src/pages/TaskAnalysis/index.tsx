@@ -109,7 +109,7 @@ const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loadi
             data={strategyData}
             xField="type"
             yField="weight"
-            colorField="enabled"
+            seriesField="enabled"
             color={({ enabled }: any) => (enabled === 1 ? '#6366f1' : '#d9d9d9')}
             columnStyle={{ radius: [4, 4, 0, 0] as any }}
             label={{
@@ -185,8 +185,8 @@ export default function TaskAnalysisPage() {
 
   const { loading, run: analyzeTask } = useRequest(analyzeTaskCharacteristics, {
     manual: true,
-    onSuccess: (data) => {
-      setAnalysisResult(data);
+    onSuccess: (data: any) => {
+      setAnalysisResult(data as API.AnalyzeTaskResponse);
       message.success('分析完成');
     },
     onError: () => {

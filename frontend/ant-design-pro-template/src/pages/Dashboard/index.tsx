@@ -16,17 +16,19 @@ export default function DashboardPage() {
 
   const { loading: statusLoading, run: fetchStatus } = useRequest(getMemoryStatus, {
     manual: true,
-    onSuccess: (data) => {
-      setStatus(data);
-      if (data) {
+    formatResult: (r: any) => r,
+    onSuccess: (data: any) => {
+      const d = data as API.MemoryStatusResponse;
+      setStatus(d);
+      if (d?.performance_metrics) {
         const now = Date.now();
         setPerformanceHistory((prev) => {
           const next = [
             ...prev,
             {
               time: now,
-              efficiency: data.performance_metrics.efficiency_score,
-              coherence: data.performance_metrics.coherence_score,
+              efficiency: d.performance_metrics.efficiency_score,
+              coherence: d.performance_metrics.coherence_score,
             },
           ];
           return next.slice(-20);
@@ -37,7 +39,8 @@ export default function DashboardPage() {
 
   const { loading: healthLoading, run: fetchHealth } = useRequest(healthCheck, {
     manual: true,
-    onSuccess: (data) => setHealth(data),
+    formatResult: (r: any) => r,
+    onSuccess: (data: any) => setHealth(data as API.HealthResponse),
   });
 
   usePolling(() => { fetchStatus(); fetchHealth(); }, { interval: POLLING_INTERVALS.NORMAL });
@@ -78,7 +81,7 @@ export default function DashboardPage() {
         <Col span={6}>
           <MetricCard
             title="平均性能"
-            value={((status?.performance_metrics.efficiency_score || 0) * 100).toFixed(2)}
+            value={((status?.performance_metrics?.efficiency_score || 0) * 100).toFixed(2)}
             unit="%"
             loading={statusLoading}
           />
@@ -94,7 +97,7 @@ export default function DashboardPage() {
         <Col span={6}>
           <MetricCard
             title="响应时间"
-            value={status?.performance_metrics.response_time_ms || 0}
+            value={status?.performance_metrics?.response_time_ms || 0}
             unit="ms"
             loading={statusLoading}
           />

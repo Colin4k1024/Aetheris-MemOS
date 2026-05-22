@@ -18,7 +18,7 @@ const MemoryConfigFormFields: React.FC<MemoryConfigFormFieldsProps> = ({
 }) => {
   return (
     <>
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         <Title level={5}>短期记忆 (STM)</Title>
         <ProFormSwitch name="stmEnabled" label="启用 STM" />
         <ProFormDigit
@@ -35,7 +35,7 @@ const MemoryConfigFormFields: React.FC<MemoryConfigFormFieldsProps> = ({
         />
       </Space>
 
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         <Title level={5}>长期记忆 (LTM)</Title>
         <ProFormSwitch name="ltmEnabled" label="启用 LTM" />
         <ProFormDigit
@@ -54,7 +54,7 @@ const MemoryConfigFormFields: React.FC<MemoryConfigFormFieldsProps> = ({
         />
       </Space>
 
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         <Title level={5}>知识图谱 (KG)</Title>
         <ProFormSwitch name="kgEnabled" label="启用 KG" />
         <ProFormDigit
@@ -73,7 +73,7 @@ const MemoryConfigFormFields: React.FC<MemoryConfigFormFieldsProps> = ({
         />
       </Space>
 
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         <Title level={5}>多模态记忆 (MM)</Title>
         <ProFormSwitch name="mmEnabled" label="启用 MM" />
         <ProFormDigit
@@ -85,7 +85,7 @@ const MemoryConfigFormFields: React.FC<MemoryConfigFormFieldsProps> = ({
         <ProFormTextArea name="mmModalityTypes" label="模态类型" />
       </Space>
 
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         <Title level={5}>性能限制</Title>
         <ProFormDigit
           name="maxResponseTimeMs"

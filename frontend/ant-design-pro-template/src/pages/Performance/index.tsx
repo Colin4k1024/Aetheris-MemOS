@@ -15,24 +15,27 @@ export default function PerformancePage() {
   const [performanceHistory, setPerformanceHistory] = useState<any[]>([]);
 
   const { loading: baselinesLoading } = useRequest(getBaselines, {
-    onSuccess: (data) => setBaselines(data),
+    formatResult: (r: any) => r,
+    onSuccess: (data: any) => setBaselines(data as API.BaselinesResponse),
   });
 
   const { loading: statusLoading, run: fetchStatus } = useRequest(getMemoryStatus, {
     manual: true,
-    onSuccess: (data) => {
-      setStatus(data);
-      if (data) {
+    formatResult: (r: any) => r,
+    onSuccess: (data: any) => {
+      const d = data as API.MemoryStatusResponse;
+      setStatus(d);
+      if (d?.performance_metrics) {
         const now = Date.now();
         setPerformanceHistory((prev) => {
           const next = [
             ...prev,
             {
               time: now,
-              efficiency: data.performance_metrics.efficiency_score,
-              coherence: data.performance_metrics.coherence_score,
-              responseTime: data.performance_metrics.response_time_ms,
-              cpuUsage: data.performance_metrics.cpu_usage_percent,
+              efficiency: d.performance_metrics.efficiency_score,
+              coherence: d.performance_metrics.coherence_score,
+              responseTime: d.performance_metrics.response_time_ms,
+              cpuUsage: d.performance_metrics.cpu_usage_percent,
             },
           ];
           return next.slice(-20);
@@ -67,7 +70,7 @@ export default function PerformancePage() {
         <Col span={6}>
           <MetricCard
             title="效率得分"
-            value={((status?.performance_metrics.efficiency_score || 0) * 100).toFixed(2)}
+            value={((status?.performance_metrics?.efficiency_score || 0) * 100).toFixed(2)}
             unit="%"
             color="#3f8600"
             loading={statusLoading}
@@ -76,7 +79,7 @@ export default function PerformancePage() {
         <Col span={6}>
           <MetricCard
             title="连贯性得分"
-            value={status?.performance_metrics.coherence_score || 0}
+            value={status?.performance_metrics?.coherence_score || 0}
             precision={2}
             color="#6366f1"
             loading={statusLoading}
@@ -85,7 +88,7 @@ export default function PerformancePage() {
         <Col span={6}>
           <MetricCard
             title="响应时间"
-            value={status?.performance_metrics.response_time_ms || 0}
+            value={status?.performance_metrics?.response_time_ms || 0}
             unit="ms"
             loading={statusLoading}
           />
@@ -93,7 +96,7 @@ export default function PerformancePage() {
         <Col span={6}>
           <MetricCard
             title="CPU 使用率"
-            value={status?.performance_metrics.cpu_usage_percent || 0}
+            value={status?.performance_metrics?.cpu_usage_percent || 0}
             unit="%"
             loading={statusLoading}
           />

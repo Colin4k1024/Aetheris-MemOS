@@ -185,6 +185,8 @@ pub struct ServerConfig {
 pub struct JwtConfig {
     pub secret: String,
     pub expiry: i64,
+    #[serde(default)]
+    pub disabled: bool,
 }
 #[derive(Deserialize, Clone, Debug)]
 pub struct TlsConfig {

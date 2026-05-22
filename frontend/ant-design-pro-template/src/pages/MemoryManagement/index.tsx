@@ -85,7 +85,7 @@ const MemoryConfigFormModal: React.FC<MemoryConfigFormModalProps> = ({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const MemoryManagement: React.FC = () => {
-  const actionRef = useRef<ActionType>();
+  const actionRef = useRef<ActionType | undefined>(undefined);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<API.MemoryConfigRow | null>(null);
