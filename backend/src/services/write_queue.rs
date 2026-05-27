@@ -48,7 +48,10 @@ pub fn init_write_queue() {
         .expect("write queue already initialised");
 
     tokio::spawn(write_queue_worker(rx));
-    info!("SQLite write-queue worker started (batch={}, window={}ms)", MAX_BATCH_SIZE, FLUSH_WINDOW_MS);
+    info!(
+        "SQLite write-queue worker started (batch={}, window={}ms)",
+        MAX_BATCH_SIZE, FLUSH_WINDOW_MS
+    );
 }
 
 /// Enqueue a fire-and-forget write.
@@ -150,9 +153,7 @@ async fn flush_batch(ops: Vec<WriteOp>) {
     for op in ops {
         let result = sqlx::query(&op.sql).execute(pool).await;
         if let Some(reply) = op.reply {
-            let mapped = result
-                .map(|r| r.rows_affected())
-                .map_err(|e| e.to_string());
+            let mapped = result.map(|r| r.rows_affected()).map_err(|e| e.to_string());
             if reply.send(mapped).is_err() {
                 warn!("Write-queue: caller dropped its reply receiver");
             }

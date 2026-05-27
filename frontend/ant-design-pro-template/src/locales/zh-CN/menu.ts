@@ -49,6 +49,11 @@ export default {
   'menu.editor.flow': '流程编辑器',
   'menu.editor.mind': '脑图编辑器',
   'menu.editor.koni': '拓扑编辑器',
+  // Route groups
+  'menu.monitor-group': '监控',
+  'menu.memory-group': '记忆管理',
+  'menu.analysis-group': '分析追踪',
+  // Pages
   'menu.task-analysis': '任务分析',
   'menu.memory-config': '记忆配置',
   'menu.performance': '性能监控',
@@ -56,4 +61,6 @@ export default {
   'menu.weight-history': '权重历史',
   'menu.memory-management': '记忆管理',
   'menu.memory-decision-trace': '决策链路追踪',
+  'menu.memory-details': '记忆详情',
+  'menu.documentation': '文档中心',
 };

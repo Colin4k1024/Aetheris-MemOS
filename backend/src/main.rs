@@ -4,16 +4,23 @@ use tokio::signal;
 use tracing::info;
 use utoipa::ToSchema;
 
+mod agent;
+mod axum_routers;
 mod config;
 mod db;
+mod distributed;
 mod error;
 mod hoops;
 mod integrations;
 mod kernel;
+mod layers;
+mod mcp;
 mod models;
+mod otel;
 mod protocol;
+mod providers;
 mod routers;
-mod axum_routers;
+mod runtime;
 mod services;
 mod tenant;
 mod utils;
@@ -73,6 +80,9 @@ async fn main() {
             crate::services::strategy_mutator::MutationConfig::default(),
         );
     }
+
+    // Issue #61: initialize distributed epoch manager and interrupt propagator
+    crate::axum_routers::distributed::init_distributed();
 
     tracing::info!("Initializing Neo4j connection");
     let _ = crate::db::init_neo4j(&config.neo4j).await;

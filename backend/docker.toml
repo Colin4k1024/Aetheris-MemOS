@@ -10,6 +10,7 @@ url = "postgres://memory:memory@postgres:5432/memory"
 [jwt]
 secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
 expiry = 3600
+disabled = true
 
 [log]
 file_name = "app.log"

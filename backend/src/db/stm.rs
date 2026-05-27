@@ -4,7 +4,12 @@ use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
+use crate::tenant::TenantId;
 use crate::AppError;
+
+/// Feature-gated Redis STM adapter import.
+#[cfg(feature = "redis-stm")]
+use crate::db::adapters::redis_stm::RedisStmAdapter;
 
 /// 短期记忆会话仓库
 pub struct STMRepository;
@@ -47,19 +52,41 @@ pub struct SessionMessage {
 }
 
 impl STMRepository {
-    /// 创建新会话
+    /// 创建新会话（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
     pub async fn create_session(
+        tenant_id: &TenantId,
         user_id: &str,
         agent_id: &str,
         session_type: &str,
         max_context_length: i32,
         retention_hours: i32,
     ) -> Result<String, AppError> {
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::create_session(
+                    tenant_id,
+                    user_id,
+                    agent_id,
+                    session_type,
+                    max_context_length,
+                    retention_hours,
+                )
+                .await;
+            }
+        }
+
         let session_id = Ulid::new().to_string();
         let pool = pool();
 
         // 计算过期时间（用于日志，实际过期时间在SQL中计算）
         let _expires_at = format!("datetime('now', '+{} hours')", retention_hours);
+
+        // 构建租户限定的source_id用于后续跨租户隔离验证
+        let source_id = format!("{}:{}", tenant_id.prefix(), user_id);
 
         sqlx::query(
             r#"
@@ -82,20 +109,121 @@ impl STMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Created new session: {}", session_id);
+        info!(
+            "Created new session: {} for tenant: {}",
+            session_id, tenant_id
+        );
         Ok(session_id)
     }
 
-    /// 添加消息到会话
+    /// 根据session_id和tenant_id获取会话（租户隔离）
+    pub async fn get_session(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        session_id: &str,
+    ) -> Result<Option<Session>, AppError> {
+        // 先查询会话
+        let session = sqlx::query_as::<_, Session>(
+            r#"
+            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                   session_type, context_length, max_context_length, status, priority
+            FROM context_sessions
+            WHERE session_id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get session: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        // 验证会话属于该租户
+        if let Some(ref s) = session {
+            let prefix = tenant_id.prefix();
+            // 检查user_id是否以租户前缀开头（用于新数据格式）
+            // 或者user_id等于tenant_id（用于MVP格式，每个user是自己的tenant）
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            if !belongs_to_tenant {
+                // 记录隔离违规
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    session_id,
+                    "stm_session_cross_tenant_access",
+                );
+                return Ok(None);
+            }
+        }
+
+        Ok(session)
+    }
+
+    /// 添加消息到会话（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
     pub async fn add_message(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         session_id: &str,
         role: &str,
         content: &str,
         token_count: Option<i32>,
         importance_score: Option<f64>,
     ) -> Result<String, AppError> {
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::append_message(
+                    tenant_id,
+                    session_id,
+                    role,
+                    content,
+                    token_count,
+                    importance_score,
+                )
+                .await;
+            }
+        }
+
+        // 验证session属于该租户
+        let session = sqlx::query_as::<_, Session>(
+            r#"
+            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                   session_type, context_length, max_context_length, status, priority
+            FROM context_sessions
+            WHERE session_id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get session for message: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        if let Some(ref s) = session {
+            let prefix = tenant_id.prefix();
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            if !belongs_to_tenant {
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    session_id,
+                    "stm_message_cross_tenant_access",
+                );
+                return Err(AppError::Forbidden(
+                    "Session belongs to different tenant".to_string(),
+                ));
+            }
+        } else {
+            return Err(AppError::NotFound("Session not found".to_string()));
+        }
+
         let message_id = Ulid::new().to_string();
-        let pool = pool();
 
         sqlx::query(
             r#"
@@ -135,16 +263,77 @@ impl STMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        info!("Added message to session: {}", session_id);
+        info!(
+            "Added message to session: {} for tenant: {}",
+            session_id, tenant_id
+        );
         Ok(message_id)
     }
 
-    /// 获取会话消息
+    /// 获取会话消息（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
     pub async fn get_session_messages(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         session_id: &str,
         limit: Option<i32>,
     ) -> Result<Vec<SessionMessage>, AppError> {
-        let pool = pool();
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::get_session_messages(tenant_id, session_id, limit)
+                    .await
+                    .map(|msgs| {
+                        msgs.into_iter()
+                            .map(|m| SessionMessage {
+                                message_id: m.message_id,
+                                session_id: m.session_id,
+                                role: m.role,
+                                content: m.content,
+                                created_at: m.created_at,
+                                token_count: m.token_count,
+                                importance_score: m.importance_score,
+                            })
+                            .collect()
+                    });
+            }
+        }
+
+        // 验证session属于该租户
+        let session = sqlx::query_as::<_, Session>(
+            r#"
+            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                   session_type, context_length, max_context_length, status, priority
+            FROM context_sessions
+            WHERE session_id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get session: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        if let Some(ref s) = session {
+            let prefix = tenant_id.prefix();
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            if !belongs_to_tenant {
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    session_id,
+                    "stm_messages_cross_tenant_access",
+                );
+                return Ok(vec![]);
+            }
+        } else {
+            return Ok(vec![]);
+        }
+
         let limit = limit.unwrap_or(100);
 
         let messages = sqlx::query_as::<_, SessionMessage>(
@@ -168,49 +357,32 @@ impl STMRepository {
         Ok(messages)
     }
 
-    /// 获取单个会话
-    pub async fn get_session(session_id: &str) -> Result<Option<Session>, AppError> {
-        let pool = pool();
-
-        let session = sqlx::query_as::<_, Session>(
-            r#"
-            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
-                   session_type, context_length, max_context_length, status, priority
-            FROM context_sessions
-            WHERE session_id = $1
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| {
-            error!("Failed to get session: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
-        })?;
-
-        Ok(session)
-    }
-
-    /// 获取最近会话
+    /// 获取最近会话（租户隔离）
     pub async fn get_recent_sessions(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         user_id: &str,
         agent_id: &str,
         limit: Option<i32>,
     ) -> Result<Vec<Session>, AppError> {
-        let pool = pool();
         let limit = limit.unwrap_or(10);
+
+        // 构建租户限定的user_id前缀用于过滤
+        let prefix = tenant_id.prefix();
+        let tenant_user_pattern = format!("{}:%", prefix);
 
         let sessions = sqlx::query_as::<_, Session>(
             r#"
             SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
                    session_type, context_length, max_context_length, status, priority
             FROM context_sessions
-            WHERE user_id = $1 AND agent_id = $2 AND status = 'active'
+            WHERE (user_id = $1 OR user_id LIKE $2) AND agent_id = $3 AND status = 'active'
             ORDER BY updated_at DESC
-            LIMIT $3
+            LIMIT $4
             "#,
         )
         .bind(user_id)
+        .bind(tenant_user_pattern)
         .bind(agent_id)
         .bind(limit)
         .fetch_all(pool)
@@ -223,16 +395,23 @@ impl STMRepository {
         Ok(sessions)
     }
 
-    /// 会话列表响应
+    /// 会话列表响应（租户隔离）
     pub async fn list_sessions(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
         user_id: Option<&str>,
         status: Option<&str>,
         limit: Option<i32>,
         offset: Option<i32>,
     ) -> Result<SessionListResponse, AppError> {
-        let pool = pool();
         let limit = limit.unwrap_or(20);
         let offset = offset.unwrap_or(0);
+
+        // 构建租户前缀模式用于过滤
+        let prefix = tenant_id.prefix();
+        let tenant_pattern = format!("{}%", prefix);
+        // Clone for use in second query
+        let tenant_pattern_clone = tenant_pattern.clone();
 
         let (sessions, total): (Vec<Session>, (i64,)) = match (user_id, status) {
             (Some(uid), Some(s)) => {
@@ -241,12 +420,13 @@ impl STMRepository {
                     SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
                            session_type, context_length, max_context_length, status, priority
                     FROM context_sessions
-                    WHERE user_id = $1 AND status = $2
+                    WHERE (user_id = $1 OR user_id LIKE $2) AND status = $3
                     ORDER BY created_at DESC
-                    LIMIT $3 OFFSET $4
+                    LIMIT $4 OFFSET $5
                     "#,
                 )
                 .bind(uid)
+                .bind(tenant_pattern)
                 .bind(s)
                 .bind(limit)
                 .bind(offset)
@@ -258,9 +438,10 @@ impl STMRepository {
                 })?;
 
                 let total = sqlx::query_as::<_, (i64,)>(
-                    "SELECT COUNT(*) FROM context_sessions WHERE user_id = $1 AND status = $2",
+                    "SELECT COUNT(*) FROM context_sessions WHERE (user_id = $1 OR user_id LIKE $2) AND status = $3",
                 )
                 .bind(uid)
+                .bind(tenant_pattern_clone)
                 .bind(s)
                 .fetch_one(pool)
                 .await
@@ -276,12 +457,13 @@ impl STMRepository {
                     SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
                            session_type, context_length, max_context_length, status, priority
                     FROM context_sessions
-                    WHERE user_id = $1
+                    WHERE user_id = $1 OR user_id LIKE $2
                     ORDER BY created_at DESC
-                    LIMIT $2 OFFSET $3
+                    LIMIT $3 OFFSET $4
                     "#,
                 )
                 .bind(uid)
+                .bind(tenant_pattern)
                 .bind(limit)
                 .bind(offset)
                 .fetch_all(pool)
@@ -292,9 +474,10 @@ impl STMRepository {
                 })?;
 
                 let total = sqlx::query_as::<_, (i64,)>(
-                    "SELECT COUNT(*) FROM context_sessions WHERE user_id = $1",
+                    "SELECT COUNT(*) FROM context_sessions WHERE user_id = $1 OR user_id LIKE $2",
                 )
                 .bind(uid)
+                .bind(tenant_pattern_clone)
                 .fetch_one(pool)
                 .await
                 .map_err(|e| {
@@ -304,16 +487,18 @@ impl STMRepository {
                 (sessions, total)
             }
             (None, Some(s)) => {
+                // 没有指定user_id时，只返回属于该租户的会话
                 let sessions = sqlx::query_as::<_, Session>(
                     r#"
                     SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
                            session_type, context_length, max_context_length, status, priority
                     FROM context_sessions
-                    WHERE status = $1
+                    WHERE user_id LIKE $1 AND status = $2
                     ORDER BY created_at DESC
-                    LIMIT $2 OFFSET $3
+                    LIMIT $3 OFFSET $4
                     "#,
                 )
+                .bind(tenant_pattern)
                 .bind(s)
                 .bind(limit)
                 .bind(offset)
@@ -325,8 +510,9 @@ impl STMRepository {
                 })?;
 
                 let total = sqlx::query_as::<_, (i64,)>(
-                    "SELECT COUNT(*) FROM context_sessions WHERE status = $1",
+                    "SELECT COUNT(*) FROM context_sessions WHERE user_id LIKE $1 AND status = $2",
                 )
+                .bind(tenant_pattern_clone)
                 .bind(s)
                 .fetch_one(pool)
                 .await
@@ -337,15 +523,18 @@ impl STMRepository {
                 (sessions, total)
             }
             (None, None) => {
+                // 没有指定任何过滤条件时，只返回属于该租户的会话
                 let sessions = sqlx::query_as::<_, Session>(
                     r#"
                     SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
                            session_type, context_length, max_context_length, status, priority
                     FROM context_sessions
+                    WHERE user_id LIKE $1
                     ORDER BY created_at DESC
-                    LIMIT $1 OFFSET $2
+                    LIMIT $2 OFFSET $3
                     "#,
                 )
+                .bind(tenant_pattern)
                 .bind(limit)
                 .bind(offset)
                 .fetch_all(pool)
@@ -355,13 +544,16 @@ impl STMRepository {
                     AppError::Internal(format!("Database error: {}", e))
                 })?;
 
-                let total = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM context_sessions")
-                    .fetch_one(pool)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to count sessions: {}", e);
-                        AppError::Internal(format!("Database error: {}", e))
-                    })?;
+                let total = sqlx::query_as::<_, (i64,)>(
+                    "SELECT COUNT(*) FROM context_sessions WHERE user_id LIKE $1",
+                )
+                .bind(tenant_pattern_clone)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to count sessions: {}", e);
+                    AppError::Internal(format!("Database error: {}", e))
+                })?;
                 (sessions, total)
             }
         };
@@ -390,14 +582,20 @@ impl STMRepository {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    /// 获取指定用户的活跃 agent_id 列表
-    pub async fn get_active_agent_ids(user_id: &str) -> Result<Vec<String>, AppError> {
-        let pool = pool();
+    /// 获取指定用户的活跃 agent_id 列表（租户隔离）
+    pub async fn get_active_agent_ids(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        user_id: &str,
+    ) -> Result<Vec<String>, AppError> {
+        let prefix = tenant_id.prefix();
+        let tenant_pattern = format!("{}%", prefix);
 
         let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT agent_id FROM context_sessions WHERE user_id = $1 AND status = 'active'",
+            "SELECT DISTINCT agent_id FROM context_sessions WHERE (user_id = $1 OR user_id LIKE $2) AND status = 'active'",
         )
         .bind(user_id)
+        .bind(tenant_pattern)
         .fetch_all(pool)
         .await
         .map_err(|e| {
@@ -406,5 +604,78 @@ impl STMRepository {
         })?;
 
         Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// 删除会话（租户隔离）
+    ///
+    /// When `redis-stm` feature is enabled and Redis is available, delegates to Redis adapter.
+    /// Otherwise uses PostgreSQL directly.
+    pub async fn delete_session(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        session_id: &str,
+    ) -> Result<bool, AppError> {
+        #[cfg(feature = "redis-stm")]
+        {
+            if RedisStmAdapter::is_available() {
+                return RedisStmAdapter::delete_session(tenant_id, session_id).await;
+            }
+        }
+
+        // Verify session belongs to tenant via PostgreSQL
+        let session = sqlx::query_as::<_, Session>(
+            r#"
+            SELECT session_id, user_id, agent_id, created_at::text, updated_at::text, expires_at::text,
+                   session_type, context_length, max_context_length, status, priority
+            FROM context_sessions
+            WHERE session_id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get session for deletion: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        if let Some(ref s) = session {
+            let prefix = tenant_id.prefix();
+            let belongs_to_tenant =
+                s.user_id.starts_with(&prefix) || s.user_id == tenant_id.as_str();
+            if !belongs_to_tenant {
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    session_id,
+                    "stm_delete_cross_tenant_access",
+                );
+                return Ok(false);
+            }
+        } else {
+            return Ok(false);
+        }
+
+        // Delete messages first
+        sqlx::query("DELETE FROM session_messages WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to delete session messages: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        // Delete session
+        let result = sqlx::query("DELETE FROM context_sessions WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to delete session: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+
+        info!("Deleted session: {} for tenant: {}", session_id, tenant_id);
+        Ok(result.rows_affected() > 0)
     }
 }

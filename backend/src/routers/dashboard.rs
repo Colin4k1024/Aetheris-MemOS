@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::hoops::enterprise::{NoopHookSet, EnterpriseHookSet, GovernanceHook};
+use crate::hoops::enterprise::{EnterpriseHookSet, GovernanceHook, NoopHookSet};
 use crate::services::metrics::{
     self, BucketStats, MetricsAggregator, MetricsEvent, MetricsService, NoopMetricsSink,
     OperationType, Outcome,
@@ -191,7 +191,8 @@ pub async fn get_dashboard_metrics(
     let mut deny_count = 0u64;
     let mut error_count = 0u64;
     let mut timeout_count = 0u64;
-    let mut operations: std::collections::HashMap<String, OpMetrics> = std::collections::HashMap::new();
+    let mut operations: std::collections::HashMap<String, OpMetrics> =
+        std::collections::HashMap::new();
 
     for event in &events {
         total_count += event.count;
@@ -259,14 +260,15 @@ pub async fn get_dashboard_metrics(
         timestamp: chrono::Utc::now().timestamp(),
     };
 
-    tracing::info!("Dashboard metrics request completed in {:?}", start.elapsed());
+    tracing::info!(
+        "Dashboard metrics request completed in {:?}",
+        start.elapsed()
+    );
     json_ok(response)
 }
 
 /// Get current QPS
-pub async fn get_qps(
-    State(state): State<Arc<DashboardState>>,
-) -> JsonResult<QpsResponse> {
+pub async fn get_qps(State(state): State<Arc<DashboardState>>) -> JsonResult<QpsResponse> {
     let events = state.metrics.get_metrics();
 
     let total_count: u64 = events.iter().map(|e| e.count).sum();
@@ -280,9 +282,7 @@ pub async fn get_qps(
 }
 
 /// Get latency percentiles
-pub async fn get_latency(
-    State(state): State<Arc<DashboardState>>,
-) -> JsonResult<LatencyResponse> {
+pub async fn get_latency(State(state): State<Arc<DashboardState>>) -> JsonResult<LatencyResponse> {
     let events = state.metrics.get_metrics();
 
     let mut total_count = 0u64;
@@ -322,9 +322,7 @@ pub async fn get_latency(
 }
 
 /// Get failure rates
-pub async fn get_failures(
-    State(state): State<Arc<DashboardState>>,
-) -> JsonResult<FailureResponse> {
+pub async fn get_failures(State(state): State<Arc<DashboardState>>) -> JsonResult<FailureResponse> {
     let events = state.metrics.get_metrics();
 
     let mut total = 0u64;
@@ -419,10 +417,8 @@ mod tests {
     #[tokio::test]
     async fn test_dashboard_metrics_empty() {
         let state = Arc::new(DashboardState::default());
-        let result = get_dashboard_metrics(
-            State(state),
-            Option::<Query<TimeRangeQuery>>::None,
-        ).await;
+        let result =
+            get_dashboard_metrics(State(state), Option::<Query<TimeRangeQuery>>::None).await;
 
         assert!(result.is_ok());
     }

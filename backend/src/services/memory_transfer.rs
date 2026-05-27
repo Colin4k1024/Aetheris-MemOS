@@ -4,8 +4,10 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{error, info, instrument, warn};
 
+use crate::db::pool;
 use crate::db::stm::{STMRepository, Session};
 use crate::services::memory_storage::MemoryStorageService;
+use crate::tenant::get_default_tenant;
 use crate::AppError;
 
 /// 记忆自动转移服务
@@ -136,11 +138,18 @@ impl MemoryTransferService {
         let mut transferred_count = 0;
         for user_id in &user_ids {
             // 动态获取该用户的活跃 agent 列表
-            let agent_ids = STMRepository::get_active_agent_ids(user_id).await?;
+            let agent_ids =
+                STMRepository::get_active_agent_ids(pool(), &get_default_tenant(), user_id).await?;
 
             for agent_id in &agent_ids {
-                let sessions =
-                    STMRepository::get_recent_sessions(user_id, agent_id, Some(100)).await?;
+                let sessions = STMRepository::get_recent_sessions(
+                    pool(),
+                    &get_default_tenant(),
+                    user_id,
+                    agent_id,
+                    Some(100),
+                )
+                .await?;
                 info!(
                     "Found {} active sessions for user {} and agent {}",
                     sessions.len(),

@@ -5,7 +5,9 @@ use tracing::info;
 use utoipa::ToSchema;
 use validator::Validate;
 
+use crate::db::pool;
 use crate::services::memory_storage::MemoryStorageService;
+use crate::tenant::get_default_tenant;
 use crate::{json_ok, JsonResult};
 
 /// 存储短期记忆请求
@@ -205,6 +207,8 @@ pub async fn list_sessions(
     Query(params): Query<ListSessionsQuery>,
 ) -> JsonResult<crate::db::SessionListResponse> {
     let sessions = crate::db::stm::STMRepository::list_sessions(
+        pool(),
+        &get_default_tenant(),
         params.user_id.as_deref(),
         params.status.as_deref(),
         params.limit,
@@ -220,8 +224,13 @@ pub async fn get_session_messages(
     Path(session_id): Path<String>,
     Query(params): Query<GetSessionMessagesQuery>,
 ) -> JsonResult<Vec<crate::db::SessionMessage>> {
-    let messages =
-        crate::db::stm::STMRepository::get_session_messages(&session_id, params.limit).await?;
+    let messages = crate::db::stm::STMRepository::get_session_messages(
+        pool(),
+        &get_default_tenant(),
+        &session_id,
+        params.limit,
+    )
+    .await?;
 
     json_ok(messages)
 }

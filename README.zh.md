@@ -10,6 +10,67 @@
 - **安全**: 漏洞反馈请参见 [SECURITY.md](SECURITY.md)
 - **变更记录**: [CHANGELOG.md](CHANGELOG.md)
 
+## 系统架构
+
+> 完整交互式流程图：[docs/architecture.drawio](docs/architecture.drawio)
+
+```mermaid
+flowchart TD
+    A["**① 客户端 & SDK**
+    React 前端 · Python SDK · Rust SDK
+    Anthropic / OpenAI / LangChain · 外部 AI 智能体"]
+
+    B["**② 协议 / 传输层**
+    HTTP/REST (Axum + TLS) · gRPC · WebSocket · MCP (沙箱 + 签名)"]
+
+    C["**③ 认证 & 中间件**
+    JWT 认证 · 频率限制 · CORS · HTTP 追踪 · RBAC"]
+
+    D["**④ API 路由**
+    /v1/memory · /kg · /mm · /v1/agents · /v1/distributed
+    /v1/planner · /v1/security · /v1/workflows · /tenants"]
+
+    E1["记忆智能层
+    调度器 · 分析器 · 预测器 · 监控器
+    成本模型 · 模型路由 · 权重调整器"]
+
+    E2["记忆处理流水线
+    迁移 · 摄取守护进程 · 混合检索 · 融合
+    嵌入 · LLM · 重排序 · 上下文压缩"]
+
+    E3["安全 & 完整性
+    提示注入探测 · 信息守护 · 证据图谱
+    自愈 · 向量守护 · 使用追踪"]
+
+    F["**⑥ 记忆层抽象**
+    STM · LTM（双时态）· KG · MM · 程序记忆（GraphRAG）· 记忆池"]
+
+    G1["运行时 & 内核
+    规划器沙箱 · 子智能体池 · 审批节点 (HITL) · 扇出节点"]
+
+    G2["分布式系统
+    共识 · 复制 · 分片 · 纪元管理器
+    信令总线 · 租户隔离"]
+
+    H["**⑧ 数据持久化**
+    PostgreSQL / SQLite · Qdrant（向量）· Neo4j（图）· 事件存储"]
+
+    I["**⑨ 可观测性**
+    OpenTelemetry · Prometheus"]
+
+    A --> B --> C --> D
+    D --> E1 & E2 & E3
+    E1 & E2 & E3 --> F
+    F --> G1 & G2
+    G1 & G2 --> H
+    E1 --> I
+
+    style E1 fill:#d5e8d4,stroke:#82b366,color:#1a1a1a
+    style E2 fill:#d5e8d4,stroke:#82b366,color:#1a1a1a
+    style E3 fill:#f8cecc,stroke:#b85450,color:#1a1a1a
+    style F fill:#fff2cc,stroke:#d6b656,color:#1a1a1a
+```
+
 ## 项目结构
 
 ```
@@ -454,16 +515,17 @@ docker compose logs -f
 
 ## 相关文档
 
+### 核心文档
+- [API 示例 (API_EXAMPLES.md)](docs/API_EXAMPLES.md) — 完整 curl + Python 代码示例
+- [集成食谱 (INTEGRATION_COOKBOOK.md)](docs/INTEGRATION_COOKBOOK.md) — Python/JS/LLM Agent 集成实战
+- [架构深度解析 (ARCHITECTURE_DEEP_DIVE.md)](docs/ARCHITECTURE_DEEP_DIVE.md) — 系统设计原理与内部实现
+- [接入指南 (INTEGRATION_GUIDE.md)](docs/INTEGRATION_GUIDE.md) — 快速接入与最佳实践
+
+### 参考文档
 - [变更记录 (CHANGELOG)](CHANGELOG.md) — 版本更新与改动说明
-- [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告与支持版本
-- [行为准则 (CODE_OF_CONDUCT)](CODE_OF_CONDUCT.md) — 社区参与规范
-- [开源审查清单 (OPEN_SOURCE_CHECKLIST)](docs/OPEN_SOURCE_CHECKLIST.md) — 开源就绪项与发布前待办
 - [架构说明 (ARCHITECTURE)](docs/ARCHITECTURE.md) — Why adaptive / Why agent-like / 决策链路
-- [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划与生态对齐
+- [路线图 (ROADMAP)](docs/ROADMAP.md) — 版本规划
 - [使用场景 (USE_CASES)](docs/USE_CASES.md) — LLM Agent、多模态、成本敏感推理等
-- [贡献指南 (CONTRIBUTING)](CONTRIBUTING.md) — 构建、测试、PR、扩展点
 - [扩展指南 (EXTENSION_GUIDE)](docs/EXTENSION_GUIDE.md) — 新增 WeightStrategy / MemoryAgent
-- [Axum 迁移说明](docs/why-axum.md)
-- [算法设计文档](docs/adaptive_memory_algorithm_design.md)
-- [API 规范文档](docs/adaptive_memory_api_specification.md)
-- [算法可视化](docs/adaptive_memory_algorithm_visualization.md)
+- [贡献指南 (CONTRIBUTING)](CONTRIBUTING.md) — 构建、测试、PR
+- [安全政策 (SECURITY)](SECURITY.md) — 漏洞报告

@@ -107,7 +107,10 @@ impl MemoryCompressor {
                     return summary;
                 }
                 Err(e) => {
-                    error!("LLM summarization failed: {}, falling back to simple extraction", e);
+                    error!(
+                        "LLM summarization failed: {}, falling back to simple extraction",
+                        e
+                    );
                 }
             }
         }
@@ -145,11 +148,8 @@ impl MemoryCompressor {
                     );
 
                     // Combine entity names and key facts as key phrases
-                    let mut phrases: Vec<String> = extraction
-                        .entities
-                        .iter()
-                        .map(|e| e.name.clone())
-                        .collect();
+                    let mut phrases: Vec<String> =
+                        extraction.entities.iter().map(|e| e.name.clone()).collect();
 
                     // Add key facts as phrases (truncated)
                     phrases.extend(extraction.key_facts.into_iter().take(5).map(|fact| {
@@ -181,12 +181,11 @@ impl MemoryCompressor {
     fn simple_key_phrase_extraction(&self, text: &str) -> Vec<String> {
         // Common stop words to filter out
         let stop_words = [
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-            "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
-            "being", "have", "has", "had", "do", "does", "did", "will", "would",
-            "could", "should", "may", "might", "must", "shall", "can", "need",
-            "this", "that", "these", "those", "it", "its", "they", "them", "their",
-            "we", "us", "our", "you", "your", "he", "she", "him", "her", "his",
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+            "by", "from", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+            "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
+            "shall", "can", "need", "this", "that", "these", "those", "it", "its", "they", "them",
+            "their", "we", "us", "our", "you", "your", "he", "she", "him", "her", "his",
         ];
 
         let words: Vec<&str> = text.split_whitespace().collect();
@@ -202,7 +201,8 @@ impl MemoryCompressor {
                 let lower_w2 = w2.to_lowercase();
 
                 // Skip if either word is a stop word
-                if !stop_words.contains(&lower_w1.as_str()) && !stop_words.contains(&lower_w2.as_str())
+                if !stop_words.contains(&lower_w1.as_str())
+                    && !stop_words.contains(&lower_w2.as_str())
                 {
                     phrases.push(format!("{} {}", w1, w2));
                 }
@@ -258,9 +258,8 @@ mod tests {
             content: MemoryContent::Text("Short text".to_string()),
             metadata: MemoryMetadata::default(),
             layer: LayerType::Stm,
-            created_at: time::OffsetDateTime::now_utc(),
-            accessed_at: time::OffsetDateTime::now_utc(),
-            access_count: 0,
+            created_at: chrono::Utc::now().timestamp(),
+            updated_at: chrono::Utc::now().timestamp(),
         };
 
         let result = compressor.compress(&[entry]).await;

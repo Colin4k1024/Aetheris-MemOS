@@ -71,8 +71,9 @@ fn discover_config_file() -> Option<String> {
 }
 
 pub fn init() {
-    let config_file = discover_config_file()
-        .unwrap_or_else(|| std::env::var("APP_CONFIG").unwrap_or_else(|_| "config.toml".to_string()));
+    let config_file = discover_config_file().unwrap_or_else(|| {
+        std::env::var("APP_CONFIG").unwrap_or_else(|_| "config.toml".to_string())
+    });
 
     let raw_config = Figment::new()
         .merge(Toml::file(&config_file))
@@ -113,6 +114,41 @@ pub fn get() -> &'static ServerConfig {
     CONFIG.get().expect("config should be set")
 }
 
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct MemoryEvolutionConfig {
+    #[serde(default = "default_decay_lambda")]
+    pub decay_lambda: f64,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct MetricsConfig {
+    #[serde(default = "default_metrics_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_export_interval")]
+    pub export_interval_seconds: u64,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            export_interval_seconds: 15,
+        }
+    }
+}
+
+fn default_metrics_enabled() -> bool {
+    true
+}
+
+fn default_export_interval() -> u64 {
+    15
+}
+
+fn default_decay_lambda() -> f64 {
+    0.01
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct MemoryTransferConfig {
     #[serde(default = "default_check_interval")]
@@ -139,12 +175,18 @@ pub struct ServerConfig {
     pub neo4j: Neo4jConfig,
     #[serde(default = "default_memory_transfer_config")]
     pub memory_transfer: MemoryTransferConfig,
+    #[serde(default)]
+    pub memory_evolution: MemoryEvolutionConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct JwtConfig {
     pub secret: String,
     pub expiry: i64,
+    #[serde(default)]
+    pub disabled: bool,
 }
 #[derive(Deserialize, Clone, Debug)]
 pub struct TlsConfig {

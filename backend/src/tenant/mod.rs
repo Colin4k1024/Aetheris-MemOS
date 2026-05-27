@@ -6,12 +6,12 @@
 //! - Tenant-specific configurations
 
 pub mod context;
-pub mod quota;
 pub mod isolation;
+pub mod quota;
 
-pub use context::TenantContext;
-pub use quota::QuotaManager;
+pub use context::{RequestTenantContext, TenantContext};
 pub use isolation::TenantIsolation;
+pub use quota::QuotaManager;
 
 pub use crate::tenant::context::QuotaResource;
 
@@ -20,6 +20,7 @@ pub use crate::tenant::context::QuotaResource;
 pub struct TenantId(pub String);
 
 impl TenantId {
+    /// Create a new TenantId with a freshly generated ULID.
     pub fn new() -> Self {
         Self(ulid::Ulid::new().to_string())
     }
@@ -43,4 +44,18 @@ impl std::fmt::Display for TenantId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+impl TenantId {
+    /// Returns the tenant prefix for scoping data (e.g., "t:tenant_id").
+    pub fn prefix(&self) -> String {
+        format!("t:{}", self.0)
+    }
+}
+
+/// Get the default tenant ID for fallback use.
+/// This is used when no tenant context is available.
+#[allow(unused)]
+pub fn get_default_tenant() -> TenantId {
+    TenantId::from_string("default")
 }

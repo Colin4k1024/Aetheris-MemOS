@@ -106,9 +106,7 @@ async fn list_agents(
 }
 
 #[utoipa::path(get, path = "/api/v1/agents/{agent_id}", tag = "Agent")]
-async fn get_agent(
-    Path(agent_id): Path<String>,
-) -> Result<Json<AgentIdentity>, AppError> {
+async fn get_agent(Path(agent_id): Path<String>) -> Result<Json<AgentIdentity>, AppError> {
     let pool = db::pool();
     let service = AgentService::new(pool.clone());
 
@@ -133,14 +131,14 @@ async fn update_agent(
 }
 
 #[utoipa::path(delete, path = "/api/v1/agents/{agent_id}", tag = "Agent")]
-async fn delete_agent(
-    Path(agent_id): Path<String>,
-) -> Result<Json<serde_json::Value>, AppError> {
+async fn delete_agent(Path(agent_id): Path<String>) -> Result<Json<serde_json::Value>, AppError> {
     let pool = db::pool();
     let service = AgentService::new(pool.clone());
 
     service.delete_agent(&agent_id).await?;
-    Ok(Json(serde_json::json!({ "message": "Agent deleted successfully" })))
+    Ok(Json(
+        serde_json::json!({ "message": "Agent deleted successfully" }),
+    ))
 }
 
 // ============================================================================
@@ -148,16 +146,13 @@ async fn delete_agent(
 // ============================================================================
 
 #[utoipa::path(get, path = "/api/v1/agents/{agent_id}/self-model", tag = "Agent")]
-async fn get_self_model(
-    Path(agent_id): Path<String>,
-) -> Result<Json<AgentSelfModel>, AppError> {
+async fn get_self_model(Path(agent_id): Path<String>) -> Result<Json<AgentSelfModel>, AppError> {
     let pool = db::pool();
     let service = AgentService::new(pool.clone());
 
-    let model = service
-        .get_self_model(&agent_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Self-model for agent {} not found", agent_id)))?;
+    let model = service.get_self_model(&agent_id).await?.ok_or_else(|| {
+        AppError::NotFound(format!("Self-model for agent {} not found", agent_id))
+    })?;
 
     Ok(Json(model))
 }
@@ -174,7 +169,11 @@ async fn update_self_model(
     Ok(Json(model))
 }
 
-#[utoipa::path(post, path = "/api/v1/agents/{agent_id}/self-model/reflect", tag = "Agent")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/agents/{agent_id}/self-model/reflect",
+    tag = "Agent"
+)]
 async fn trigger_reflection(
     Path(agent_id): Path<String>,
 ) -> Result<Json<AgentSelfModel>, AppError> {
@@ -212,7 +211,11 @@ async fn list_capabilities(
     Ok(Json(capabilities))
 }
 
-#[utoipa::path(put, path = "/api/v1/agents/{agent_id}/capabilities/{capability_id}", tag = "Agent")]
+#[utoipa::path(
+    put,
+    path = "/api/v1/agents/{agent_id}/capabilities/{capability_id}",
+    tag = "Agent"
+)]
 async fn update_capability(
     Path((_agent_id, capability_id)): Path<(String, String)>,
     Json(payload): Json<UpdateAgentCapability>,
@@ -224,7 +227,11 @@ async fn update_capability(
     Ok(Json(capability))
 }
 
-#[utoipa::path(delete, path = "/api/v1/agents/{agent_id}/capabilities/{capability_id}", tag = "Agent")]
+#[utoipa::path(
+    delete,
+    path = "/api/v1/agents/{agent_id}/capabilities/{capability_id}",
+    tag = "Agent"
+)]
 async fn delete_capability(
     Path((_agent_id, capability_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -232,7 +239,9 @@ async fn delete_capability(
     let service = AgentService::new(pool.clone());
 
     service.delete_capability(&capability_id).await?;
-    Ok(Json(serde_json::json!({ "message": "Capability deleted successfully" })))
+    Ok(Json(
+        serde_json::json!({ "message": "Capability deleted successfully" }),
+    ))
 }
 
 // ============================================================================
@@ -266,7 +275,11 @@ async fn list_episodes(
     Ok(Json(episodes))
 }
 
-#[utoipa::path(put, path = "/api/v1/agents/{agent_id}/episodes/{episode_id}", tag = "Agent")]
+#[utoipa::path(
+    put,
+    path = "/api/v1/agents/{agent_id}/episodes/{episode_id}",
+    tag = "Agent"
+)]
 async fn update_episode(
     Path((_agent_id, episode_id)): Path<(String, String)>,
     Json(payload): Json<UpdateAgentEpisode>,

@@ -70,11 +70,7 @@ fn decode_token(token: &str) -> Option<JwtClaims> {
     let config = crate::config::get();
     let jwt_config = JwtConfig::new(config.jwt.secret.clone());
 
-    match decode::<JwtClaims>(
-        token,
-        &jwt_config.decoding_key(),
-        &jwt_config.validation(),
-    ) {
+    match decode::<JwtClaims>(token, &jwt_config.decoding_key(), &jwt_config.validation()) {
         Ok(token_data) => Some(token_data.claims),
         Err(_) => None,
     }

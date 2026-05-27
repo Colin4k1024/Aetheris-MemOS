@@ -1,0 +1,79 @@
+.code-block-wrapper {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.code-block-wrapper .code-lang {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  font-size: 11px;
+  color: #999;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.code-block-wrapper .code-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: #999;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.code-block-wrapper .code-copy-btn:hover {
+  color: #1677ff;
+  border-color: #1677ff;
+}
+
+.code-block-wrapper pre {
+  padding: 32px 12px 12px;
+  border-radius: 8px;
+  overflow: auto;
+  background: #f6f8fa;
+  border: 1px solid #e8e8e8;
+  margin: 0;
+}
+
+.doc-content-body table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.doc-content-body th {
+  border: 1px solid #e8e8e8;
+  padding: 8px 12px;
+  background: #fafafa;
+  font-weight: 600;
+  text-align: left;
+}
+
+.doc-content-body td {
+  border: 1px solid #e8e8e8;
+  padding: 8px 12px;
+}
+
+.doc-content-body a {
+  color: #1677ff;
+  text-decoration: none;
+}
+
+.doc-content-body a:hover {
+  text-decoration: underline;
+}
+
+.doc-content-body code:not(.hljs) {
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}

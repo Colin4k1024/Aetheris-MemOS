@@ -19,6 +19,9 @@ const isDev = process.env.NODE_ENV === 'development';
 const isDevOrTest = isDev || process.env.CI;
 const loginPath = '/user/login';
 
+// Pages that don't require authentication
+const PUBLIC_PATHS = [loginPath, '/', '/home', '/documentation', '/user/register'];
+
 /**
  * @see https://umijs.org/docs/api/runtime-config#getinitialstate
  * */
@@ -33,35 +36,31 @@ export async function getInitialState(): Promise<{
       const msg = await queryCurrentUser({
         skipErrorHandler: true,
       });
-      console.log('[getInitialState] fetchUserInfo 返回:', msg);
-      // 确保返回正确的数据格式
+      // Backend may return { data: {...} } or directly { name, ... }
       if (msg && msg.data) {
+        // Reject invalid user (e.g. {isLogin: false} from mock 401)
+        if (msg.data.isLogin === false || !msg.data.name) {
+          return undefined;
+        }
         return msg.data;
       }
-      // 如果 msg 本身就是用户数据（某些情况下可能直接返回数据）
       if (msg && (msg as any).name) {
-        return msg as API.CurrentUser;
+        return msg as unknown as API.CurrentUser;
       }
-      console.warn('[getInitialState] fetchUserInfo 返回格式异常:', msg);
       return undefined;
     } catch (error) {
-      console.error('[getInitialState] fetchUserInfo 失败:', error);
-      // 只有在非登录页面时才重定向到登录页
-      const { location } = history;
-      if (location.pathname !== loginPath) {
-        history.push(loginPath);
-      }
       return undefined;
     }
   };
-  // 如果不是登录页面，执行
+
   const { location } = history;
-  if (
-    ![loginPath, '/user/register', '/user/register-result'].includes(
-      location.pathname,
-    )
-  ) {
+  // Only fetch user info for protected pages
+  if (!PUBLIC_PATHS.includes(location.pathname)) {
     const currentUser = await fetchUserInfo();
+    if (!currentUser) {
+      // No valid session — redirect to login
+      history.push(loginPath);
+    }
     return {
       fetchUserInfo,
       currentUser,
@@ -97,42 +96,14 @@ export const layout: RunTimeLayoutConfig = ({
     footerRender: () => <Footer />,
     onPageChange: () => {
       const { location } = history;
-      // 如果没有登录，重定向到 login
-      // 但排除登录页面和注册相关页面，避免循环重定向
+      // Redirect to login if not authenticated and not on public page
       if (
         !initialState?.currentUser &&
-        location.pathname !== loginPath &&
-        !location.pathname.startsWith('/user/register')
+        !PUBLIC_PATHS.includes(location.pathname)
       ) {
-        console.log('[onPageChange] 未登录，重定向到登录页');
         history.push(loginPath);
-      } else {
-        console.log('[onPageChange] 已登录或已在登录页，跳过重定向', {
-          hasUser: !!initialState?.currentUser,
-          pathname: location.pathname,
-        });
       }
     },
-    bgLayoutImgList: [
-      {
-        src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/D2LWSqNny4sAAAAAAAAAAAAAFl94AQBr',
-        left: 85,
-        bottom: 100,
-        height: '303px',
-      },
-      {
-        src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/C2TWRpJpiC0AAAAAAAAAAAAAFl94AQBr',
-        bottom: -68,
-        right: -45,
-        height: '303px',
-      },
-      {
-        src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/F6vSTbj8KpYAAAAAAAAAAAAAFl94AQBr',
-        bottom: 0,
-        left: 0,
-        width: '331px',
-      },
-    ],
     links: isDevOrTest
       ? [
           <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
@@ -142,11 +113,7 @@ export const layout: RunTimeLayoutConfig = ({
         ]
       : [],
     menuHeaderRender: undefined,
-    // 自定义 403 页面
-    // unAccessible: <div>unAccessible</div>,
-    // 增加一个 loading 的状态
     childrenRender: (children) => {
-      // if (initialState?.loading) return <PageLoading />;
       return (
         <>
           {children}
@@ -172,10 +139,10 @@ export const layout: RunTimeLayoutConfig = ({
 
 /**
  * @name request 配置，可以配置错误处理
- * 它基于 axios 和 ahooks 的 useRequest 提供了一套统一的网络请求和错误处理方案。
  * @doc https://umijs.org/docs/max/request#配置
  */
 export const request: RequestConfig = {
-  baseURL: isDev ? 'http://127.0.0.1:8008' : 'https://proapi.azurewebsites.net',
+  baseURL: isDev ? '' : '',
+  timeout: 10000,
   ...errorConfig,
 };

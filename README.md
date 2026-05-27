@@ -18,11 +18,11 @@
 
 Aetheris MemOS is the memory operating system for AI agents.
 
-Unlike traditional stateless LLM systems, MemOS provides a unified cognitive memory layer that enables agents to store, retrieve, reason, and evolve over time.
+Most agents today suffer from a fundamental flaw: **amnesia**. Modern agent frameworks can route prompts, call tools, and chain model invocations — but they still forget. Every session starts from zero. Every context window fills and drops. Every decision is made without the benefit of accumulated experience.
 
-Most agent stacks today stop at orchestration. They can route prompts, call tools, and chain model invocations, but they still forget. RAG partially addresses this with vector retrieval, yet retrieval alone is not memory. Real memory requires multiple layers, temporal structure, graph reasoning, compression, confidence estimation, and explainable decisions.
+RAG partially addresses this, but retrieval alone is not memory. Real memory requires temporal structure, graph reasoning, multi-dimensional confidence estimation, adaptive compression, and explainable decisions. It requires infrastructure.
 
-MemOS turns memory into infrastructure. It gives agents a persistent kernel spanning short-term memory, long-term memory, knowledge graphs, and multimodal context, exposed through a consistent API and adaptive decision pipeline.
+MemOS turns memory into infrastructure. It gives agents a persistent cognitive kernel spanning short-term memory, long-term memory, knowledge graphs, and multimodal context — exposed through a consistent API and an adaptive decision pipeline that routes intelligently based on task structure, not prompt engineering.
 
 ```text
 Without MemOS                    With MemOS
@@ -44,20 +44,16 @@ User prompt                      User prompt
                                  (agent improves over time)
 ```
 
-## Why MemOS
+## The Problem
 
-AI agents need more than prompts and vector stores.
+As foundation models become commoditized, the durable advantage in AI systems shifts upward — into the runtime, the memory layer, and the ability to accumulate knowledge over time. The winner is not the system with the biggest context window. It is the system that remembers correctly, retrieves selectively, explains its choices, and keeps improving.
 
-| Problem | MemOS Solution |
-|---------|----------------|
-| Stateless LLM calls lose context between sessions | Persistent STM and LTM with automatic transfer |
-| RAG is limited to similarity search | Triple hybrid retrieval: vector + keyword + graph |
-| Memory selection is ad hoc and prompt-dependent | Adaptive scheduler chooses memory strategy per task |
-| Context windows overflow as conversations grow | Multi-strategy context compression keeps signal, drops noise |
-| Retrieval quality is opaque | Confidence scoring exposes why a memory is trustworthy |
-| Agent decisions are hard to audit | Decision traces make retrieval and scheduling explainable |
-| Multi-agent systems duplicate knowledge | Tenant-aware cross-agent sharing enables safe reuse |
-| Embedding model changes can poison retrieval quality | Vector signature guards prevent cross-model collapse |
+| Dimension | Stateless LLM | Basic RAG | Aetheris MemOS |
+|-----------|--------------|-----------|----------------|
+| Memory Persistence | Session-scoped only, lost on reset | Flat vector store, no temporal structure | Multi-layer kernel: STM → LTM promotion with bi-temporal indexing |
+| Retrieval | None | Single-vector similarity | Triple hybrid: vector + keyword + graph neighborhood |
+| Context Management | Hard window cutoff, no recovery | Overflow discarded silently | Adaptive compression: sliding window, importance pruning, LLM summarization, hierarchical |
+| Decision Transparency | Black box | Source attribution only | Full decision trace with multi-dimensional confidence scoring |
 
 ## Positioning
 
@@ -71,94 +67,117 @@ Infrastructure Layer   -> Postgres / Qdrant / Neo4j / Object Storage
 
 MemOS is not another demo chatbot. It is the memory substrate under agent systems.
 
-## Vision
-
-We believe the future of AI is not just better models, but better memory systems.
-
-As models become cheaper and more interchangeable, durable advantage shifts upward into agent runtime, memory coherence, and long-horizon learning. The winner is not the system with the biggest prompt. It is the system that remembers correctly, retrieves selectively, explains its choices, and keeps improving.
-
-Aetheris MemOS is built around that thesis.
-
 ## Architecture
 
-```text
-+-------------------------------------------------------------------+
-|                       Agent / Application Layer                    |
-+-----------------------------------+-------------------------------+
-                                    | REST API / SDK
-+-----------------------------------v-------------------------------+
-|                         Aetheris MemOS Kernel                     |
-|                                                                   |
-|  +-------------------------------------------------------------+  |
-|  |                    Adaptive Scheduler                       |  |
-|  | Task Profiler -> Predictor -> Weight Adjuster -> Trace     |  |
-|  +------------------------------+------------------------------+  |
-|                                 |                                 |
-|  +-----------+  +-------------+ | +----------------+ +---------+ |
-|  |    STM    |  |     LTM     | | | Knowledge Graph| |   MM    | |
-|  | Sessions  |  | Persistence | | | Bi-temporal KG | | Modality| |
-|  +-----+-----+  +------+------+ | +--------+-------+ +----+----+ |
-|        |               |        |          |              |       |
-|  +-----v---------------v--------v----------v--------------v----+  |
-|  |                       Query Engine                           |  |
-|  | Vector Search | Keyword Search | Graph Traversal | Rerank   |  |
-|  +-------------------------------------------------------------+  |
-|                                                                   |
-|  +-----------------+ +-------------------+ +------------------+   |
-|  | Confidence      | | Context Compressor| | Strategy Mutator |   |
-|  | Scorer          | | Sliding/Summary   | | Auto-evolving    |   |
-|  +-----------------+ +-------------------+ +------------------+   |
-|                                                                   |
-|  +-----------------+ +-------------------+ +------------------+   |
-|  | Vector Guard    | | Integrity Guard   | | Tenant Isolation |   |
-|  | Model Signature | | Hash + Journal    | | RBAC + Quotas    |   |
-|  +-----------------+ +-------------------+ +------------------+   |
-+-----------------------------------+-------------------------------+
-                                    |
-+-----------------------------------v-------------------------------+
-|                           Storage Layer                           |
-|    PostgreSQL        Qdrant         Neo4j           SQLite        |
-|    relational        vector         graph           embedded      |
-+-------------------------------------------------------------------+
+> Full interactive diagram: [docs/architecture.drawio](docs/architecture.drawio)
+
+```mermaid
+flowchart TD
+    A["**① Clients & SDKs**
+    React Frontend · Python SDK · Rust SDK
+    Anthropic / OpenAI / LangChain · External AI Agents"]
+
+    B["**② Protocol / Transport**
+    HTTP/REST (Axum + TLS) · gRPC · WebSocket · MCP (Sandbox + Signing)"]
+
+    C["**③ Auth & Middleware**
+    JWT Auth · Rate Limiting · CORS · HTTP Trace · RBAC"]
+
+    D["**④ API Routes**
+    /v1/memory · /kg · /mm · /v1/agents · /v1/distributed
+    /v1/planner · /v1/security · /v1/workflows · /tenants"]
+
+    E1["Memory Intelligence
+    Scheduler · Analyzer · Predictor · Monitor
+    Cost Model · Model Router · Weight Adjuster"]
+
+    E2["Memory Processing Pipeline
+    Transfer · Ingestion Daemon · Hybrid Search · Fusion
+    Embedding · LLM · Rerank · Context Compressor"]
+
+    E3["Security & Integrity
+    Prompt Probe · Info Guard · Evidence Graph
+    Self-Healing · Vector Guard · Usage Tracker"]
+
+    F["**⑥ Memory Layer Abstractions**
+    STM · LTM (Bi-temporal) · KG · MM · Procedural (GraphRAG) · Memory Pool"]
+
+    G1["Runtime & Kernel
+    Planner Sandbox · Subagent Pool · Approval Node (HITL) · Fan Nodes"]
+
+    G2["Distributed System
+    Consensus · Replication · Sharding · Epoch Manager
+    Signaling Bus · Tenant Isolation"]
+
+    H["**⑧ Data Persistence**
+    PostgreSQL / SQLite · Qdrant (vector) · Neo4j (graph) · Event Store"]
+
+    I["**⑨ Observability**
+    OpenTelemetry · Prometheus"]
+
+    A --> B --> C --> D
+    D --> E1 & E2 & E3
+    E1 & E2 & E3 --> F
+    F --> G1 & G2
+    G1 & G2 --> H
+    E1 --> I
+
+    style E1 fill:#d5e8d4,stroke:#82b366,color:#1a1a1a
+    style E2 fill:#d5e8d4,stroke:#82b366,color:#1a1a1a
+    style E3 fill:#f8cecc,stroke:#b85450,color:#1a1a1a
+    style F fill:#fff2cc,stroke:#d6b656,color:#1a1a1a
 ```
 
 ## Core Capabilities
 
 ### Multi-layer memory kernel
 
-| Layer | Purpose | Backend |
-|-------|---------|---------|
-| STM | Active conversational and task context | In-process + relational session storage |
-| LTM | Durable memory with retrieval metadata | PostgreSQL + Qdrant |
-| KG | Entity and relation reasoning with temporal state | PostgreSQL and optional Neo4j |
-| MM | Cross-modal memory for non-text artifacts | PostgreSQL + vector indexing |
+Each memory layer is purpose-built with a dedicated backend optimized for its access pattern:
+
+| Layer | Purpose | Backend | Key Characteristics |
+|-------|---------|---------|---------------------|
+| STM | Active conversational and task context | In-process + relational session storage | Sub-millisecond access, scoped to active task |
+| LTM | Durable memory with semantic retrieval | PostgreSQL + Qdrant (vector index) | Bi-temporal indexing, vector similarity at scale |
+| KG | Entity and relation reasoning | PostgreSQL + optional Neo4j | Temporal snapshots, contradiction detection, graph traversal |
+| MM | Cross-modal memory for non-text artifacts | PostgreSQL + vector index | Multi-modal embeddings, unified retrieval across modalities |
 
 ### Adaptive scheduling
 
-Each task is profiled before memory is selected.
+Before any memory operation, MemOS profiles the task and routes to the optimal strategy. No manual prompt engineering required.
 
 ```text
-Task
- -> complexity
- -> modality
- -> reasoning depth
- -> context dependency
- -> temporal sensitivity
- -> weighted memory plan
- -> decision trace
+Input Analysis
+    |
+    v
+Task Profiling
+    |- complexity
+    |- modality
+    |- reasoning depth
+    |- context dependency
+    |- temporal sensitivity
+    |
+    v
+Strategy Router
+    |- Conversational context   -> STM
+    |- Semantic recall          -> LTM
+    |- Entity / relation query  -> KG
+    |- Cross-modal expansion    -> MM
+    |
+    v
+Weighted memory plan + decision trace
 ```
 
-This allows MemOS to decide when a simple session lookup is enough, when long-term semantic recall matters, and when graph reasoning or multimodal expansion should be used.
+This allows MemOS to decide when a simple session lookup is sufficient, when long-term semantic recall matters, and when graph reasoning or multimodal expansion should be engaged — all at runtime, based on actual task structure.
 
 ### Triple hybrid retrieval
 
-MemOS now supports three fused retrieval modes in a single pipeline:
+MemOS fuses three retrieval modes in a single ranked pipeline, surpassing the single-dimension limitation of traditional RAG:
 
 ```text
-semantic vector search
-+ keyword / BM25 search
-+ graph neighborhood traversal
-= final fused ranking
+Vector Search    — deep semantic similarity across embedding space
++ Keyword Search — precise term matching and rule-based recall
++ Graph Search   — knowledge graph neighborhood traversal
+= Fused ranking  — high-confidence, multi-dimensional memory block
 ```
 
 Endpoint:
@@ -169,15 +188,17 @@ POST /api/v1/memory/search/triple
 
 ### Confidence scoring
 
-Search results can be enriched with multi-dimensional confidence metadata.
+Every search result is enriched with multi-dimensional confidence metadata, making retrieval decisions fully explainable. Developers can see exactly why a memory was selected.
 
 | Dimension | Signal |
 |-----------|--------|
-| Quality | Stored quality score |
-| Relevance | Retrieval ranking score |
+| Quality | Stored quality score at ingestion time |
+| Relevance | Retrieval ranking score for the current query |
 | Recency | Time-decay adjusted freshness |
-| Access | Frequency-normalized usage |
+| Access | Frequency-normalized usage history |
 | Completeness | Content coverage heuristic |
+
+Retrieval is no longer a black box. Every decision trace tells the agent — and the developer — why a specific memory was chosen.
 
 Endpoint:
 
@@ -187,14 +208,14 @@ POST /api/v1/memory/search/scored
 
 ### Context compression
 
-MemOS compresses session context before it reaches the model budget.
+MemOS compresses session context before it reaches the model's attention budget, protecting signal and dropping noise.
 
 | Strategy | Description |
 |----------|-------------|
-| sliding_window | Keep only the most recent messages |
-| importance_prune | Drop low-value context first |
-| llm_summary | Summarize accumulated context into one message |
-| hierarchical | Summarize older context, preserve recent turns |
+| `sliding_window` | Preserve the most recent N messages; drop oldest first |
+| `importance_prune` | Score and drop lowest-value context based on relevance signals |
+| `llm_summary` | Summarize accumulated context into a single dense message using LLM |
+| `hierarchical` | Summarize older segments while preserving recent turns verbatim |
 
 Endpoints:
 
@@ -203,17 +224,17 @@ POST /api/v1/memory/storage/compress/session
 POST /api/v1/memory/storage/compress/messages
 ```
 
-### Enterprise multi-tenancy
+### Enterprise multi-tenancy and security
 
-- Tenant isolation via explicit tenant IDs
-- Role-based access control: Member, Admin, SuperAdmin
-- Cross-agent search within a tenant boundary
-- Shared knowledge configuration for controlled read access
-- Quota enforcement for LTM and session usage
+| Capability | Detail |
+|------------|--------|
+| Tenant isolation | Full network-level isolation per tenant; LTM quotas enforced per tenant |
+| Role-based access | Member / Admin / SuperAdmin roles with fine-grained read, write, delete permissions |
+| Vector space protection | Model signature guard prevents cross-model vector collapse when embedding models are upgraded |
+| Data integrity | Hash-chain evidence graph detects silent information loss; memory modification tracking with tamper-proof audit log |
+| Cross-agent sharing | Controlled shared knowledge within a tenant boundary for safe multi-agent reuse |
 
 ## What Is Already Implemented
-
-Recent work completed in this repository includes:
 
 - Unified DB pool with SQLite and PostgreSQL support
 - SQLite WAL optimization and async write queue
@@ -337,7 +358,7 @@ More details are available in [docs/API_ENDPOINTS.md](https://github.com/Colin4k
 
 ## Configuration
 
-Core runtime configuration lives in backend/config.toml.
+Core runtime configuration lives in `backend/config.toml`.
 
 ```toml
 listen_addr = "127.0.0.1:8008"
@@ -366,43 +387,38 @@ candidate_multiplier = 3
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Backend | Rust + Axum + Tokio |
-| Relational storage | PostgreSQL / SQLite via SQLx |
-| Vector storage | Qdrant |
-| Graph storage | Neo4j optional integration |
-| Embeddings / LLM | Ollama or compatible model endpoints |
-| API docs | OpenAPI + Scalar |
-| Frontend | React + Umi + Ant Design Pro |
+| Layer | Technology | Notes |
+|-------|------------|-------|
+| Backend | Rust + Axum + Tokio | Async-first, zero-cost abstractions |
+| Relational storage | PostgreSQL / SQLite via SQLx | Unified pool, SQLite WAL + async write queue |
+| Vector storage | Qdrant | Native vector index, semantic search at scale |
+| Graph storage | Neo4j optional integration | Bi-temporal KG with snapshot and diff support |
+| Embeddings / LLM | Ollama or compatible endpoints | Ollama, OpenAI, Anthropic, and other compatible APIs |
+| Hardware routing | Auto-detect CUDA / Metal / Apple Silicon | Automatic model routing based on available accelerator |
+| API docs | OpenAPI + Scalar | Interactive docs at `/scalar` |
+| Frontend | React + Umi + Ant Design Pro | Dashboard, task analysis, memory management |
 
 ## Product Roadmap
 
-### Phase 1: Foundation
+### Phase 1–2: Foundation & Intelligence ✅
 
 - [x] Unified DB pool
 - [x] Hardware detection and model routing
 - [x] SQLite concurrency optimization
 - [x] Integrity guards and vector safety
-
-### Phase 2: Intelligent Memory
-
 - [x] Reflection daemon and layered ingestion
 - [x] Bi-temporal knowledge graph
 - [x] Triple hybrid search
 
-### Phase 3: Reliable Retrieval
+### Phase 3–4: Reliability & Scale ✅
 
 - [x] Confidence scoring
 - [x] Context compression
 - [x] Silent information loss protection
-
-### Phase 4: Scale and Governance
-
 - [x] Adaptive strategy mutation
 - [x] Enterprise multi-tenancy
 
-### Phase 5: Ecosystem
+### Phase 5: Ecosystem Interoperability 🔭
 
 - [ ] MemOS protocol for agent interoperability
 - [ ] LangGraph and AutoGen adapters
@@ -415,11 +431,11 @@ The long-term structure is larger than a single repository.
 
 | Product | Role |
 |---------|------|
-| Aetheris MemOS | Memory operating system for agents |
-| Aetheris Runtime | Agent execution runtime |
+| Aetheris MemOS | Memory operating system for agents — this repository |
+| Aetheris Runtime | Agent execution and memory scheduling platform |
 | Aetheris Graph | Graph-native knowledge substrate |
-| Aetheris Control | Governance, observability, and policy plane |
-| Aetheris Cloud | Managed hosted platform |
+| Aetheris Control | Observability, governance, and policy plane |
+| Aetheris Cloud | Managed hosted platform for enterprise |
 
 ## Development
 

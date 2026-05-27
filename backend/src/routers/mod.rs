@@ -13,6 +13,7 @@ mod billing;
 mod dashboard;
 mod data_io;
 mod demo;
+mod distributed;
 mod enterprise;
 mod knowledge_graph;
 mod mcp;
@@ -24,17 +25,26 @@ mod memory_storage;
 #[allow(dead_code)]
 mod metrics;
 #[allow(dead_code)]
+mod multi_tenant_router;
+#[allow(dead_code)]
 mod multimodal;
 #[allow(dead_code)]
-mod multi_tenant_router;
+mod planner;
+mod procedural;
+mod security;
 #[allow(dead_code)]
 mod snapshot;
 #[allow(dead_code)]
 mod tenant;
+mod tracing;
 mod user;
 mod visualization;
+mod workflows;
 
-use crate::{config, hoops};
+use std::sync::Arc;
+
+use crate::layers::procedural_layer::ProceduralMemoryLayer;
+use crate::{config, hoops, services::prometheus_exporter};
 
 #[derive(RustEmbed)]
 #[folder = "assets"]
@@ -97,10 +107,14 @@ pub fn root() -> Router {
         .route("/monitor/optimize", post(memory::optimize))
         .route("/weights/adjust", post(memory::adjust_weights))
         .route("/weights/history", get(memory::get_weight_history))
+        .route("/weights/status", get(memory::get_weight_status))
         .route("/health", get(memory::health_check))
+        .route("/v1/health", get(memory::self_healing_health))
         .route("/config", get(memory::get_config))
         .route("/importance/{entry_id}", get(memory::get_importance))
         .route("/importance/batch", post(memory::batch_importance))
+        .route("/fusion/status", get(memory::fusion_status))
+        .route("/fusion/query", post(memory::fusion_query))
         .nest(
             "/storage",
             Router::new()
@@ -114,7 +128,10 @@ pub fn root() -> Router {
                 .route("/transfer", post(memory_storage::transfer_stm_to_ltm))
                 .route("/batch-ltm", post(memory_storage::batch_store_ltm))
                 .route("/compress/session", post(memory_storage::compress_session))
-                .route("/compress/messages", post(memory_storage::compress_messages)),
+                .route(
+                    "/compress/messages",
+                    post(memory_storage::compress_messages),
+                ),
         )
         .nest(
             "/search",
@@ -127,10 +144,19 @@ pub fn root() -> Router {
                 .route("/ltm/{entry_id}", get(memory_search::get_ltm_entry))
                 // Bi-temporal tracking endpoints
                 .route("/ltm/{entry_id}/at", get(memory_search::get_ltm_at_time))
-                .route("/ltm/{entry_id}/history", get(memory_search::get_ltm_history))
+                .route(
+                    "/ltm/{entry_id}/history",
+                    get(memory_search::get_ltm_history),
+                )
                 .route("/ltm/time-travel", post(memory_search::search_ltm_at_time))
-                .route("/kg/{entity_id}/at", get(memory_search::get_kg_entity_at_time))
-                .route("/kg/{entity_id}/history", get(memory_search::get_kg_entity_history))
+                .route(
+                    "/kg/{entity_id}/at",
+                    get(memory_search::get_kg_entity_at_time),
+                )
+                .route(
+                    "/kg/{entity_id}/history",
+                    get(memory_search::get_kg_entity_history),
+                )
                 .route("/hybrid", post(memory_search::hybrid_search))
                 .route("/entity", post(memory_search::search_by_entity))
                 .route("/triple", post(memory_search::triple_hybrid_search))
@@ -154,12 +180,24 @@ pub fn root() -> Router {
             "/memory-pool",
             Router::new()
                 .route("/register", post(memory_pool::register_agent))
-                .route("/unregister/{agent_id}", post(memory_pool::unregister_agent))
+                .route(
+                    "/unregister/{agent_id}",
+                    post(memory_pool::unregister_agent),
+                )
                 .route("/share/{owner_agent_id}", post(memory_pool::share_memory))
-                .route("/revoke/{owner_agent_id}/{memory_id}", post(memory_pool::revoke_memory))
-                .route("/visible/{agent_id}", get(memory_pool::get_visible_memories))
+                .route(
+                    "/revoke/{owner_agent_id}/{memory_id}",
+                    post(memory_pool::revoke_memory),
+                )
+                .route(
+                    "/visible/{agent_id}",
+                    get(memory_pool::get_visible_memories),
+                )
                 .route("/correlations", post(memory_pool::add_correlation))
-                .route("/correlations/{memory_id}", get(memory_pool::get_correlations))
+                .route(
+                    "/correlations/{memory_id}",
+                    get(memory_pool::get_correlations),
+                )
                 .route("/network", get(memory_pool::get_network_status))
                 .route("/agents", get(memory_pool::list_agents)),
         )
@@ -189,6 +227,18 @@ pub fn root() -> Router {
                 .route("/shards", get(enterprise::get_shards))
                 .route("/shards/{key}", get(enterprise::get_shard)),
         )
+        // Procedural memory routes
+        .nest(
+            "/procedural",
+            Router::new()
+                .route("/store", post(procedural::store_procedural))
+                .route("/search", post(procedural::search_procedural))
+                .with_state(Arc::new(ProceduralMemoryLayer::new())),
+        )
+        // GraphRAG hybrid search route
+        .route("/search/graphrag", post(procedural::graphrag_hybrid_search))
+        // Provider health route
+        .route("/provider/health", get(procedural::provider_health))
         // Visualization routes (for Widget Studio)
         .nest(
             "/visualization",
@@ -287,10 +337,59 @@ pub fn root() -> Router {
         .nest(
             "/tenants",
             Router::new()
-                .route("/", get(multi_tenant_router::list_tenants).post(multi_tenant_router::register_tenant))
-                .route("/{tenant_id}/search", post(multi_tenant_router::tenant_search))
-                .route("/{tenant_id}/sessions", get(multi_tenant_router::tenant_sessions))
+                .route(
+                    "/",
+                    get(multi_tenant_router::list_tenants)
+                        .post(multi_tenant_router::register_tenant),
+                )
+                .route(
+                    "/{tenant_id}/search",
+                    post(multi_tenant_router::tenant_search),
+                )
+                .route(
+                    "/{tenant_id}/sessions",
+                    get(multi_tenant_router::tenant_sessions),
+                )
                 .route("/access/check", post(multi_tenant_router::check_access)),
+        )
+        .nest(
+            "/v1/security",
+            Router::new()
+                .route("/prompt-probe/check", post(security::check_prompt_probe))
+                .route(
+                    "/prompt-probe/check-input",
+                    post(security::check_prompt_probe_input),
+                )
+                .route(
+                    "/prompt-probe/check-output",
+                    post(security::check_prompt_probe_output),
+                ),
+        )
+        // Workflow approval routes
+        .nest(
+            "/v1/workflows",
+            Router::new()
+                .route("/{workflow_id}/approve", post(workflows::approve_workflow))
+                .route("/{workflow_id}/reject", post(workflows::reject_workflow)),
+        )
+        .nest(
+            "/v1/approvals",
+            Router::new().route("/{approval_id}/status", get(workflows::get_approval_status)),
+        )
+        // Distributed system routes (pool status, signals)
+        .nest(
+            "/v1/distributed",
+            Router::new()
+                .route("/pool/status", get(distributed::get_pool_status))
+                .route("/pool/allocate", post(distributed::allocate_slots))
+                .route("/pool/release", post(distributed::release_slots))
+                .route("/signals/{workflow_id}", get(distributed::get_signals))
+                .route("/signals/publish", post(distributed::publish_signal)),
+        )
+        // Planner sandbox routes (dry-run execution)
+        .nest(
+            "/v1/planner",
+            planner::router(std::sync::Arc::new(planner::PlannerState::new())),
         )
         .route_layer(auth_layer);
 
@@ -302,7 +401,8 @@ pub fn root() -> Router {
         )
         .merge(protected_api_router)
         .merge(mcp::router())
-        .merge(data_io::router());
+        .merge(data_io::router())
+        .nest("/v1/tracing", tracing::router());
 
     Router::new()
         .route("/", get(demo::hello))
@@ -314,6 +414,7 @@ pub fn root() -> Router {
         .route("/scalar", get(scalar_ui))
         .route("/scalar/", get(scalar_ui))
         .route("/favicon.ico", get(favicon))
+        .route("/metrics", get(prometheus_exporter::metrics_handler))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(TraceLayer::new_for_http())
         .fallback(not_found)

@@ -9,69 +9,36 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use tracing::{error, info};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{error, info, warn};
 
 use crate::hoops::jwt::auth_middleware;
+use crate::mcp::signing::{
+    verify_component, verify_unsigned, ComponentSignature, TrustedKeyBundle,
+};
 
 use crate::db::kg::KGRepository;
 use crate::db::ltm::LTMRepository;
 use crate::db::mm::MMRepository;
+use crate::db::pool;
 use crate::db::stm::STMRepository;
 use crate::protocol::mcp::{
-    get_memory_resources, get_memory_tools, ResourceContent, ResourceContentResponse,
-    ServerCapabilities, ToolCallResponse, ToolsListResponse, TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST,
-    TOOL_MEMORY_RECALL, TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
+    get_memory_resources, get_memory_tools, Resource as McpResource, ResourceContent,
+    ResourceContentResponse, ServerCapabilities, Tool as McpTool, ToolCallResponse,
+    ToolsListResponse, TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST, TOOL_MEMORY_RECALL,
+    TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
 };
 use crate::services::{memory_search::MemorySearchService, memory_storage::MemoryStorageService};
+use crate::tenant::get_default_tenant;
 use crate::{json_ok, AppError, JsonResult};
-
-fn normalize_tenant_id(tenant_id: Option<&str>) -> Option<&str> {
-    tenant_id.and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
-}
-
-fn session_matches_tenant(session: &crate::db::stm::Session, tenant_id: &str) -> bool {
-    let user_prefix = format!("t:{}:user:", tenant_id);
-    let agent_prefix = format!("t:{}:agent:", tenant_id);
-    session.user_id.starts_with(&user_prefix) || session.agent_id.starts_with(&agent_prefix)
-}
-
-fn parse_resource_uri(uri: &str) -> (String, Option<String>, Option<String>) {
-    let trimmed = uri.strip_prefix("memory://").unwrap_or(uri);
-    let mut uri_parts = trimmed.splitn(2, '?');
-    let path = uri_parts.next().unwrap_or("");
-    let query = uri_parts.next();
-
-    let path_parts: Vec<&str> = path.split('/').collect();
-    let layer = path_parts.first().copied().unwrap_or("").to_string();
-    let id = path_parts.get(1).map(|value| (*value).to_string());
-    let tenant_id = query.and_then(|query| {
-        query.split('&').find_map(|pair| {
-            let mut parts = pair.splitn(2, '=');
-            let key = parts.next()?;
-            let value = parts.next().unwrap_or("").trim();
-            if matches!(key, "tenantId" | "tenant_id") && !value.is_empty() {
-                Some(value.to_string())
-            } else {
-                None
-            }
-        })
-    });
-
-    (layer, id, tenant_id)
-}
 
 /// MCP Router State
 #[derive(Clone)]
 pub struct McpState {
     pub server_name: String,
     pub server_version: String,
+    pub component_registry: Arc<McpComponentRegistry>,
 }
 
 impl Default for McpState {
@@ -79,7 +46,89 @@ impl Default for McpState {
         Self {
             server_name: "adaptive-memory-system".to_string(),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
+            component_registry: Arc::new(McpComponentRegistry::new()),
         }
+    }
+}
+
+/// MCP Component Registry - holds verified tools and resources
+#[derive(Debug)]
+pub struct McpComponentRegistry {
+    key_bundle: TrustedKeyBundle,
+    verified_tools: RwLock<Vec<(McpTool, ComponentSignature)>>,
+    verified_resources: RwLock<Vec<(McpResource, ComponentSignature)>>,
+}
+
+impl McpComponentRegistry {
+    /// Create new registry with trusted key bundle from environment
+    pub fn new() -> Self {
+        Self {
+            key_bundle: TrustedKeyBundle::load_from_env(),
+            verified_tools: RwLock::new(Vec::new()),
+            verified_resources: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Register a tool with its signature - returns Ok if verified
+    pub async fn register_tool(
+        &self,
+        tool: McpTool,
+        signature: Option<ComponentSignature>,
+    ) -> Result<(), String> {
+        match signature {
+            Some(sig) => {
+                let artifact = serde_json::to_vec(&tool).map_err(|e| e.to_string())?;
+                verify_component(&tool.name, &artifact, &sig, &self.key_bundle)
+                    .map_err(|e| e.to_string())?;
+                self.verified_tools.write().await.push((tool, sig));
+                Ok(())
+            }
+            None => {
+                // D-03: Unsigned components are rejected
+                Err(verify_unsigned(&tool.name).unwrap_err().to_string())
+            }
+        }
+    }
+
+    /// Register a resource with its signature - returns Ok if verified
+    pub async fn register_resource(
+        &self,
+        resource: McpResource,
+        signature: Option<ComponentSignature>,
+    ) -> Result<(), String> {
+        match signature {
+            Some(sig) => {
+                let artifact = serde_json::to_vec(&resource).map_err(|e| e.to_string())?;
+                verify_component(&resource.uri, &artifact, &sig, &self.key_bundle)
+                    .map_err(|e| e.to_string())?;
+                self.verified_resources.write().await.push((resource, sig));
+                Ok(())
+            }
+            None => {
+                // D-03: Unsigned components are rejected
+                Err(verify_unsigned(&resource.uri).unwrap_err().to_string())
+            }
+        }
+    }
+
+    /// Get all verified tools
+    pub async fn get_verified_tools(&self) -> Vec<McpTool> {
+        self.verified_tools
+            .read()
+            .await
+            .iter()
+            .map(|(t, _)| t.clone())
+            .collect()
+    }
+
+    /// Get all verified resources
+    pub async fn get_verified_resources(&self) -> Vec<McpResource> {
+        self.verified_resources
+            .read()
+            .await
+            .iter()
+            .map(|(r, _)| r.clone())
+            .collect()
     }
 }
 
@@ -113,10 +162,55 @@ async fn initialize(State(state): State<McpState>) -> JsonResult<serde_json::Val
     }))
 }
 
-/// List available MCP tools
-async fn list_tools() -> JsonResult<ToolsListResponse> {
-    let tools = get_memory_tools();
-    json_ok(ToolsListResponse { tools })
+/// List available MCP tools - only returns tools with valid signatures
+async fn list_tools(State(state): State<McpState>) -> JsonResult<ToolsListResponse> {
+    let registry = &state.component_registry;
+    let key_bundle = &registry.key_bundle;
+
+    let all_tools = get_memory_tools();
+    let mut verified_tools = Vec::new();
+
+    // Try to load signatures from environment
+    let signatures_json = std::env::var("MCP_TOOL_SIGNATURES").unwrap_or_default();
+    let signatures: Vec<ComponentSignature> =
+        serde_json::from_str(&signatures_json).unwrap_or_default();
+
+    for tool in all_tools {
+        // Find signature for this tool
+        if let Some(sig) = signatures.iter().find(|s| s.component_id == tool.name) {
+            let artifact = match serde_json::to_vec(&tool) {
+                Ok(a) => a,
+                Err(e) => {
+                    warn!("MCP tool {} failed to serialize: {}", tool.name, e);
+                    continue;
+                }
+            };
+
+            // D-01: Verify signature on load
+            if let Err(e) = verify_component(&tool.name, &artifact, sig, key_bundle) {
+                // D-03: Reject unsigned/invalid components with structured log
+                warn!(
+                    component_id = %tool.name,
+                    issuer = %sig.issuer,
+                    error = %e,
+                    "MCP tool rejected: signing verification failed"
+                );
+                continue;
+            }
+
+            verified_tools.push(tool);
+        } else {
+            // No signature found - reject unsigned component (D-03)
+            warn!(
+                component_id = %tool.name,
+                "MCP tool rejected: no signature found"
+            );
+        }
+    }
+
+    json_ok(ToolsListResponse {
+        tools: verified_tools,
+    })
 }
 
 /// MCP tool call request
@@ -173,7 +267,6 @@ async fn handle_memory_write(
         .to_lowercase();
 
     let user_id = args["user_id"].as_str().unwrap_or("default").to_string();
-    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
     let session_id = args["session_id"].as_str().map(|s| s.to_string());
     let agent_id = args["agent_id"].as_str().map(|s| s.to_string());
 
@@ -181,8 +274,7 @@ async fn handle_memory_write(
         "stm" => {
             let agent = agent_id.unwrap_or_else(|| "mcp_agent".to_string());
 
-            let (session_id, message_id) = MemoryStorageService::store_stm_with_tenant(
-                tenant_id,
+            let (session_id, message_id) = MemoryStorageService::store_stm(
                 &user_id,
                 &agent,
                 "mcp_session",
@@ -205,14 +297,8 @@ async fn handle_memory_write(
         }
         "ltm" => {
             let source_id = format!("mcp_{}", ulid::Ulid::new());
-            let entry_id = MemoryStorageService::store_ltm_with_tenant(
-                tenant_id,
-                &source_id,
-                "user_input",
-                &content,
-                None,
-            )
-            .await?;
+            let entry_id =
+                MemoryStorageService::store_ltm(&source_id, "user_input", &content, None).await?;
 
             Ok(vec![crate::protocol::mcp::ToolContent::Text(
                 serde_json::json!({
@@ -234,6 +320,7 @@ async fn handle_memory_write(
             let description = args["description"].as_str();
 
             let entity_id = KGRepository::create_entity(
+                &get_default_tenant(),
                 &entity_name,
                 entity_type,
                 description,
@@ -242,7 +329,6 @@ async fn handle_memory_write(
                 None,
                 None,
                 1.0,
-                tenant_id,
             )
             .await?;
 
@@ -271,7 +357,6 @@ async fn handle_memory_write(
                 None,
                 None,
                 None,
-                tenant_id,
             )
             .await?;
 
@@ -302,7 +387,7 @@ async fn handle_memory_search(
     let layer = args["layer"].as_str().unwrap_or("ltm").to_lowercase();
     let limit = args["limit"].as_u64().unwrap_or(10) as i32;
     let user_id = args["user_id"].as_str();
-    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
+    let session_id = args["session_id"].as_str();
 
     let results = match layer.as_str() {
         "stm" => {
@@ -341,8 +426,14 @@ async fn handle_memory_search(
         }
         "kg" => {
             // Search in knowledge graph entities
-            let entities =
-                KGRepository::list_entities(Some(&query), Some(limit), Some(0), tenant_id).await?;
+            let entities = KGRepository::list_entities(
+                pool(),
+                &get_default_tenant(),
+                Some(&query),
+                Some(limit),
+                Some(0),
+            )
+            .await?;
             let results_json: Vec<serde_json::Value> = entities
                 .entities
                 .iter()
@@ -360,8 +451,7 @@ async fn handle_memory_search(
         }
         "mm" => {
             // Search in multimodal memories by modality type
-            let entries =
-                MMRepository::get_entries_by_modality("text", Some(limit), tenant_id).await?;
+            let entries = MMRepository::get_entries_by_modality("text", Some(limit)).await?;
             // Filter by query if possible
             let results_json: Vec<serde_json::Value> = entries
                 .iter()
@@ -402,22 +492,15 @@ async fn handle_memory_recall(
         .ok_or_else(|| AppError::BadRequest("Missing 'session_id' parameter".to_string()))?
         .to_string();
     let limit = args["limit"].as_u64().unwrap_or(10) as i32;
-    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
-
-    if let Some(tenant_id) = tenant_id {
-        let session = STMRepository::get_session(&session_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Session not found: {}", session_id)))?;
-
-        if !session_matches_tenant(&session, tenant_id) {
-            return Err(AppError::Forbidden(
-                "Session does not belong to the requested tenant".to_string(),
-            ));
-        }
-    }
 
     // Recall memories from a session
-    let messages = STMRepository::get_session_messages(&session_id, Some(limit)).await?;
+    let messages = STMRepository::get_session_messages(
+        pool(),
+        &get_default_tenant(),
+        &session_id,
+        Some(limit),
+    )
+    .await?;
 
     let text = serde_json::json!({
         "success": true,
@@ -476,13 +559,19 @@ async fn handle_memory_list(
     let limit = args["limit"].as_u64().unwrap_or(20) as i32;
     let offset = args["offset"].as_u64().unwrap_or(0) as i32;
     let user_id = args["user_id"].as_str();
-    let tenant_id = normalize_tenant_id(args["tenant_id"].as_str());
 
     let entries = match layer.as_str() {
         "stm" => {
             // List STM sessions
-            let response =
-                STMRepository::list_sessions(user_id, None, Some(limit), Some(offset)).await?;
+            let response = STMRepository::list_sessions(
+                pool(),
+                &get_default_tenant(),
+                user_id,
+                None,
+                Some(limit),
+                Some(offset),
+            )
+            .await?;
 
             serde_json::json!({
                 "type": "stm_sessions",
@@ -502,8 +591,15 @@ async fn handle_memory_list(
         }
         "ltm" => {
             // List LTM entries
-            let response =
-                LTMRepository::list_entries(None, None, Some(limit), Some(offset)).await?;
+            let response = LTMRepository::list_entries(
+                pool(),
+                &get_default_tenant(),
+                None,
+                None,
+                Some(limit),
+                Some(offset),
+            )
+            .await?;
 
             serde_json::json!({
                 "type": "ltm_entries",
@@ -522,9 +618,14 @@ async fn handle_memory_list(
         "kg" => {
             // List KG entities
             let entity_type = args["entity_type"].as_str();
-            let response =
-                KGRepository::list_entities(entity_type, Some(limit), Some(offset), tenant_id)
-                    .await?;
+            let response = KGRepository::list_entities(
+                pool(),
+                &get_default_tenant(),
+                entity_type,
+                Some(limit),
+                Some(offset),
+            )
+            .await?;
 
             serde_json::json!({
                 "type": "kg_entities",
@@ -546,8 +647,7 @@ async fn handle_memory_list(
             // List MM entries
             let modality_type = args["modality_type"].as_str();
             let response =
-                MMRepository::list_entries(modality_type, Some(limit), Some(offset), tenant_id)
-                    .await?;
+                MMRepository::list_entries(modality_type, Some(limit), Some(offset)).await?;
 
             serde_json::json!({
                 "type": "mm_entries",
@@ -573,11 +673,54 @@ async fn handle_memory_list(
     Ok(vec![crate::protocol::mcp::ToolContent::Text(entries)])
 }
 
-/// List available MCP resources
-async fn list_resources() -> JsonResult<serde_json::Value> {
-    let resources = get_memory_resources();
+/// List available MCP resources - only returns resources with valid signatures
+async fn list_resources(State(state): State<McpState>) -> JsonResult<serde_json::Value> {
+    let registry = &state.component_registry;
+    let key_bundle = &registry.key_bundle;
+
+    let all_resources = get_memory_resources();
+    let mut verified_resources = Vec::new();
+
+    // Try to load signatures from environment
+    let signatures_json = std::env::var("MCP_RESOURCE_SIGNATURES").unwrap_or_default();
+    let signatures: Vec<ComponentSignature> =
+        serde_json::from_str(&signatures_json).unwrap_or_default();
+
+    for resource in all_resources {
+        // Find signature for this resource
+        if let Some(sig) = signatures.iter().find(|s| s.component_id == resource.uri) {
+            let artifact = match serde_json::to_vec(&resource) {
+                Ok(a) => a,
+                Err(e) => {
+                    warn!("MCP resource {} failed to serialize: {}", resource.uri, e);
+                    continue;
+                }
+            };
+
+            // D-01: Verify signature on load
+            if let Err(e) = verify_component(&resource.uri, &artifact, sig, key_bundle) {
+                // D-03: Reject unsigned/invalid components with structured log
+                warn!(
+                    component_id = %resource.uri,
+                    issuer = %sig.issuer,
+                    error = %e,
+                    "MCP resource rejected: signing verification failed"
+                );
+                continue;
+            }
+
+            verified_resources.push(resource);
+        } else {
+            // No signature found - reject unsigned component (D-03)
+            warn!(
+                component_id = %resource.uri,
+                "MCP resource rejected: no signature found"
+            );
+        }
+    }
+
     json_ok(serde_json::json!({
-        "resources": resources
+        "resources": verified_resources
     }))
 }
 
@@ -593,16 +736,31 @@ async fn read_resource(
 ) -> JsonResult<ResourceContentResponse> {
     info!("MCP resource read: {}", req.uri);
 
-    let (layer, id, tenant_id) = parse_resource_uri(&req.uri);
+    // Parse URI: memory://layer/id
+    let parts: Vec<&str> = req
+        .uri
+        .strip_prefix("memory://")
+        .unwrap_or(&req.uri)
+        .split('/')
+        .collect();
 
-    if layer.is_empty() {
+    if parts.is_empty() {
         return Err(AppError::BadRequest("Invalid resource URI".to_string()));
     }
 
-    let content = match layer.as_str() {
+    let layer = parts[0];
+    let id = parts.get(1).map(|s| s.to_string());
+
+    let content = match layer {
         "stm" => {
             if let Some(session_id) = id {
-                let messages = STMRepository::get_session_messages(&session_id, Some(50)).await?;
+                let messages = STMRepository::get_session_messages(
+                    pool(),
+                    &get_default_tenant(),
+                    &session_id,
+                    Some(50),
+                )
+                .await?;
 
                 serde_json::json!({
                     "sessionId": session_id,
@@ -611,7 +769,15 @@ async fn read_resource(
                 .to_string()
             } else {
                 // List all sessions
-                let response = STMRepository::list_sessions(None, None, Some(20), Some(0)).await?;
+                let response = STMRepository::list_sessions(
+                    pool(),
+                    &get_default_tenant(),
+                    None,
+                    None,
+                    Some(20),
+                    Some(0),
+                )
+                .await?;
 
                 serde_json::json!({
                     "sessions": response.sessions
@@ -621,7 +787,9 @@ async fn read_resource(
         }
         "ltm" => {
             if let Some(entry_id) = id {
-                let entry = LTMRepository::get_entry_by_id(&entry_id).await?;
+                let entry =
+                    LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id)
+                        .await?;
 
                 match entry {
                     Some(e) => serde_json::json!({
@@ -638,7 +806,15 @@ async fn read_resource(
                     }
                 }
             } else {
-                let response = LTMRepository::list_entries(None, None, Some(20), Some(0)).await?;
+                let response = LTMRepository::list_entries(
+                    pool(),
+                    &get_default_tenant(),
+                    None,
+                    None,
+                    Some(20),
+                    Some(0),
+                )
+                .await?;
 
                 serde_json::json!({
                     "entries": response.entries
@@ -650,16 +826,18 @@ async fn read_resource(
             // Knowledge graph resources
             if let Some(entity_id) = id {
                 let entity =
-                    KGRepository::get_entity_by_id(&entity_id, tenant_id.as_deref()).await?;
+                    KGRepository::get_entity_by_id(pool(), &get_default_tenant(), &entity_id)
+                        .await?;
 
                 match entity {
                     Some(e) => {
                         // Get related entities
                         let related = KGRepository::get_related_entities(
+                            pool(),
+                            &get_default_tenant(),
                             &entity_id,
                             None,
                             Some(5),
-                            tenant_id.as_deref(),
                         )
                         .await?;
                         let relations: Vec<serde_json::Value> = related
@@ -699,9 +877,14 @@ async fn read_resource(
                 }
             } else {
                 // List all entities
-                let response =
-                    KGRepository::list_entities(None, Some(20), Some(0), tenant_id.as_deref())
-                        .await?;
+                let response = KGRepository::list_entities(
+                    pool(),
+                    &get_default_tenant(),
+                    None,
+                    Some(20),
+                    Some(0),
+                )
+                .await?;
 
                 serde_json::json!({
                     "entities": response.entities.iter().map(|e| {
@@ -720,17 +903,12 @@ async fn read_resource(
         "mm" => {
             // Multimodal resources
             if let Some(entry_id) = id {
-                let entry = MMRepository::get_entry_by_id(&entry_id, tenant_id.as_deref()).await?;
+                let entry = MMRepository::get_entry_by_id(&entry_id).await?;
 
                 match entry {
                     Some(e) => {
                         // Get related entries
-                        let related = MMRepository::get_related_entries(
-                            &entry_id,
-                            Some(5),
-                            tenant_id.as_deref(),
-                        )
-                        .await?;
+                        let related = MMRepository::get_related_entries(&entry_id, Some(5)).await?;
                         let relations: Vec<serde_json::Value> = related
                             .iter()
                             .map(|(ent, rel)| {
@@ -768,9 +946,7 @@ async fn read_resource(
                 }
             } else {
                 // List all entries
-                let response =
-                    MMRepository::list_entries(None, Some(20), Some(0), tenant_id.as_deref())
-                        .await?;
+                let response = MMRepository::list_entries(None, Some(20), Some(0)).await?;
 
                 serde_json::json!({
                     "entries": response.entries.iter().map(|e| {

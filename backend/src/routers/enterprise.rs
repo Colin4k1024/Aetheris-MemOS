@@ -8,20 +8,20 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
 
-use crate::services::enterprise::{ClusterManager, ClusterNode, EnterpriseShardManager, ShardConfig};
+use crate::services::enterprise::{
+    ClusterManager, ClusterNode, EnterpriseShardManager, ShardConfig,
+};
 use crate::{json_ok, JsonResult};
 
 // Global cluster manager
-static CLUSTER_MANAGER: std::sync::OnceLock<ClusterManager> =
-    std::sync::OnceLock::new();
+static CLUSTER_MANAGER: std::sync::OnceLock<ClusterManager> = std::sync::OnceLock::new();
 
 fn get_cluster_manager() -> &'static ClusterManager {
     CLUSTER_MANAGER.get_or_init(|| ClusterManager::new("node_1"))
 }
 
 // Global shard manager
-static SHARD_MANAGER: std::sync::OnceLock<EnterpriseShardManager> =
-    std::sync::OnceLock::new();
+static SHARD_MANAGER: std::sync::OnceLock<EnterpriseShardManager> = std::sync::OnceLock::new();
 
 fn get_shard_manager() -> &'static EnterpriseShardManager {
     SHARD_MANAGER.get_or_init(EnterpriseShardManager::new)
@@ -52,9 +52,7 @@ pub struct CreateShardRequest {
 }
 
 /// Register a node in the cluster
-pub async fn register_node(
-    Json(req): Json<RegisterNodeRequest>,
-) -> JsonResult<ClusterNode> {
+pub async fn register_node(Json(req): Json<RegisterNodeRequest>) -> JsonResult<ClusterNode> {
     req.validate()?;
     info!("Registering node {} in cluster", req.node_id);
 
@@ -111,9 +109,7 @@ pub async fn is_leader() -> JsonResult<serde_json::Value> {
 }
 
 /// Create a shard
-pub async fn create_shard(
-    Json(req): Json<CreateShardRequest>,
-) -> JsonResult<ShardConfig> {
+pub async fn create_shard(Json(req): Json<CreateShardRequest>) -> JsonResult<ShardConfig> {
     req.validate()?;
     info!("Creating shard {}", req.shard_id);
 
@@ -131,9 +127,7 @@ pub async fn create_shard(
 }
 
 /// Get shard for key
-pub async fn get_shard(
-    Path(key): Path<String>,
-) -> JsonResult<Option<ShardConfig>> {
+pub async fn get_shard(Path(key): Path<String>) -> JsonResult<Option<ShardConfig>> {
     info!("Getting shard for key: {}", key);
 
     let shard = get_shard_manager().get_shard_for_key(&key).await;

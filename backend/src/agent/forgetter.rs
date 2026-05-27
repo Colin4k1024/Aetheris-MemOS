@@ -3,9 +3,9 @@
 //! This module handles intelligent memory forgetting based on importance and age.
 //! Implements bio-inspired fractal decay mechanism.
 
-use crate::kernel::types::*;
-use crate::kernel::error::MemoryResult;
 use crate::agent::memory_agent::ForgetResult;
+use crate::kernel::error::MemoryResult;
+use crate::kernel::types::*;
 
 /// Memory type classification for decay strategies
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,9 +31,9 @@ impl MemoryType {
     /// Get decay rate (hours) for this memory type
     pub fn decay_rate_hours(&self) -> f64 {
         match self {
-            MemoryType::Working => 1.0,      // Hourly
-            MemoryType::Episodic => 24.0,    // Daily
-            MemoryType::Factual => 720.0,    // ~Monthly (30 days)
+            MemoryType::Working => 1.0,       // Hourly
+            MemoryType::Episodic => 24.0,     // Daily
+            MemoryType::Factual => 720.0,     // ~Monthly (30 days)
             MemoryType::Procedural => 8760.0, // Yearly (minimal decay)
         }
     }
@@ -43,16 +43,28 @@ impl MemoryType {
         // Check tags for hints
         for tag in &entry.metadata.tags {
             let tag_lower = tag.to_lowercase();
-            if tag_lower.contains("skill") || tag_lower.contains("procedure") || tag_lower.contains("procedure") {
+            if tag_lower.contains("skill")
+                || tag_lower.contains("procedure")
+                || tag_lower.contains("procedure")
+            {
                 return MemoryType::Procedural;
             }
-            if tag_lower.contains("fact") || tag_lower.contains("knowledge") || tag_lower.contains("entity") {
+            if tag_lower.contains("fact")
+                || tag_lower.contains("knowledge")
+                || tag_lower.contains("entity")
+            {
                 return MemoryType::Factual;
             }
-            if tag_lower.contains("episodic") || tag_lower.contains("event") || tag_lower.contains("conversation") {
+            if tag_lower.contains("episodic")
+                || tag_lower.contains("event")
+                || tag_lower.contains("conversation")
+            {
                 return MemoryType::Episodic;
             }
-            if tag_lower.contains("working") || tag_lower.contains("temp") || tag_lower.contains("temporary") {
+            if tag_lower.contains("working")
+                || tag_lower.contains("temp")
+                || tag_lower.contains("temporary")
+            {
                 return MemoryType::Working;
             }
         }
@@ -63,9 +75,11 @@ impl MemoryType {
 
         if age_hours < 24.0 {
             MemoryType::Working
-        } else if age_hours < 168.0 { // < 1 week
+        } else if age_hours < 168.0 {
+            // < 1 week
             MemoryType::Episodic
-        } else if age_hours < 720.0 { // < 1 month
+        } else if age_hours < 720.0 {
+            // < 1 month
             MemoryType::Factual
         } else {
             MemoryType::Procedural
@@ -139,7 +153,7 @@ impl MemoryForGetter {
 
         // Evict old memories that haven't been accessed recently
         let age_seconds = now - entry.created_at;
-        
+
         if age_seconds > self.max_age_seconds {
             // Very old: evict if not important
             return entry.metadata.importance < 0.5;
@@ -161,7 +175,10 @@ impl MemoryForGetter {
         let reasons = if evicted_count == 0 {
             vec!["No memories met eviction criteria".to_string()]
         } else {
-            vec![format!("Evicted {} low-importance/old memories", evicted_count)]
+            vec![format!(
+                "Evicted {} low-importance/old memories",
+                evicted_count
+            )]
         };
 
         Ok(ForgetResult {

@@ -2,13 +2,13 @@
 //!
 //! This adapter integrates with Anthropic's Claude for memory operations.
 
-use crate::kernel::types::*;
-use crate::kernel::error::MemoryResult;
-use crate::runtime::{RuntimeAdapter, RuntimeMessage, MessageRole, AdapterConfig};
 use crate::agent::memory_agent::MemoryAgent;
+use crate::kernel::error::MemoryResult;
+use crate::kernel::types::*;
+use crate::runtime::{AdapterConfig, MessageRole, RuntimeAdapter, RuntimeMessage};
 
 /// Anthropic Memory Adapter
-/// 
+///
 /// Provides integration with Anthropic Claude for automatic memory management.
 pub struct AnthropicMemoryAdapter {
     agent: std::sync::Arc<MemoryAgent>,
@@ -46,19 +46,16 @@ impl AnthropicMemoryAdapter {
     }
 
     /// Build system prompt with memory context for Claude.
-    pub async fn build_system_prompt(
-        &self,
-        session_id: &str,
-    ) -> MemoryResult<String> {
+    pub async fn build_system_prompt(&self, session_id: &str) -> MemoryResult<String> {
         // Get recent conversation
         let recent = self.get_history(session_id, 5).await?;
-        
+
         let mut prompt = String::new();
-        
+
         // Add memory instructions
         prompt.push_str("You have access to a memory system. ");
         prompt.push_str("Important information will be stored automatically.\n\n");
-        
+
         // Add recent conversation as context
         if !recent.is_empty() {
             prompt.push_str("Recent conversation:\n");
@@ -72,7 +69,7 @@ impl AnthropicMemoryAdapter {
                 prompt.push_str(&format!("{}: {}\n", role_str, msg.content));
             }
         }
-        
+
         Ok(prompt)
     }
 
@@ -107,16 +104,22 @@ impl RuntimeAdapter for AnthropicMemoryAdapter {
 
     async fn store_message(&self, message: &RuntimeMessage) -> MemoryResult<MemoryId> {
         let user_id = &message.session_id;
-        
-        self.agent.remember(
-            user_id,
-            Some(&message.session_id),
-            None,
-            message.content.clone(),
-        ).await
+
+        self.agent
+            .remember(
+                user_id,
+                Some(&message.session_id),
+                None,
+                message.content.clone(),
+            )
+            .await
     }
 
-    async fn get_history(&self, session_id: &str, limit: usize) -> MemoryResult<Vec<RuntimeMessage>> {
+    async fn get_history(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> MemoryResult<Vec<RuntimeMessage>> {
         let query = MemoryQuery {
             layer: None,
             text: None,

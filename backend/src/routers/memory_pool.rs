@@ -53,9 +53,7 @@ pub struct AddCorrelationRequest {
 }
 
 /// Register agent in network
-pub async fn register_agent(
-    Json(req): Json<RegisterAgentRequest>,
-) -> JsonResult<NetworkAgent> {
+pub async fn register_agent(Json(req): Json<RegisterAgentRequest>) -> JsonResult<NetworkAgent> {
     req.validate()?;
     info!("Registering agent {} in memory pool", req.agent_id);
 
@@ -67,9 +65,7 @@ pub async fn register_agent(
 }
 
 /// Unregister agent
-pub async fn unregister_agent(
-    Path(agent_id): Path<String>,
-) -> JsonResult<serde_json::Value> {
+pub async fn unregister_agent(Path(agent_id): Path<String>) -> JsonResult<serde_json::Value> {
     info!("Unregistering agent {} from memory pool", agent_id);
 
     let result = get_memory_pool().unregister_agent(&agent_id).await;
@@ -129,9 +125,7 @@ pub async fn get_visible_memories(
 ) -> JsonResult<Vec<crate::services::memory_pool::SharedMemory>> {
     info!("Getting visible memories for agent {}", agent_id);
 
-    let memories = get_memory_pool()
-        .get_visible_memories(&agent_id)
-        .await?;
+    let memories = get_memory_pool().get_visible_memories(&agent_id).await?;
 
     json_ok(memories)
 }

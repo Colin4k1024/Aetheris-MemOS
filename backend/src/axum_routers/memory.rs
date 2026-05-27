@@ -1,13 +1,17 @@
 //! Memory routes - with business logic
 
 use axum::{
-    extract::Json,
+    extract::{Json, Path, Query},
     response::IntoResponse,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+use crate::models::WorkflowEvidenceResponse;
+use crate::services::evidence_graph::list_workflow_evidence;
+use crate::{json_ok, JsonResult};
 
 /// Health check
 #[utoipa::path(get, path = "/api/v1/memory/health", tag = "Memory")]
@@ -55,6 +59,29 @@ async fn select_memory_config(Json(_req): Json<SelectMemoryConfigRequest>) -> im
 #[utoipa::path(get, path = "/api/v1/memory/traces", tag = "Memory")]
 async fn get_decision_traces() -> impl IntoResponse {
     "[]"
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub struct WorkflowEvidenceQuery {}
+
+/// Get workflow evidence
+#[utoipa::path(
+    get,
+    path = "/api/v1/workflows/{id}/evidence",
+    tag = "Memory",
+    params(
+        ("id" = String, Path, description = "Workflow identifier")
+    ),
+    responses(
+        (status = 200, description = "Workflow evidence returned"),
+        (status = 404, description = "Workflow evidence not found")
+    )
+)]
+async fn get_workflow_evidence(
+    Path(workflow_id): Path<String>,
+    Query(_query): Query<WorkflowEvidenceQuery>,
+) -> JsonResult<WorkflowEvidenceResponse> {
+    json_ok(list_workflow_evidence(&workflow_id).await?)
 }
 
 /// Get memory config
@@ -125,11 +152,16 @@ async fn analyze_task_characteristics(Json(_req): Json<AnalyzeTaskRequest>) -> i
         "reasoning_depth": "medium",
         "temporal_requirements": "none",
         "context_dependency": 0.3
-    }).to_string()
+    })
+    .to_string()
 }
 
 /// Batch analyze characteristics
-#[utoipa::path(post, path = "/api/v1/memory/analyzer/batch-characteristics", tag = "Analyzer")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/memory/analyzer/batch-characteristics",
+    tag = "Analyzer"
+)]
 async fn batch_analyze_characteristics() -> impl IntoResponse {
     "[]"
 }
@@ -152,7 +184,8 @@ async fn predict_performance(Json(_req): Json<PredictPerformanceRequest>) -> imp
     serde_json::json!({
         "predicted_performance": 0.8,
         "confidence": 0.9
-    }).to_string()
+    })
+    .to_string()
 }
 
 /// Get baselines
@@ -180,7 +213,8 @@ async fn calculate_cost_benefit(Json(_req): Json<CostBenefitRequest>) -> impl In
         "cost": 0.5,
         "benefit": 0.8,
         "ratio": 1.6
-    }).to_string()
+    })
+    .to_string()
 }
 
 /// Optimize request
@@ -227,23 +261,51 @@ async fn select_memory_config_trace() -> impl IntoResponse {
 /// Create memory routes
 pub fn router() -> Router {
     Router::new()
+        .route(
+            "/api/v1/workflows/{id}/evidence",
+            get(get_workflow_evidence),
+        )
         .route("/api/v1/memory/adaptive", post(select_memory_config))
         .route("/api/v1/memory/adaptive", get(get_memory_status))
-        .route("/api/v1/memory/adaptive/trace", post(select_memory_config_trace))
+        .route(
+            "/api/v1/memory/adaptive/trace",
+            post(select_memory_config_trace),
+        )
         .route("/api/v1/memory/traces", get(get_decision_traces))
         .route("/api/v1/memory/health", get(health_check))
         .route("/api/v1/memory/config", get(get_config))
         .route("/api/v1/memory/configs", get(list_memory_configs))
         .route("/api/v1/memory/configs", post(create_memory_config))
-        .route("/api/v1/memory/configs/{config_id}", get(update_memory_config))
-        .route("/api/v1/memory/configs/{config_id}", put(update_memory_config))
-        .route("/api/v1/memory/configs/{config_id}", delete(delete_memory_config))
-        .route("/api/v1/memory/analyzer/task-characteristics", post(analyze_task_characteristics))
-        .route("/api/v1/memory/analyzer/batch-characteristics", post(batch_analyze_characteristics))
-        .route("/api/v1/memory/predictor/performance", post(predict_performance))
+        .route(
+            "/api/v1/memory/configs/{config_id}",
+            get(update_memory_config),
+        )
+        .route(
+            "/api/v1/memory/configs/{config_id}",
+            put(update_memory_config),
+        )
+        .route(
+            "/api/v1/memory/configs/{config_id}",
+            delete(delete_memory_config),
+        )
+        .route(
+            "/api/v1/memory/analyzer/task-characteristics",
+            post(analyze_task_characteristics),
+        )
+        .route(
+            "/api/v1/memory/analyzer/batch-characteristics",
+            post(batch_analyze_characteristics),
+        )
+        .route(
+            "/api/v1/memory/predictor/performance",
+            post(predict_performance),
+        )
         .route("/api/v1/memory/predictor/baselines", get(get_baselines))
         .route("/api/v1/memory/monitor/resources", get(get_resources))
-        .route("/api/v1/memory/monitor/cost-benefit", post(calculate_cost_benefit))
+        .route(
+            "/api/v1/memory/monitor/cost-benefit",
+            post(calculate_cost_benefit),
+        )
         .route("/api/v1/memory/monitor/optimize", post(optimize))
         .route("/api/v1/memory/weights/adjust", post(adjust_weights))
         .route("/api/v1/memory/weights/history", get(get_weight_history))

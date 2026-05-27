@@ -5,18 +5,19 @@
 pub mod agent;
 pub mod auth;
 pub mod demo;
+pub mod distributed;
+pub mod knowledge_graph;
 pub mod memory;
 pub mod memory_search;
 pub mod memory_storage;
-pub mod knowledge_graph;
 pub mod multimodal;
+pub mod protected;
 pub mod user;
 
 use axum::{
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
-    Json,
     Router,
 };
 
@@ -31,8 +32,6 @@ use crate::web::cors_layer;
         demo::hello,
         auth::register,
         auth::post_login,
-        auth::post_login_with_token,
-        auth::get_login_with_token,
         auth::get_current_user,
         user::list_users,
         user::create_user,
@@ -60,6 +59,7 @@ use crate::web::cors_layer;
         memory::get_memory_status,
         memory::select_memory_config,
         memory::get_decision_traces,
+        memory::get_workflow_evidence,
         memory::get_memory_config,
         memory::list_memory_configs,
         memory::create_memory_config,
@@ -123,7 +123,7 @@ async fn scalar_ui() -> Html<String> {
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
   </body>
 </html>"#
-        .to_string(),
+            .to_string(),
     )
 }
 
@@ -131,23 +131,33 @@ async fn not_found() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, Html("Page not found".to_string()))
 }
 
-/// Create the main Axum router
+/// Create the main Axum router.
+///
+/// ## Public routes (no auth)
+/// - `/api-doc/openapi.json` - OpenAPI spec
+/// - `/scalar`, `/scalar/` - API docs UI
+/// - `/login`, `/register` - Auth page handlers
+/// - `/api/login` - Login API endpoint
+/// - `/` - Demo hello
+///
+/// ## Protected routes (auth required via httpOnly cookie or Bearer header)
+/// All other routes require a valid JWT. The auth middleware is applied
+/// in `protected::protected_router()`.
 pub fn create_router() -> Router {
     let cors = cors_layer();
 
     Router::new()
-        .route("/api-doc/openapi.json", get(|| async { openapi_json().await }))
+        // Public routes - no auth required
+        .route(
+            "/api-doc/openapi.json",
+            get(|| async { openapi_json().await }),
+        )
         .route("/scalar", get(scalar_ui))
         .route("/scalar/", get(scalar_ui))
         .merge(demo::router())
         .merge(auth::router())
-        .merge(user::router())
-        .merge(agent::router())
-        .merge(memory::router())
-        .merge(memory_storage::router())
-        .merge(memory_search::router())
-        .merge(knowledge_graph::router())
-        .merge(multimodal::router())
+        // Protected routes - require auth_middleware
+        .merge(protected::protected_router())
         .layer(cors)
         .fallback(not_found)
 }

@@ -5,18 +5,18 @@
 //! - Merging: Merge similar memories
 //! - Forgetting: Intelligent memory eviction
 
-pub mod memory_agent;
 pub mod compressor;
-pub mod merger;
 pub mod forgetter;
+pub mod memory_agent;
+pub mod merger;
 
-pub use memory_agent::AgentMemoryInterface;
 pub use compressor::MemoryCompressor;
-pub use merger::MemoryMerger;
 pub use forgetter::MemoryForGetter;
+pub use memory_agent::AgentMemoryInterface;
+pub use merger::MemoryMerger;
 
-use crate::kernel::types::*;
 use crate::kernel::error::MemoryResult;
+use crate::kernel::types::*;
 
 /// Memory agent configuration.
 #[derive(Debug, Clone)]

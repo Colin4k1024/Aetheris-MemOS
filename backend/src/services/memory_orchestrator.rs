@@ -3,6 +3,7 @@ use crate::db::{
     weights::WeightHistoryRepository,
 };
 use crate::models::{ResourceConstraints, TaskContext, TaskPreferences};
+use crate::services::evidence_graph::record_decision_trace_as_evidence;
 use crate::services::scheduler::{DecisionTrace, MemorySelectionResult};
 use crate::services::AdaptiveMemoryScheduler;
 use crate::AppError;
@@ -28,6 +29,14 @@ pub struct DecisionTraceEnvelope {
     pub task_id: String,
     pub created_at: String,
     pub trace: DecisionTrace,
+}
+
+#[derive(Debug, Clone)]
+pub struct PersistedTraceArtifacts {
+    pub trace_id: String,
+    pub workflow_id: String,
+    pub run_id: String,
+    pub verified: bool,
 }
 
 pub async fn select_memory(
@@ -141,11 +150,17 @@ pub async fn list_decision_traces(
     Ok(traces)
 }
 
-async fn persist_trace_record(trace: &DecisionTrace) -> Result<(), AppError> {
+async fn persist_trace_record(trace: &DecisionTrace) -> Result<PersistedTraceArtifacts, AppError> {
     let trace_json = serde_json::to_string(trace)
         .map_err(|e| AppError::Internal(format!("Failed to serialize trace: {}", e)))?;
-    DecisionTraceRepository::create(&trace.task_id, &trace_json).await?;
-    Ok(())
+    let trace_id = DecisionTraceRepository::create(&trace.task_id, &trace_json).await?;
+    let evidence = record_decision_trace_as_evidence(trace).await?;
+    Ok(PersistedTraceArtifacts {
+        trace_id,
+        workflow_id: evidence.run.workflow_id,
+        run_id: evidence.run.run_id,
+        verified: evidence.verification.verified,
+    })
 }
 
 async fn persist_from_trace(

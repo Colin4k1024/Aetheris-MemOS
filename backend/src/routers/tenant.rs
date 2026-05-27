@@ -86,9 +86,7 @@ fn get_tenants() -> &'static std::sync::RwLock<Vec<TenantContext>> {
 }
 
 /// Create a new tenant
-pub async fn create_tenant(
-    Json(req): Json<CreateTenantRequest>,
-) -> JsonResult<TenantResponse> {
+pub async fn create_tenant(Json(req): Json<CreateTenantRequest>) -> JsonResult<TenantResponse> {
     req.validate()?;
     info!("Creating tenant: {}", req.name);
 
@@ -106,9 +104,7 @@ pub async fn create_tenant(
 }
 
 /// Get tenant info
-pub async fn get_tenant(
-    Path(tenant_id): Path<String>,
-) -> JsonResult<TenantResponse> {
+pub async fn get_tenant(Path(tenant_id): Path<String>) -> JsonResult<TenantResponse> {
     info!("Getting tenant: {}", tenant_id);
 
     let tenants = get_tenants().read().unwrap();
@@ -125,9 +121,7 @@ pub async fn get_tenant(
 }
 
 /// Get tenant quota
-pub async fn get_tenant_quota(
-    Path(tenant_id): Path<String>,
-) -> JsonResult<TenantQuotaResponse> {
+pub async fn get_tenant_quota(Path(tenant_id): Path<String>) -> JsonResult<TenantQuotaResponse> {
     info!("Getting quota for tenant: {}", tenant_id);
 
     let tenants = get_tenants().read().unwrap();
@@ -189,9 +183,7 @@ pub async fn update_tenant_quota(
 }
 
 /// Reset tenant memory (clear all memory entries)
-pub async fn reset_tenant_memory(
-    Path(tenant_id): Path<String>,
-) -> JsonResult<serde_json::Value> {
+pub async fn reset_tenant_memory(Path(tenant_id): Path<String>) -> JsonResult<serde_json::Value> {
     info!("Resetting memory for tenant: {}", tenant_id);
 
     // In a real implementation, this would delete all memory entries for the tenant
@@ -246,9 +238,7 @@ pub async fn get_user_role(
 }
 
 /// List all roles in tenant
-pub async fn list_roles(
-    Path(tenant_id): Path<String>,
-) -> JsonResult<RoleListResponse> {
+pub async fn list_roles(Path(tenant_id): Path<String>) -> JsonResult<RoleListResponse> {
     info!("Listing roles for tenant {}", tenant_id);
 
     let roles = get_rbac().list_roles(&tenant_id).await;

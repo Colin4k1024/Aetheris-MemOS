@@ -55,3 +55,4 @@ backend/local.toml
 sdks/python/*.egg-info/
 sdks/python/__pycache__/
 sdks/python/.eggs/
+.gstack/

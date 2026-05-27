@@ -1,0 +1,120 @@
+import { createStyles } from 'antd-style';
+
+const useStyles = createStyles(({ token }) => ({
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 56,
+    padding: '0 24px',
+    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+    background: token.colorBgContainer,
+  },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logo: {
+    fontSize: 16,
+    fontWeight: 700,
+    color: token.colorText,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    '&:hover': { color: token.colorPrimary },
+  },
+  headerDivider: {
+    width: 1,
+    height: 20,
+    background: token.colorBorderSecondary,
+  },
+  headerTitle: {
+    fontSize: 14,
+    color: token.colorTextSecondary,
+  },
+  headerNav: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    a: {
+      color: token.colorTextSecondary,
+      fontSize: 13,
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      '&:hover': { color: token.colorPrimary },
+    },
+  },
+  container: {
+    display: 'flex',
+    height: 'calc(100vh - 56px)',
+    overflow: 'hidden',
+  },
+  sidebar: {
+    width: 260,
+    minWidth: 260,
+    borderRight: `1px solid ${token.colorBorderSecondary}`,
+    overflow: 'auto',
+    background: token.colorBgContainer,
+    display: 'flex',
+    flexDirection: 'column' as const,
+  },
+  content: {
+    flex: 1,
+    overflow: 'auto',
+    padding: '32px 48px',
+    maxWidth: 900,
+  },
+  toc: {
+    width: 220,
+    minWidth: 220,
+    padding: '24px 16px',
+    overflow: 'auto',
+    borderLeft: `1px solid ${token.colorBorderSecondary}`,
+  },
+  docTitle: {
+    fontSize: 28,
+    fontWeight: 700,
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+  },
+  markdownBody: {
+    fontSize: 15,
+    lineHeight: 1.8,
+    color: token.colorText,
+    'h1, h2, h3, h4, h5, h6': {
+      marginTop: 32,
+      marginBottom: 16,
+      fontWeight: 600,
+    },
+    h1: { fontSize: 28 },
+    h2: {
+      fontSize: 22,
+      paddingBottom: 8,
+      borderBottom: `1px solid ${token.colorBorderSecondary}`,
+    },
+    h3: { fontSize: 18 },
+    p: { marginBottom: 16 },
+    'ul, ol': { paddingLeft: 24, marginBottom: 16 },
+    li: { marginBottom: 4 },
+    blockquote: {
+      margin: '16px 0',
+      padding: '8px 16px',
+      borderLeft: `4px solid ${token.colorPrimary}`,
+      background: token.colorPrimaryBg,
+      borderRadius: 4,
+    },
+    img: { maxWidth: '100%', borderRadius: 8 },
+    hr: {
+      border: 'none',
+      borderTop: `1px solid ${token.colorBorderSecondary}`,
+      margin: '24px 0',
+    },
+  },
+}));
+
+export default useStyles;

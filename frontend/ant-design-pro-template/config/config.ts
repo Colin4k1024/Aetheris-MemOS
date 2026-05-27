@@ -7,14 +7,7 @@ import proxy from './proxy';
 
 import routes from './routes';
 
-const { UMI_ENV = 'dev' } = process.env;
-
-/**
- * @name 使用公共路径
- * @description 部署时的路径，如果部署在非根目录下，需要配置这个变量
- * @doc https://umijs.org/docs/api/config#publicpath
- */
-const PUBLIC_PATH: string = '/';
+const { UMI_ENV = 'dev', PUBLIC_PATH = '/' } = process.env;
 
 export default defineConfig({
   /**
@@ -25,6 +18,8 @@ export default defineConfig({
   hash: true,
 
   publicPath: PUBLIC_PATH,
+  base: PUBLIC_PATH,
+  history: { type: 'hash' },
 
   /**
    * @name 兼容性设置
@@ -168,9 +163,10 @@ export default defineConfig({
   mock: {
     include: ['mock/**/*', 'src/pages/**/_mock.ts'],
   },
-  utoopack: {},
-  requestRecord: {},
-  exportStatic: {},
+  mfsu: {},
+  esbuildMinifyIIFE: true,
+  // exportStatic disabled — incompatible with hash routing + initialState context
+  // exportStatic: {},
   define: {
     'process.env.CI': process.env.CI,
   },

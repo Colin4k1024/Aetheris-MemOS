@@ -9,6 +9,8 @@ readme = "./README.md"
 default = []
 # Enterprise features: billing, cluster management, RBAC, governance hooks
 enterprise = []
+# Enable Redis STM cache adapter
+redis-stm = ["dep:redis"]
 
 [dependencies]
 anyhow = "1"
@@ -23,7 +25,7 @@ thiserror = "2"
 time = "0.3"
 tokio = {version = "1", features = ["full"]}
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs", "metrics"] }
 tracing = "0.1"
 utoipa = "5"
 utoipa-scalar = { version = "0.3", features = ["axum"] }
@@ -49,4 +51,17 @@ neo4rs = "0.8"
 async-trait = "0.1"
 base64 = "0.22"
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
+wasmtime = "20"
+opentelemetry = "0.24"
+opentelemetry-otlp = "0.14"
+tracing-opentelemetry = "0.27"
+tonic = { version = "0.12", features = ["prost"] }
+prost = "0.13"
+axum-prometheus = "0.1"
+prometheus = "0.13"
+metrics = "0.21"
+
+# Redis support (enabled by redis-stm feature)
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], optional = true }

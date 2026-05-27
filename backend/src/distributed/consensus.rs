@@ -2,11 +2,11 @@
 //!
 //! This module provides consensus mechanisms for distributed coordination.
 
-use serde::{Deserialize, Serialize};
 use crate::distributed::node::NodeId;
+use serde::{Deserialize, Serialize};
 
 /// Consensus module for distributed coordination.
-/// 
+///
 /// In production, would integrate with Raft or Paxos implementations.
 pub struct ConsensusModule {
     node_id: NodeId,
@@ -25,7 +25,10 @@ impl ConsensusModule {
     }
 
     /// Read a value from consensus.
-    pub async fn read<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Result<Option<T>, ConsensusError> {
+    pub async fn read<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, ConsensusError> {
         // In production: would read from Raft state machine
         Ok(None)
     }

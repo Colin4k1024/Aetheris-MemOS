@@ -9,6 +9,8 @@ use utoipa::ToSchema;
 
 use crate::db::kg::KGRepository;
 use crate::db::ltm::LTMRepository;
+use crate::db::pool;
+use crate::tenant::get_default_tenant;
 use crate::{json_ok, JsonResult};
 
 /// Timeline entry for visualization
@@ -77,9 +79,16 @@ pub async fn get_timeline(Query(query): Query<TimelineQuery>) -> JsonResult<Vec<
     let limit = query.limit.unwrap_or(50);
 
     // Get LTM entries for timeline
-    let entries = LTMRepository::list_entries(None, None, Some(limit), Some(0))
-        .await?
-        .entries;
+    let entries = LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(limit),
+        Some(0),
+    )
+    .await?
+    .entries;
 
     let timeline: Vec<TimelineEntry> = entries
         .into_iter()
@@ -104,9 +113,10 @@ pub async fn get_graph_visualization(
     let limit = query.limit.unwrap_or(100) as i32;
 
     // Get entities from KG
-    let entities = KGRepository::list_entities(None, Some(limit), Some(0), None)
-        .await?
-        .entities;
+    let entities =
+        KGRepository::list_entities(pool(), &get_default_tenant(), None, Some(limit), Some(0))
+            .await?
+            .entities;
 
     let nodes: Vec<VisualGraphNode> = entities
         .iter()
@@ -132,9 +142,16 @@ pub async fn get_heatmap(Query(query): Query<TimelineQuery>) -> JsonResult<Heatm
     let limit = query.limit.unwrap_or(100) as i32;
 
     // Get LTM entries for heatmap
-    let entries = LTMRepository::list_entries(None, None, Some(limit), Some(0))
-        .await?
-        .entries;
+    let entries = LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(limit),
+        Some(0),
+    )
+    .await?
+    .entries;
 
     // Create heatmap cells (7 days x 24 hours grid)
     let mut cells = Vec::new();
@@ -181,9 +198,16 @@ pub async fn get_dashboard_stats() -> JsonResult<MemoryStatsDashboard> {
     info!("Getting dashboard statistics");
 
     // Get LTM count
-    let ltm_count = LTMRepository::list_entries(None, None, Some(1000), Some(0))
-        .await?
-        .total;
+    let ltm_count = LTMRepository::list_entries(
+        pool(),
+        &get_default_tenant(),
+        None,
+        None,
+        Some(1000),
+        Some(0),
+    )
+    .await?
+    .total;
 
     let mut by_layer = std::collections::HashMap::new();
     by_layer.insert("ltm".to_string(), ltm_count);
@@ -191,9 +215,16 @@ pub async fn get_dashboard_stats() -> JsonResult<MemoryStatsDashboard> {
 
     // Calculate average importance from LTM
     let avg_importance = if ltm_count > 0 {
-        let entries = LTMRepository::list_entries(None, None, Some(ltm_count as i32), Some(0))
-            .await?
-            .entries;
+        let entries = LTMRepository::list_entries(
+            pool(),
+            &get_default_tenant(),
+            None,
+            None,
+            Some(ltm_count as i32),
+            Some(0),
+        )
+        .await?
+        .entries;
 
         let sum: f64 = entries
             .iter()

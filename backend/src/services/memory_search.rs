@@ -5,11 +5,13 @@ use tracing::{error, info, instrument, warn};
 use crate::config;
 use crate::db::{
     ltm::LTMRepository,
+    pool,
     stm::{STMRepository, SessionMessage},
 };
 use crate::services::{
     embedding::get_embedding_service, qdrant::get_qdrant_client, rerank::get_rerank_service,
 };
+use crate::tenant::get_default_tenant;
 use crate::AppError;
 
 /// 记忆搜索服务
@@ -40,7 +42,14 @@ impl MemorySearchService {
         );
 
         // 获取最近会话
-        let sessions = STMRepository::get_recent_sessions(user_id, agent_id, limit).await?;
+        let sessions = STMRepository::get_recent_sessions(
+            pool(),
+            &get_default_tenant(),
+            user_id,
+            agent_id,
+            limit,
+        )
+        .await?;
 
         // 获取所有会话的消息
         let mut all_messages = Vec::new();
@@ -52,8 +61,13 @@ impl MemorySearchService {
                 }
             }
 
-            let messages =
-                STMRepository::get_session_messages(&session.session_id, Some(100)).await?;
+            let messages = STMRepository::get_session_messages(
+                pool(),
+                &get_default_tenant(),
+                &session.session_id,
+                Some(100),
+            )
+            .await?;
             all_messages.extend(messages);
         }
 
@@ -135,7 +149,9 @@ impl MemorySearchService {
                 "Processing Qdrant result: id={}, score={:.4}",
                 qdrant_result.id, qdrant_result.score
             );
-            match LTMRepository::get_entry_by_id(&qdrant_result.id).await {
+            match LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &qdrant_result.id)
+                .await
+            {
                 Ok(Some(entry)) => {
                     info!("Found entry in SQLite: entry_id={}", entry.entry_id);
                     search_results.push(SearchResult {
@@ -241,8 +257,12 @@ impl MemorySearchService {
                 );
             } else {
                 // 如果关键词搜索结果不在向量搜索结果中，尝试获取完整的知识条目
-                if let Ok(Some(entry)) =
-                    crate::db::ltm::LTMRepository::get_entry_by_id(&entry_id).await
+                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                    pool(),
+                    &get_default_tenant(),
+                    &entry_id,
+                )
+                .await
                 {
                     // 创建一个新的SearchResult
                     let search_result = SearchResult {
@@ -315,7 +335,7 @@ impl MemorySearchService {
     async fn keyword_search(query: &str, limit: usize) -> Result<Vec<(String, f64)>, AppError> {
         info!("Keyword search: query={}, limit={}", query, limit);
 
-        let pool = crate::db::pool();
+        let db_pool = crate::db::pool();
         let limit_i32 = limit as i32;
 
         // 使用SQLite的LIKE搜索来实现关键词搜索
@@ -324,11 +344,11 @@ impl MemorySearchService {
 
         let rows = sqlx::query_as::<_, (String, f64)>(
             r#"
-            SELECT entry_id, 
-                   (CASE 
-                        WHEN content LIKE $1 THEN 1.0 
-                        WHEN title LIKE $2 THEN 0.8 
-                        ELSE 0.0 
+            SELECT entry_id,
+                   (CASE
+                        WHEN content LIKE $1 THEN 1.0
+                        WHEN title LIKE $2 THEN 0.8
+                        ELSE 0.0
                     END) as score
             FROM knowledge_entries
             WHERE (content LIKE $3 OR title LIKE $4)
@@ -342,7 +362,7 @@ impl MemorySearchService {
         .bind(&query_with_wildcards)
         .bind(&query_with_wildcards)
         .bind(limit_i32)
-        .fetch_all(pool)
+        .fetch_all(db_pool)
         .await
         .map_err(|e| {
             error!("Failed to perform keyword search: {}", e);
@@ -356,8 +376,12 @@ impl MemorySearchService {
 
             for (entry_id, mut score) in rows {
                 // 获取完整的知识条目
-                if let Ok(Some(entry)) =
-                    crate::db::ltm::LTMRepository::get_entry_by_id(&entry_id).await
+                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                    pool(),
+                    &get_default_tenant(),
+                    &entry_id,
+                )
+                .await
                 {
                     let content_lower = entry.content.to_lowercase();
                     let title_lower = entry.title.unwrap_or_default().to_lowercase();
@@ -402,7 +426,13 @@ impl MemorySearchService {
         let limit_i32 = limit.unwrap_or(10);
 
         // 1. 首先尝试在知识图谱中查找该实体
-        let entity_result = crate::db::KGRepository::get_entity_by_name(entity, None, None).await?;
+        let entity_result = crate::db::KGRepository::get_entity_by_name(
+            pool(),
+            &get_default_tenant(),
+            entity,
+            None,
+        )
+        .await?;
 
         let mut entry_ids_with_scores: Vec<(String, f64)> = Vec::new();
 
@@ -413,12 +443,11 @@ impl MemorySearchService {
             );
 
             // 2. 如果找到实体，获取相关的知识条目
-            let pool = crate::db::pool();
+            let db_pool = crate::db::pool();
             let kg_results = crate::db::KGRepository::search_knowledge_by_entity(
-                pool,
+                db_pool,
                 &found_entity.entity_name,
                 Some(limit_i32),
-                None,
             )
             .await?;
             for entity in kg_results {
@@ -428,18 +457,18 @@ impl MemorySearchService {
 
             // 3. 获取相关实体，并搜索相关实体的知识条目
             let related_entities = crate::db::KGRepository::get_related_entities(
+                db_pool,
+                &get_default_tenant(),
                 &found_entity.entity_id,
                 None,
                 Some(5),
-                None,
             )
             .await?;
             for (related_entity, relation) in related_entities {
                 let related_results = crate::db::KGRepository::search_knowledge_by_entity(
-                    pool,
+                    db_pool,
                     &related_entity.entity_name,
                     Some(limit_i32 / 2),
-                    None,
                 )
                 .await?;
                 for entity in related_results {
@@ -455,8 +484,7 @@ impl MemorySearchService {
             info!("Entity not found in KG, searching entries containing entity name");
             let pool = crate::db::pool();
             let text_results =
-                crate::db::KGRepository::search_entries_by_entity(pool, entity, limit_i32, None)
-                    .await?;
+                crate::db::KGRepository::search_entries_by_entity(pool, entity, limit_i32).await?;
             for entity in text_results {
                 entry_ids_with_scores.push((entity.entity_id, entity.popularity_score as f64));
             }
@@ -476,7 +504,12 @@ impl MemorySearchService {
         // 6. 获取完整的知识条目信息
         let mut results = Vec::new();
         for (entry_id, score) in sorted_entries {
-            if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(&entry_id).await
+            if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                pool(),
+                &get_default_tenant(),
+                &entry_id,
+            )
+            .await
             {
                 results.push(SearchResult {
                     entry_id: entry.entry_id,
@@ -655,8 +688,12 @@ impl MemorySearchService {
                 continue;
             } else {
                 // 关键词命中但向量未命中 — 拉取条目内容
-                if let Ok(Some(entry)) =
-                    crate::db::ltm::LTMRepository::get_entry_by_id(entry_id).await
+                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
+                    pool(),
+                    &get_default_tenant(),
+                    entry_id,
+                )
+                .await
                 {
                     (entry.content, entry.title)
                 } else {

@@ -49,6 +49,11 @@ export default {
   'menu.editor.flow': 'Flow Editor',
   'menu.editor.mind': 'Mind Editor',
   'menu.editor.koni': 'Koni Editor',
+  // Route groups
+  'menu.monitor-group': 'Monitor',
+  'menu.memory-group': 'Memory',
+  'menu.analysis-group': 'Analysis',
+  // Pages
   'menu.task-analysis': 'Task Analysis',
   'menu.memory-config': 'Memory Config',
   'menu.performance': 'Performance',
@@ -56,4 +61,6 @@ export default {
   'menu.weight-history': 'Weight History',
   'menu.memory-management': 'Memory Management',
   'menu.memory-decision-trace': 'Memory Decision Trace',
+  'menu.memory-details': 'Memory Details',
+  'menu.documentation': 'Documentation',
 };

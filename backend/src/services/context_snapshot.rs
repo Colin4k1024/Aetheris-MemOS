@@ -15,8 +15,7 @@ static ORIS_INTEGRATION: std::sync::OnceLock<Arc<OrisIntegration>> = std::sync::
 
 /// Get the global Oris integration instance
 pub fn get_oris_integration() -> &'static Arc<OrisIntegration> {
-    ORIS_INTEGRATION
-        .get_or_init(|| Arc::new(OrisIntegration::new()))
+    ORIS_INTEGRATION.get_or_init(|| Arc::new(OrisIntegration::new()))
 }
 
 /// Initialize Oris integration

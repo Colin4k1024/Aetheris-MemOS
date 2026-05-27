@@ -5,16 +5,16 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::kernel::types::*;
+use crate::agent::compressor::MemoryCompressor;
+use crate::agent::forgetter::MemoryForGetter;
+use crate::agent::merger::MemoryMerger;
+use crate::agent::AgentConfig;
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::traits::MemoryKernel;
-use crate::agent::AgentConfig;
-use crate::agent::compressor::MemoryCompressor;
-use crate::agent::merger::MemoryMerger;
-use crate::agent::forgetter::MemoryForGetter;
+use crate::kernel::types::*;
 
 /// Main Memory Agent that provides automatic memory management.
-/// 
+///
 /// This agent handles:
 /// - remember(): Store new memories
 /// - recall(): Retrieve relevant memories
@@ -34,17 +34,21 @@ impl MemoryAgent {
     }
 
     pub fn with_config(kernel: Arc<dyn MemoryKernel>, config: AgentConfig) -> Self {
+        let compression_batch_size = config.compression_batch_size;
+        let merge_similarity_threshold = config.merge_similarity_threshold;
+        let min_importance_threshold = config.min_importance_threshold;
+        let max_age_seconds = config.max_age_seconds;
         Self {
             kernel,
             config,
-            compressor: MemoryCompressor::new(config.compression_batch_size),
-            merger: MemoryMerger::new(config.merge_similarity_threshold),
-            forgetter: MemoryForGetter::new(config.min_importance_threshold, config.max_age_seconds),
+            compressor: MemoryCompressor::new(compression_batch_size),
+            merger: MemoryMerger::new(merge_similarity_threshold),
+            forgetter: MemoryForGetter::new(min_importance_threshold, max_age_seconds),
         }
     }
 
     /// Remember new information.
-    /// 
+    ///
     /// This stores the content in the appropriate memory layer based on
     /// the context and configuration.
     pub async fn remember(
@@ -55,7 +59,7 @@ impl MemoryAgent {
         content: impl Into<MemoryContent>,
     ) -> MemoryResult<MemoryId> {
         let content = content.into();
-        
+
         // Determine layer based on content type
         let layer = match &content {
             MemoryContent::Text(_) => LayerType::Stm, // Start with STM
@@ -81,11 +85,7 @@ impl MemoryAgent {
     }
 
     /// Recall relevant memories based on query.
-    pub async fn recall(
-        &self,
-        user_id: &str,
-        query: &str,
-    ) -> MemoryResult<Vec<MemoryMatch>> {
+    pub async fn recall(&self, user_id: &str, query: &str) -> MemoryResult<Vec<MemoryMatch>> {
         let memory_query = MemoryQuery {
             layer: None,
             text: Some(query.to_string()),
@@ -102,18 +102,15 @@ impl MemoryAgent {
     }
 
     /// Augment reasoning with relevant memories.
-    /// 
+    ///
     /// This is the core method for RAG (Retrieval-Augmented Generation).
-    pub async fn augment(
-        &self,
-        user_id: &str,
-        task: &str,
-    ) -> MemoryResult<MemoryAugmentation> {
+    pub async fn augment(&self, user_id: &str, task: &str) -> MemoryResult<MemoryAugmentation> {
         // Search for relevant memories
         let matches = self.recall(user_id, task).await?;
 
         // Extract context from memories
-        let context: Vec<String> = matches.iter()
+        let context: Vec<String> = matches
+            .iter()
             .map(|m| match &m.entry.content {
                 MemoryContent::Text(s) => s.clone(),
                 MemoryContent::Json(j) => j.to_string(),
@@ -126,7 +123,9 @@ impl MemoryAgent {
         Ok(MemoryAugmentation {
             context,
             source_memories: matches.iter().map(|m| m.entry.id.clone()).collect(),
-            confidence: if matches.is_empty() { 0.0 } else {
+            confidence: if matches.is_empty() {
+                0.0
+            } else {
                 matches.iter().map(|m| m.score).sum::<f64>() / matches.len() as f64
             },
         })
@@ -147,12 +146,13 @@ impl MemoryAgent {
         };
 
         let all_memories = self.kernel.search(&query).await?;
-        
-        self.forgetter.evict(&all_memories.iter().map(|m| m.entry.clone()).collect()).await
+
+        let entries: Vec<MemoryEntry> = all_memories.iter().map(|m| m.entry.clone()).collect();
+        self.forgetter.evict(&entries).await
     }
 
     /// Run periodic maintenance.
-    /// 
+    ///
     /// This should be called periodically to:
     /// - Compress STM to LTM
     /// - Merge similar memories
@@ -172,12 +172,11 @@ impl MemoryAgent {
         };
 
         let stm_memories = self.kernel.search(&stm_query).await?;
-        
+
         if stm_memories.len() >= self.config.stm_compression_threshold {
             // Compress old STM to LTM
-            let compressed = self.compressor.compress(
-                &stm_memories.iter().map(|m| m.entry.clone()).collect()
-            ).await;
+            let entries: Vec<MemoryEntry> = stm_memories.iter().map(|m| m.entry.clone()).collect();
+            let compressed = self.compressor.compress(&entries).await;
             results.compressed_count = compressed.len();
         }
 
@@ -213,7 +212,7 @@ pub struct MaintenanceResult {
 }
 
 /// Trait for Agent Memory Interface (from the plan).
-/// 
+///
 /// This trait provides a standardized interface for agent runtimes
 /// to interact with memory.
 pub trait AgentMemoryInterface: Send + Sync {
@@ -253,29 +252,19 @@ impl AgentMemoryInterface for MemoryAgent {
         session_id: Option<&str>,
         content: &str,
     ) -> MemoryResult<MemoryId> {
-        self.remember(user_id, session_id, None, content.to_string()).await
+        self.remember(user_id, session_id, None, content.to_string())
+            .await
     }
 
-    async fn recall(
-        &self,
-        user_id: &str,
-        query: &str,
-    ) -> MemoryResult<Vec<MemoryMatch>> {
+    async fn recall(&self, user_id: &str, query: &str) -> MemoryResult<Vec<MemoryMatch>> {
         self.recall(user_id, query).await
     }
 
-    async fn augment(
-        &self,
-        user_id: &str,
-        task: &str,
-    ) -> MemoryResult<MemoryAugmentation> {
+    async fn augment(&self, user_id: &str, task: &str) -> MemoryResult<MemoryAugmentation> {
         self.augment(user_id, task).await
     }
 
-    async fn forget(
-        &self,
-        user_id: &str,
-    ) -> MemoryResult<ForgetResult> {
+    async fn forget(&self, user_id: &str) -> MemoryResult<ForgetResult> {
         self.forget(user_id).await
     }
 }

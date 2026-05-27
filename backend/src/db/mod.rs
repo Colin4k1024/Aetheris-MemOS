@@ -24,6 +24,8 @@ pub mod adapters;
 pub mod agent;
 
 pub mod decision_trace;
+pub mod event_store;
+pub mod evidence_graph;
 pub mod kg;
 #[allow(dead_code)]
 pub mod ltm;
@@ -37,6 +39,7 @@ pub mod performance;
 pub mod stm;
 #[allow(dead_code)]
 pub mod weights;
+pub mod workflow_lifecycle;
 pub use kg::KGRepository;
 pub use neo4j::{init_neo4j, init_neo4j_indexes};
 pub use stm::{SessionListResponse, SessionMessage};
@@ -140,17 +143,29 @@ async fn init_sqlite(config: &DbConfig) -> Result<(), DbInitError> {
             Box::pin(async move {
                 use sqlx::Connection;
                 // Enable WAL mode for better read/write concurrency
-                sqlx::query("PRAGMA journal_mode=WAL").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA journal_mode=WAL")
+                    .execute(&mut *conn)
+                    .await?;
                 // Reduce fsync frequency — safe with WAL (no data loss on OS crash)
-                sqlx::query("PRAGMA synchronous=NORMAL").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA synchronous=NORMAL")
+                    .execute(&mut *conn)
+                    .await?;
                 // 64 MB page cache — reduces I/O for repeated reads
-                sqlx::query("PRAGMA cache_size=-65536").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA cache_size=-65536")
+                    .execute(&mut *conn)
+                    .await?;
                 // Store temp tables in memory to avoid disk I/O
-                sqlx::query("PRAGMA temp_store=MEMORY").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA temp_store=MEMORY")
+                    .execute(&mut *conn)
+                    .await?;
                 // 5 s busy timeout — avoids immediate "database is locked" on contention
-                sqlx::query("PRAGMA busy_timeout=5000").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA busy_timeout=5000")
+                    .execute(&mut *conn)
+                    .await?;
                 // WAL auto-checkpoint at 1000 pages to bound WAL file growth
-                sqlx::query("PRAGMA wal_autocheckpoint=1000").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA wal_autocheckpoint=1000")
+                    .execute(&mut *conn)
+                    .await?;
                 Ok(())
             })
         });

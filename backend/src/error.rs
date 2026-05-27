@@ -112,19 +112,19 @@ impl AppError {
     fn api_message(&self) -> String {
         match self {
             Self::Public(msg)
-            | Self::Internal(msg)
             | Self::Unauthorized(msg)
             | Self::Forbidden(msg)
-            | Self::DatabaseConnection(msg)
-            | Self::DatabaseQuery(msg)
-            | Self::DatabaseTransaction(msg)
             | Self::NotFound(msg)
             | Self::BadRequest(msg)
             | Self::Serialization(msg)
             | Self::Deserialization(msg) => msg.clone(),
-            Self::Anyhow(e) => e.to_string(),
-            Self::SqlxError(e) => e.to_string(),
             Self::Validation(e) => e.to_string(),
+            Self::Internal(_)
+            | Self::DatabaseConnection(_)
+            | Self::DatabaseQuery(_)
+            | Self::DatabaseTransaction(_)
+            | Self::Anyhow(_)
+            | Self::SqlxError(_) => "An internal error occurred".to_string(),
         }
     }
 }
