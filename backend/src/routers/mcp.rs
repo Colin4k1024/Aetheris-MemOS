@@ -357,6 +357,7 @@ async fn handle_memory_write(
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
 
@@ -451,7 +452,7 @@ async fn handle_memory_search(
         }
         "mm" => {
             // Search in multimodal memories by modality type
-            let entries = MMRepository::get_entries_by_modality("text", Some(limit)).await?;
+            let entries = MMRepository::get_entries_by_modality("text", Some(limit), None).await?;
             // Filter by query if possible
             let results_json: Vec<serde_json::Value> = entries
                 .iter()
@@ -647,7 +648,7 @@ async fn handle_memory_list(
             // List MM entries
             let modality_type = args["modality_type"].as_str();
             let response =
-                MMRepository::list_entries(modality_type, Some(limit), Some(offset)).await?;
+                MMRepository::list_entries(modality_type, Some(limit), Some(offset), None).await?;
 
             serde_json::json!({
                 "type": "mm_entries",
@@ -903,12 +904,12 @@ async fn read_resource(
         "mm" => {
             // Multimodal resources
             if let Some(entry_id) = id {
-                let entry = MMRepository::get_entry_by_id(&entry_id).await?;
+                let entry = MMRepository::get_entry_by_id(&entry_id, None).await?;
 
                 match entry {
                     Some(e) => {
                         // Get related entries
-                        let related = MMRepository::get_related_entries(&entry_id, Some(5)).await?;
+                        let related = MMRepository::get_related_entries(&entry_id, Some(5), None).await?;
                         let relations: Vec<serde_json::Value> = related
                             .iter()
                             .map(|(ent, rel)| {
@@ -946,7 +947,7 @@ async fn read_resource(
                 }
             } else {
                 // List all entries
-                let response = MMRepository::list_entries(None, Some(20), Some(0)).await?;
+                let response = MMRepository::list_entries(None, Some(20), Some(0), None).await?;
 
                 serde_json::json!({
                     "entries": response.entries.iter().map(|e| {

@@ -108,30 +108,16 @@ pub async fn store_stm(Json(req): Json<StoreSTMRequest>) -> JsonResult<StoreSTMR
         req.user_id, req.agent_id, req.session_type
     );
 
-    let (session_id, message_id) = if req.tenant_id.as_deref().is_some() {
-        MemoryStorageService::store_stm_with_tenant(
-            req.tenant_id.as_deref(),
-            &req.user_id,
-            &req.agent_id,
-            &req.session_type,
-            &req.role,
-            &req.content,
-            req.max_context_length.unwrap_or(4096),
-            req.retention_hours.unwrap_or(24),
-        )
-        .await?
-    } else {
-        MemoryStorageService::store_stm(
-            &req.user_id,
-            &req.agent_id,
-            &req.session_type,
-            &req.role,
-            &req.content,
-            req.max_context_length.unwrap_or(4096),
-            req.retention_hours.unwrap_or(24),
-        )
-        .await?
-    };
+    let (session_id, message_id) = MemoryStorageService::store_stm(
+        &req.user_id,
+        &req.agent_id,
+        &req.session_type,
+        &req.role,
+        &req.content,
+        req.max_context_length.unwrap_or(4096),
+        req.retention_hours.unwrap_or(24),
+    )
+    .await?;
 
     json_ok(StoreSTMResponse {
         session_id,
@@ -150,8 +136,7 @@ pub async fn store_ltm(Json(req): Json<StoreLTMRequest>) -> JsonResult<StoreLTMR
         req.content.len()
     );
 
-    let entry_id = MemoryStorageService::store_ltm_with_tenant(
-        req.tenant_id.as_deref(),
+    let entry_id = MemoryStorageService::store_ltm(
         &req.source_id,
         &req.source_type,
         &req.content,
@@ -185,19 +170,13 @@ pub async fn batch_store_ltm(
 
     info!("Batch storing LTM: count={}", req.entries.len());
 
-    let entries: Vec<crate::services::memory_storage::LtmWriteRequest> = req
+    let entries: Vec<(String, String, String, Option<String>)> = req
         .entries
         .into_iter()
-        .map(|e| crate::services::memory_storage::LtmWriteRequest {
-            tenant_id: e.tenant_id,
-            source_id: e.source_id,
-            source_type: e.source_type,
-            content: e.content,
-            title: e.title,
-        })
+        .map(|e| (e.source_id, e.source_type, e.content, e.title))
         .collect();
 
-    let entry_ids = MemoryStorageService::batch_store_ltm_with_tenant(entries).await?;
+    let entry_ids = MemoryStorageService::batch_store_ltm(entries).await?;
 
     json_ok(BatchStoreLTMResponse { entry_ids })
 }
