@@ -20,7 +20,13 @@ const isDevOrTest = isDev || process.env.CI;
 const loginPath = '/user/login';
 
 // Pages that don't require authentication
-const PUBLIC_PATHS = [loginPath, '/', '/home', '/documentation', '/user/register'];
+const PUBLIC_PATHS = [
+  loginPath,
+  '/',
+  '/home',
+  '/documentation',
+  '/user/register',
+];
 
 /**
  * @see https://umijs.org/docs/api/runtime-config#getinitialstate
@@ -79,6 +85,9 @@ export const layout: RunTimeLayoutConfig = ({
   setInitialState,
 }) => {
   return {
+    contentStyle: {
+      padding: '24px',
+    },
     actionsRender: () => [
       <Question key="doc" />,
       <SelectLang key="SelectLang" />,

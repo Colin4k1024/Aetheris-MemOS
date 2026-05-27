@@ -1,11 +1,24 @@
-import React, { useState, useMemo } from 'react';
-import { PageContainer, ProForm, ProFormSelect, ProFormSlider } from '@ant-design/pro-components';
-import { Descriptions, Tag, Space, Row, Col, message } from 'antd';
 import { Column, Line } from '@ant-design/charts';
+import {
+  PageContainer,
+  ProForm,
+  ProFormSelect,
+  ProFormSlider,
+} from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
-import { selectMemoryConfig, predictPerformance, getMemoryStatus } from '@/services/memory';
+import { Col, Descriptions, message, Row, Space, Tag } from 'antd';
+import React, { useMemo, useState } from 'react';
 import { ChartCard, MemoryWeightBadge } from '@/components/MemorySystem';
-import { DEFAULT_USER_ID, DEFAULT_AGENT_ID, CHART_HEIGHT } from '@/config/appConfig';
+import {
+  CHART_HEIGHT,
+  DEFAULT_AGENT_ID,
+  DEFAULT_USER_ID,
+} from '@/config/appConfig';
+import {
+  getMemoryStatus,
+  predictPerformance,
+  selectMemoryConfig,
+} from '@/services/memory';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -91,7 +104,7 @@ const ConfigComparison: React.FC<ConfigComparisonProps> = ({
 }) => (
   <>
     {comparisonData.length > 0 && (
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <ChartCard title="配置对比" loading={loading} height={CHART_HEIGHT}>
             <Column
@@ -101,7 +114,10 @@ const ConfigComparison: React.FC<ConfigComparisonProps> = ({
               seriesField="config"
               isGroup
               columnStyle={{ radius: [4, 4, 0, 0] as any }}
-              label={{ position: 'top', formatter: (d: any) => d.value.toFixed(2) }}
+              label={{
+                position: 'top',
+                formatter: (d: any) => d.value.toFixed(2),
+              }}
               height={CHART_HEIGHT}
             />
           </ChartCard>
@@ -110,7 +126,7 @@ const ConfigComparison: React.FC<ConfigComparisonProps> = ({
     )}
 
     {historyData.length > 0 && (
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <ChartCard title="配置历史趋势" height={CHART_HEIGHT}>
             <Line
@@ -138,7 +154,7 @@ const ConfigComparison: React.FC<ConfigComparisonProps> = ({
           </a>
         }
       >
-        <Descriptions column={2} bordered style={{ marginBottom: 16 }}>
+        <Descriptions column={2} bordered style={{ marginBottom: 24 }}>
           <Descriptions.Item label="主记忆">
             <Tag>{configResult.memory_config.primary_memory}</Tag>
           </Descriptions.Item>
@@ -150,10 +166,15 @@ const ConfigComparison: React.FC<ConfigComparisonProps> = ({
             </Space>
           </Descriptions.Item>
           <Descriptions.Item label="权重分布" span={2}>
-            <MemoryWeightBadge weights={configResult.memory_config.memory_weights} />
+            <MemoryWeightBadge
+              weights={configResult.memory_config.memory_weights}
+            />
           </Descriptions.Item>
           <Descriptions.Item label="效率提升">
-            {(configResult.performance_prediction.efficiency_gain * 100).toFixed(2)}%
+            {(
+              configResult.performance_prediction.efficiency_gain * 100
+            ).toFixed(2)}
+            %
           </Descriptions.Item>
           <Descriptions.Item label="连贯性提升">
             {configResult.performance_prediction.coherence_gain.toFixed(2)}
@@ -162,7 +183,9 @@ const ConfigComparison: React.FC<ConfigComparisonProps> = ({
             {configResult.performance_prediction.resource_cost.toFixed(2)}
           </Descriptions.Item>
           <Descriptions.Item label="成本效益比">
-            {configResult.performance_prediction.cost_benefit_ratio?.toFixed(2) || 'N/A'}
+            {configResult.performance_prediction.cost_benefit_ratio?.toFixed(
+              2,
+            ) || 'N/A'}
           </Descriptions.Item>
         </Descriptions>
       </ChartCard>
@@ -175,9 +198,12 @@ interface PredictionResultProps {
   loading: boolean;
 }
 
-const PredictionResult: React.FC<PredictionResultProps> = ({ prediction, loading }) => (
+const PredictionResult: React.FC<PredictionResultProps> = ({
+  prediction,
+  loading,
+}) => (
   <ChartCard title="性能预测结果" loading={loading}>
-    <Row gutter={16}>
+    <Row gutter={[24, 24]}>
       <Col span={12}>
         <Descriptions column={1} bordered>
           <Descriptions.Item label="协同因子">
@@ -192,10 +218,22 @@ const PredictionResult: React.FC<PredictionResultProps> = ({ prediction, loading
         <ChartCard title="各记忆层贡献度" height={200}>
           <Column
             data={[
-              { type: 'STM', value: prediction.performance_breakdown.stm_contribution * 100 },
-              { type: 'LTM', value: prediction.performance_breakdown.ltm_contribution * 100 },
-              { type: 'KG', value: prediction.performance_breakdown.kg_contribution * 100 },
-              { type: 'MM', value: prediction.performance_breakdown.mm_contribution * 100 },
+              {
+                type: 'STM',
+                value: prediction.performance_breakdown.stm_contribution * 100,
+              },
+              {
+                type: 'LTM',
+                value: prediction.performance_breakdown.ltm_contribution * 100,
+              },
+              {
+                type: 'KG',
+                value: prediction.performance_breakdown.kg_contribution * 100,
+              },
+              {
+                type: 'MM',
+                value: prediction.performance_breakdown.mm_contribution * 100,
+              },
             ]}
             xField="type"
             yField="value"
@@ -214,33 +252,45 @@ const PredictionResult: React.FC<PredictionResultProps> = ({ prediction, loading
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MemoryConfigPage() {
-  const [configResult, setConfigResult] = useState<API.SelectMemoryResponse | null>(null);
-  const [predictionResult, setPredictionResult] = useState<API.PredictPerformanceResponse | null>(null);
-  const [currentStatus, setCurrentStatus] = useState<API.MemoryStatusResponse | null>(null);
-  const [configHistory, setConfigHistory] = useState<API.SelectMemoryResponse[]>([]);
+  const [configResult, setConfigResult] =
+    useState<API.SelectMemoryResponse | null>(null);
+  const [predictionResult, setPredictionResult] =
+    useState<API.PredictPerformanceResponse | null>(null);
+  const [currentStatus, setCurrentStatus] =
+    useState<API.MemoryStatusResponse | null>(null);
+  const [configHistory, setConfigHistory] = useState<
+    API.SelectMemoryResponse[]
+  >([]);
 
   useRequest(getMemoryStatus, {
-    onSuccess: (data: any) => setCurrentStatus(data as API.MemoryStatusResponse),
+    onSuccess: (data: any) =>
+      setCurrentStatus(data as API.MemoryStatusResponse),
   });
 
-  const { loading: configLoading, run: selectConfig } = useRequest(selectMemoryConfig, {
-    manual: true,
-    onSuccess: (data: any) => {
-      const d = data as API.SelectMemoryResponse;
-      setConfigResult(d);
-      setConfigHistory((prev) => [...prev, d].slice(-5));
-      message.success('配置选择完成');
+  const { loading: configLoading, run: selectConfig } = useRequest(
+    selectMemoryConfig,
+    {
+      manual: true,
+      onSuccess: (data: any) => {
+        const d = data as API.SelectMemoryResponse;
+        setConfigResult(d);
+        setConfigHistory((prev) => [...prev, d].slice(-5));
+        message.success('配置选择完成');
+      },
+      onError: () => message.error('配置选择失败'),
     },
-    onError: () => message.error('配置选择失败'),
-  });
+  );
 
-  const { loading: predictLoading, run: predict } = useRequest(predictPerformance, {
-    manual: true,
-    onSuccess: (data: any) => {
-      setPredictionResult(data as API.PredictPerformanceResponse);
-      message.success('性能预测完成');
+  const { loading: predictLoading, run: predict } = useRequest(
+    predictPerformance,
+    {
+      manual: true,
+      onSuccess: (data: any) => {
+        setPredictionResult(data as API.PredictPerformanceResponse);
+        message.success('性能预测完成');
+      },
     },
-  });
+  );
 
   const handleSelectConfig = async (values: any) => {
     const request: API.SelectMemoryRequest = {
@@ -289,16 +339,49 @@ export default function MemoryConfigPage() {
   };
 
   const comparisonData = useMemo(() => {
-    if (!configResult?.memory_config || !currentStatus?.current_config) return [];
+    if (!configResult?.memory_config || !currentStatus?.current_config)
+      return [];
     return [
-      { type: 'STM', value: currentStatus.current_config.memory_weights.stm, config: '当前配置' },
-      { type: 'STM', value: configResult.memory_config.memory_weights.stm, config: '选中配置' },
-      { type: 'LTM', value: currentStatus.current_config.memory_weights.ltm, config: '当前配置' },
-      { type: 'LTM', value: configResult.memory_config.memory_weights.ltm, config: '选中配置' },
-      { type: 'KG', value: currentStatus.current_config.memory_weights.kg, config: '当前配置' },
-      { type: 'KG', value: configResult.memory_config.memory_weights.kg, config: '选中配置' },
-      { type: 'MM', value: currentStatus.current_config.memory_weights.mm, config: '当前配置' },
-      { type: 'MM', value: configResult.memory_config.memory_weights.mm, config: '选中配置' },
+      {
+        type: 'STM',
+        value: currentStatus.current_config.memory_weights.stm,
+        config: '当前配置',
+      },
+      {
+        type: 'STM',
+        value: configResult.memory_config.memory_weights.stm,
+        config: '选中配置',
+      },
+      {
+        type: 'LTM',
+        value: currentStatus.current_config.memory_weights.ltm,
+        config: '当前配置',
+      },
+      {
+        type: 'LTM',
+        value: configResult.memory_config.memory_weights.ltm,
+        config: '选中配置',
+      },
+      {
+        type: 'KG',
+        value: currentStatus.current_config.memory_weights.kg,
+        config: '当前配置',
+      },
+      {
+        type: 'KG',
+        value: configResult.memory_config.memory_weights.kg,
+        config: '选中配置',
+      },
+      {
+        type: 'MM',
+        value: currentStatus.current_config.memory_weights.mm,
+        config: '当前配置',
+      },
+      {
+        type: 'MM',
+        value: configResult.memory_config.memory_weights.mm,
+        config: '选中配置',
+      },
     ];
   }, [configResult, currentStatus]);
 
@@ -317,7 +400,7 @@ export default function MemoryConfigPage() {
 
   return (
     <PageContainer>
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 24 }}>
         <ConfigInputForm onSubmit={handleSelectConfig} />
       </div>
 
@@ -332,8 +415,11 @@ export default function MemoryConfigPage() {
       )}
 
       {predictionResult && (
-        <div style={{ marginTop: 16 }}>
-          <PredictionResult prediction={predictionResult} loading={predictLoading} />
+        <div style={{ marginTop: 24 }}>
+          <PredictionResult
+            prediction={predictionResult}
+            loading={predictLoading}
+          />
         </div>
       )}
     </PageContainer>

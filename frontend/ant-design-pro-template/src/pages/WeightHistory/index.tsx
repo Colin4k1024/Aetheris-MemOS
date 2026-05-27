@@ -1,13 +1,13 @@
-import React, { useMemo } from 'react';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
-import { Row, Col, Tag } from 'antd';
 import { Line, Scatter } from '@ant-design/charts';
-import { useRequest } from '@umijs/max';
-import { getWeightHistory } from '@/services/memory';
 import type { ProColumns } from '@ant-design/pro-components';
-import { MetricCard, ChartCard } from '@/components/MemorySystem';
-import { formatDateTime, formatWeight } from '@/utils/formatters';
+import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { useRequest } from '@umijs/max';
+import { Col, Row, Tag } from 'antd';
+import React, { useMemo } from 'react';
+import { ChartCard, MetricCard } from '@/components/MemorySystem';
 import { CHART_HEIGHT } from '@/config/appConfig';
+import { getWeightHistory } from '@/services/memory';
+import { formatDateTime, formatWeight } from '@/utils/formatters';
 
 export default function WeightHistoryPage() {
   const { data: rawData, loading } = useRequest(getWeightHistory, {
@@ -33,10 +33,14 @@ export default function WeightHistoryPage() {
     if (!data?.adjustment_history) return [];
     return data.adjustment_history.map((item) => {
       const weightChange = Math.abs(
-        item.new_weights.stm - item.old_weights.stm +
-        item.new_weights.ltm - item.old_weights.ltm +
-        item.new_weights.kg - item.old_weights.kg +
-        item.new_weights.mm - item.old_weights.mm,
+        item.new_weights.stm -
+          item.old_weights.stm +
+          item.new_weights.ltm -
+          item.old_weights.ltm +
+          item.new_weights.kg -
+          item.old_weights.kg +
+          item.new_weights.mm -
+          item.old_weights.mm,
       );
       return {
         weightChange,
@@ -47,14 +51,20 @@ export default function WeightHistoryPage() {
   }, [data]);
 
   const columns: ProColumns<API.HistoryItem>[] = [
-    { title: '时间', dataIndex: 'timestamp', valueType: 'dateTime', width: 180 },
+    {
+      title: '时间',
+      dataIndex: 'timestamp',
+      valueType: 'dateTime',
+      width: 180,
+    },
     { title: '任务ID', dataIndex: 'task_id', width: 120 },
     {
       title: 'STM 权重',
       dataIndex: ['old_weights', 'stm'],
       render: (_, record) => (
         <span>
-          {formatWeight(record.old_weights.stm)} → {formatWeight(record.new_weights.stm)}
+          {formatWeight(record.old_weights.stm)} →{' '}
+          {formatWeight(record.new_weights.stm)}
         </span>
       ),
     },
@@ -63,7 +73,8 @@ export default function WeightHistoryPage() {
       dataIndex: ['old_weights', 'ltm'],
       render: (_, record) => (
         <span>
-          {formatWeight(record.old_weights.ltm)} → {formatWeight(record.new_weights.ltm)}
+          {formatWeight(record.old_weights.ltm)} →{' '}
+          {formatWeight(record.new_weights.ltm)}
         </span>
       ),
     },
@@ -72,7 +83,8 @@ export default function WeightHistoryPage() {
       dataIndex: ['old_weights', 'kg'],
       render: (_, record) => (
         <span>
-          {formatWeight(record.old_weights.kg)} → {formatWeight(record.new_weights.kg)}
+          {formatWeight(record.old_weights.kg)} →{' '}
+          {formatWeight(record.new_weights.kg)}
         </span>
       ),
     },
@@ -81,7 +93,8 @@ export default function WeightHistoryPage() {
       dataIndex: ['old_weights', 'mm'],
       render: (_, record) => (
         <span>
-          {formatWeight(record.old_weights.mm)} → {formatWeight(record.new_weights.mm)}
+          {formatWeight(record.old_weights.mm)} →{' '}
+          {formatWeight(record.new_weights.mm)}
         </span>
       ),
     },
@@ -101,7 +114,7 @@ export default function WeightHistoryPage() {
   return (
     <PageContainer>
       {data?.summary && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
           <Col span={8}>
             <MetricCard
               title="总调整次数"
@@ -127,7 +140,7 @@ export default function WeightHistoryPage() {
         </Row>
       )}
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <ChartCard
             title="权重变化趋势"
@@ -144,14 +157,16 @@ export default function WeightHistoryPage() {
               point={{ size: 3 }}
               legend={{ position: 'top' }}
               xAxis={{ type: 'time', label: { formatter: formatDateTime } }}
-              yAxis={{ label: { formatter: (t: string) => parseFloat(t).toFixed(2) } }}
+              yAxis={{
+                label: { formatter: (t: string) => parseFloat(t).toFixed(2) },
+              }}
               height={CHART_HEIGHT}
             />
           </ChartCard>
         </Col>
       </Row>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <ChartCard
             title="权重调整 vs 性能影响"

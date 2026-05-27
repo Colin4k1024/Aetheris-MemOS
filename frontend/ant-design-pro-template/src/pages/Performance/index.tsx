@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
+import { Column, Line, Radar } from '@ant-design/charts';
 import { PageContainer } from '@ant-design/pro-components';
-import { Descriptions, Row, Col } from 'antd';
-import { Line, Radar, Column } from '@ant-design/charts';
 import { useRequest } from '@umijs/max';
-import { getBaselines, getMemoryStatus } from '@/services/memory';
-import { MetricCard, ChartCard } from '@/components/MemorySystem';
+import { Col, Descriptions, Row } from 'antd';
+import React, { useState } from 'react';
+import { ChartCard, MetricCard } from '@/components/MemorySystem';
+import { CHART_HEIGHT, POLLING_INTERVALS } from '@/config/appConfig';
 import usePolling from '@/hooks/usePolling';
-import { formatTime, formatPercent } from '@/utils/formatters';
-import { POLLING_INTERVALS, CHART_HEIGHT } from '@/config/appConfig';
+import { getBaselines, getMemoryStatus } from '@/services/memory';
+import { formatPercent, formatTime } from '@/utils/formatters';
 
 export default function PerformancePage() {
-  const [baselines, setBaselines] = useState<API.BaselinesResponse | null>(null);
+  const [baselines, setBaselines] = useState<API.BaselinesResponse | null>(
+    null,
+  );
   const [status, setStatus] = useState<API.MemoryStatusResponse | null>(null);
   const [performanceHistory, setPerformanceHistory] = useState<any[]>([]);
 
@@ -19,30 +21,33 @@ export default function PerformancePage() {
     onSuccess: (data: any) => setBaselines(data as API.BaselinesResponse),
   });
 
-  const { loading: statusLoading, run: fetchStatus } = useRequest(getMemoryStatus, {
-    manual: true,
-    formatResult: (r: any) => r,
-    onSuccess: (data: any) => {
-      const d = data as API.MemoryStatusResponse;
-      setStatus(d);
-      if (d?.performance_metrics) {
-        const now = Date.now();
-        setPerformanceHistory((prev) => {
-          const next = [
-            ...prev,
-            {
-              time: now,
-              efficiency: d.performance_metrics.efficiency_score,
-              coherence: d.performance_metrics.coherence_score,
-              responseTime: d.performance_metrics.response_time_ms,
-              cpuUsage: d.performance_metrics.cpu_usage_percent,
-            },
-          ];
-          return next.slice(-20);
-        });
-      }
+  const { loading: statusLoading, run: fetchStatus } = useRequest(
+    getMemoryStatus,
+    {
+      manual: true,
+      formatResult: (r: any) => r,
+      onSuccess: (data: any) => {
+        const d = data as API.MemoryStatusResponse;
+        setStatus(d);
+        if (d?.performance_metrics) {
+          const now = Date.now();
+          setPerformanceHistory((prev) => {
+            const next = [
+              ...prev,
+              {
+                time: now,
+                efficiency: d.performance_metrics.efficiency_score,
+                coherence: d.performance_metrics.coherence_score,
+                responseTime: d.performance_metrics.response_time_ms,
+                cpuUsage: d.performance_metrics.cpu_usage_percent,
+              },
+            ];
+            return next.slice(-20);
+          });
+        }
+      },
     },
-  });
+  );
 
   usePolling(fetchStatus, { interval: POLLING_INTERVALS.SLOW });
 
@@ -53,27 +58,61 @@ export default function PerformancePage() {
 
   const contributionData = baselines
     ? [
-        { type: 'STM', metric: '效率', value: baselines.performance_baselines.stm.efficiency_gain * 100 },
-        { type: 'LTM', metric: '效率', value: baselines.performance_baselines.ltm.efficiency_gain * 100 },
-        { type: 'KG', metric: '效率', value: baselines.performance_baselines.kg.efficiency_gain * 100 },
-        { type: 'MM', metric: '效率', value: baselines.performance_baselines.mm.efficiency_gain * 100 },
-        { type: 'STM', metric: '连贯性', value: baselines.performance_baselines.stm.coherence_gain },
-        { type: 'LTM', metric: '连贯性', value: baselines.performance_baselines.ltm.coherence_gain },
-        { type: 'KG', metric: '连贯性', value: baselines.performance_baselines.kg.coherence_gain },
-        { type: 'MM', metric: '连贯性', value: baselines.performance_baselines.mm.coherence_gain },
+        {
+          type: 'STM',
+          metric: '效率',
+          value: baselines.performance_baselines.stm.efficiency_gain * 100,
+        },
+        {
+          type: 'LTM',
+          metric: '效率',
+          value: baselines.performance_baselines.ltm.efficiency_gain * 100,
+        },
+        {
+          type: 'KG',
+          metric: '效率',
+          value: baselines.performance_baselines.kg.efficiency_gain * 100,
+        },
+        {
+          type: 'MM',
+          metric: '效率',
+          value: baselines.performance_baselines.mm.efficiency_gain * 100,
+        },
+        {
+          type: 'STM',
+          metric: '连贯性',
+          value: baselines.performance_baselines.stm.coherence_gain,
+        },
+        {
+          type: 'LTM',
+          metric: '连贯性',
+          value: baselines.performance_baselines.ltm.coherence_gain,
+        },
+        {
+          type: 'KG',
+          metric: '连贯性',
+          value: baselines.performance_baselines.kg.coherence_gain,
+        },
+        {
+          type: 'MM',
+          metric: '连贯性',
+          value: baselines.performance_baselines.mm.coherence_gain,
+        },
       ]
     : [];
 
   return (
     <PageContainer>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={6}>
           <MetricCard
             title="效率得分"
-            value={((status?.performance_metrics?.efficiency_score || 0) * 100).toFixed(2)}
+            value={(
+              (status?.performance_metrics?.efficiency_score || 0) * 100
+            ).toFixed(2)}
             unit="%"
-            color="#3f8600"
             loading={statusLoading}
+            variant="success"
           />
         </Col>
         <Col span={6}>
@@ -81,8 +120,8 @@ export default function PerformancePage() {
             title="连贯性得分"
             value={status?.performance_metrics?.coherence_score || 0}
             precision={2}
-            color="#6366f1"
             loading={statusLoading}
+            variant="primary"
           />
         </Col>
         <Col span={6}>
@@ -91,6 +130,7 @@ export default function PerformancePage() {
             value={status?.performance_metrics?.response_time_ms || 0}
             unit="ms"
             loading={statusLoading}
+            variant="info"
           />
         </Col>
         <Col span={6}>
@@ -99,11 +139,12 @@ export default function PerformancePage() {
             value={status?.performance_metrics?.cpu_usage_percent || 0}
             unit="%"
             loading={statusLoading}
+            variant="warning"
           />
         </Col>
       </Row>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <ChartCard
             title="性能指标时间序列"
@@ -126,7 +167,7 @@ export default function PerformancePage() {
         </Col>
       </Row>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={12}>
           <ChartCard
             title="各记忆层贡献度对比"
@@ -156,8 +197,24 @@ export default function PerformancePage() {
             {baselines && (
               <Radar
                 data={[
-                  { item: '效率提升', STM: baselines.performance_baselines.stm.efficiency_gain * 100, LTM: baselines.performance_baselines.ltm.efficiency_gain * 100, KG: baselines.performance_baselines.kg.efficiency_gain * 100, MM: baselines.performance_baselines.mm.efficiency_gain * 100 },
-                  { item: '连贯性提升', STM: baselines.performance_baselines.stm.coherence_gain, LTM: baselines.performance_baselines.ltm.coherence_gain, KG: baselines.performance_baselines.kg.coherence_gain, MM: baselines.performance_baselines.mm.coherence_gain },
+                  {
+                    item: '效率提升',
+                    STM:
+                      baselines.performance_baselines.stm.efficiency_gain * 100,
+                    LTM:
+                      baselines.performance_baselines.ltm.efficiency_gain * 100,
+                    KG:
+                      baselines.performance_baselines.kg.efficiency_gain * 100,
+                    MM:
+                      baselines.performance_baselines.mm.efficiency_gain * 100,
+                  },
+                  {
+                    item: '连贯性提升',
+                    STM: baselines.performance_baselines.stm.coherence_gain,
+                    LTM: baselines.performance_baselines.ltm.coherence_gain,
+                    KG: baselines.performance_baselines.kg.coherence_gain,
+                    MM: baselines.performance_baselines.mm.coherence_gain,
+                  },
                 ]}
                 xField="item"
                 yField="value"
@@ -172,29 +229,41 @@ export default function PerformancePage() {
         </Col>
       </Row>
 
-      <ChartCard title="性能基准数据" loading={baselinesLoading} empty={!baselines}>
+      <ChartCard
+        title="性能基准数据"
+        loading={baselinesLoading}
+        empty={!baselines}
+      >
         {baselines && (
           <Descriptions column={2} bordered>
             <Descriptions.Item label="STM 效率提升">
-              {formatPercent(baselines.performance_baselines.stm.efficiency_gain)}
+              {formatPercent(
+                baselines.performance_baselines.stm.efficiency_gain,
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="STM 连贯性提升">
               {baselines.performance_baselines.stm.coherence_gain.toFixed(2)}
             </Descriptions.Item>
             <Descriptions.Item label="LTM 效率提升">
-              {formatPercent(baselines.performance_baselines.ltm.efficiency_gain)}
+              {formatPercent(
+                baselines.performance_baselines.ltm.efficiency_gain,
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="LTM 连贯性提升">
               {baselines.performance_baselines.ltm.coherence_gain.toFixed(2)}
             </Descriptions.Item>
             <Descriptions.Item label="KG 效率提升">
-              {formatPercent(baselines.performance_baselines.kg.efficiency_gain)}
+              {formatPercent(
+                baselines.performance_baselines.kg.efficiency_gain,
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="KG 连贯性提升">
               {baselines.performance_baselines.kg.coherence_gain.toFixed(2)}
             </Descriptions.Item>
             <Descriptions.Item label="MM 效率提升">
-              {formatPercent(baselines.performance_baselines.mm.efficiency_gain)}
+              {formatPercent(
+                baselines.performance_baselines.mm.efficiency_gain,
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="MM 连贯性提升">
               {baselines.performance_baselines.mm.coherence_gain.toFixed(2)}
@@ -203,8 +272,12 @@ export default function PerformancePage() {
         )}
       </ChartCard>
 
-      <div style={{ marginTop: 16 }}>
-        <ChartCard title="边际递减系数" loading={baselinesLoading} empty={!baselines}>
+      <div style={{ marginTop: 24 }}>
+        <ChartCard
+          title="边际递减系数"
+          loading={baselinesLoading}
+          empty={!baselines}
+        >
           {baselines && (
             <Descriptions column={3} bordered>
               <Descriptions.Item label="STM → LTM">

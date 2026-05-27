@@ -1,13 +1,21 @@
-import React, { useState } from 'react';
-import { PageContainer, ProForm, ProFormSlider } from '@ant-design/pro-components';
-import { Alert, List, Descriptions, Row, Col, message } from 'antd';
-import { Line, Area } from '@ant-design/charts';
+import { Area, Line } from '@ant-design/charts';
+import {
+  PageContainer,
+  ProForm,
+  ProFormSlider,
+} from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
-import { getResources, calculateCostBenefit, optimize } from '@/services/memory';
+import { Alert, Col, Descriptions, List, message, Row } from 'antd';
+import React, { useState } from 'react';
 import { ChartCard, StatusTag } from '@/components/MemorySystem';
+import { CHART_HEIGHT, POLLING_INTERVALS } from '@/config/appConfig';
 import usePolling from '@/hooks/usePolling';
+import {
+  calculateCostBenefit,
+  getResources,
+  optimize,
+} from '@/services/memory';
 import { formatTimeWithSeconds } from '@/utils/formatters';
-import { POLLING_INTERVALS, CHART_HEIGHT } from '@/config/appConfig';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -15,8 +23,11 @@ interface CostBenefitSectionProps {
   resourceStatus: API.CurrentResourceStatus | null;
 }
 
-const CostBenefitSection: React.FC<CostBenefitSectionProps> = ({ resourceStatus }) => {
-  const [costBenefit, setCostBenefit] = useState<API.CostBenefitResponse | null>(null);
+const CostBenefitSection: React.FC<CostBenefitSectionProps> = ({
+  resourceStatus,
+}) => {
+  const [costBenefit, setCostBenefit] =
+    useState<API.CostBenefitResponse | null>(null);
 
   const { run: calculateCostBenefitRatio } = useRequest(calculateCostBenefit, {
     manual: true,
@@ -49,8 +60,22 @@ const CostBenefitSection: React.FC<CostBenefitSectionProps> = ({ resourceStatus 
         onFinish={handleSubmit}
         submitter={{ searchConfig: { submitText: '计算成本效益比' } }}
       >
-        <ProFormSlider name="efficiency" label="效率增益" min={0} max={1} step={0.01} initialValue={0.4} />
-        <ProFormSlider name="coherence" label="连贯性增益" min={0} max={3} step={0.1} initialValue={1.5} />
+        <ProFormSlider
+          name="efficiency"
+          label="效率增益"
+          min={0}
+          max={1}
+          step={0.01}
+          initialValue={0.4}
+        />
+        <ProFormSlider
+          name="coherence"
+          label="连贯性增益"
+          min={0}
+          max={3}
+          step={0.1}
+          initialValue={1.5}
+        />
       </ProForm>
 
       {costBenefit && (
@@ -86,8 +111,11 @@ interface OptimizeSectionProps {
   resourceStatus: API.CurrentResourceStatus | null;
 }
 
-const OptimizeSection: React.FC<OptimizeSectionProps> = ({ resourceStatus }) => {
-  const [optimization, setOptimization] = useState<API.OptimizationResult | null>(null);
+const OptimizeSection: React.FC<OptimizeSectionProps> = ({
+  resourceStatus,
+}) => {
+  const [optimization, setOptimization] =
+    useState<API.OptimizationResult | null>(null);
 
   const { run: runOptimize } = useRequest(optimize, {
     manual: true,
@@ -129,11 +157,46 @@ const OptimizeSection: React.FC<OptimizeSectionProps> = ({ resourceStatus }) => 
         onFinish={handleSubmit}
         submitter={{ searchConfig: { submitText: '生成优化建议' } }}
       >
-        <ProFormSlider name="ltm_weight" label="LTM 权重" min={0} max={1} step={0.1} initialValue={0.8} />
-        <ProFormSlider name="kg_weight" label="KG 权重" min={0} max={1} step={0.1} initialValue={0.0} />
-        <ProFormSlider name="target_efficiency" label="目标效率" min={0} max={1} step={0.01} initialValue={0.4} />
-        <ProFormSlider name="target_coherence" label="目标连贯性" min={0} max={3} step={0.1} initialValue={1.5} />
-        <ProFormSlider name="max_resource_cost" label="最大资源成本" min={0} max={1} step={0.1} initialValue={0.7} />
+        <ProFormSlider
+          name="ltm_weight"
+          label="LTM 权重"
+          min={0}
+          max={1}
+          step={0.1}
+          initialValue={0.8}
+        />
+        <ProFormSlider
+          name="kg_weight"
+          label="KG 权重"
+          min={0}
+          max={1}
+          step={0.1}
+          initialValue={0.0}
+        />
+        <ProFormSlider
+          name="target_efficiency"
+          label="目标效率"
+          min={0}
+          max={1}
+          step={0.01}
+          initialValue={0.4}
+        />
+        <ProFormSlider
+          name="target_coherence"
+          label="目标连贯性"
+          min={0}
+          max={3}
+          step={0.1}
+          initialValue={1.5}
+        />
+        <ProFormSlider
+          name="max_resource_cost"
+          label="最大资源成本"
+          min={0}
+          max={1}
+          step={0.1}
+          initialValue={0.7}
+        />
       </ProForm>
 
       {optimization && (
@@ -155,7 +218,12 @@ const OptimizeSection: React.FC<OptimizeSectionProps> = ({ resourceStatus }) => 
               </List.Item>
             )}
           />
-          <Descriptions column={2} bordered style={{ marginTop: 16 }} title="优化后的配置">
+          <Descriptions
+            column={2}
+            bordered
+            style={{ marginTop: 16 }}
+            title="优化后的配置"
+          >
             <Descriptions.Item label="STM 权重">
               {optimization.optimized_config.memory_weights.stm.toFixed(2)}
             </Descriptions.Item>
@@ -169,15 +237,26 @@ const OptimizeSection: React.FC<OptimizeSectionProps> = ({ resourceStatus }) => 
               {optimization.optimized_config.memory_weights.mm.toFixed(2)}
             </Descriptions.Item>
           </Descriptions>
-          <Descriptions column={3} bordered style={{ marginTop: 16 }} title="预期改进">
+          <Descriptions
+            column={3}
+            bordered
+            style={{ marginTop: 16 }}
+            title="预期改进"
+          >
             <Descriptions.Item label="效率提升">
-              {(optimization.predicted_improvement.efficiency_gain * 100).toFixed(2)}%
+              {(
+                optimization.predicted_improvement.efficiency_gain * 100
+              ).toFixed(2)}
+              %
             </Descriptions.Item>
             <Descriptions.Item label="连贯性提升">
               {optimization.predicted_improvement.coherence_gain.toFixed(2)}
             </Descriptions.Item>
             <Descriptions.Item label="资源成本降低">
-              {(optimization.predicted_improvement.resource_cost_reduction * 100).toFixed(2)}%
+              {(
+                optimization.predicted_improvement.resource_cost_reduction * 100
+              ).toFixed(2)}
+              %
             </Descriptions.Item>
           </Descriptions>
         </div>
@@ -189,32 +268,36 @@ const OptimizeSection: React.FC<OptimizeSectionProps> = ({ resourceStatus }) => 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ResourceMonitorPage() {
-  const [resourceStatus, setResourceStatus] = useState<API.CurrentResourceStatus | null>(null);
+  const [resourceStatus, setResourceStatus] =
+    useState<API.CurrentResourceStatus | null>(null);
   const [resourceHistory, setResourceHistory] = useState<any[]>([]);
 
-  const { loading: resourcesLoading, run: fetchResources } = useRequest(getResources, {
-    manual: true,
-    formatResult: (r: any) => r,
-    onSuccess: (data: any) => {
-      const d = data as API.CurrentResourceStatus;
-      setResourceStatus(d);
-      if (d?.current_status) {
-        const now = Date.now();
-        setResourceHistory((prev) => {
-          const next = [
-            ...prev,
-            {
-              time: now,
-              memory: d.current_status.memory_usage_percent,
-              cpu: d.current_status.cpu_usage_percent,
-              responseTime: d.current_status.response_time_ms,
-            },
-          ];
-          return next.slice(-20);
-        });
-      }
+  const { loading: resourcesLoading, run: fetchResources } = useRequest(
+    getResources,
+    {
+      manual: true,
+      formatResult: (r: any) => r,
+      onSuccess: (data: any) => {
+        const d = data as API.CurrentResourceStatus;
+        setResourceStatus(d);
+        if (d?.current_status) {
+          const now = Date.now();
+          setResourceHistory((prev) => {
+            const next = [
+              ...prev,
+              {
+                time: now,
+                memory: d.current_status.memory_usage_percent,
+                cpu: d.current_status.cpu_usage_percent,
+                responseTime: d.current_status.response_time_ms,
+              },
+            ];
+            return next.slice(-20);
+          });
+        }
+      },
     },
-  });
+  );
 
   usePolling(fetchResources, { interval: POLLING_INTERVALS.NORMAL });
 
@@ -230,9 +313,13 @@ export default function ResourceMonitorPage() {
 
   return (
     <PageContainer>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={24}>
-          <ChartCard title="资源使用状态" loading={resourcesLoading} empty={!resourceStatus}>
+          <ChartCard
+            title="资源使用状态"
+            loading={resourcesLoading}
+            empty={!resourceStatus}
+          >
             {resourceStatus && (
               <>
                 {resourceStatus.alerts.length > 0 && (
@@ -246,7 +333,7 @@ export default function ResourceMonitorPage() {
                       />
                     }
                     type="warning"
-                    style={{ marginBottom: 16 }}
+                    style={{ marginBottom: 24 }}
                   />
                 )}
                 <Descriptions column={2} bordered>
@@ -282,7 +369,7 @@ export default function ResourceMonitorPage() {
         </Col>
       </Row>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col span={12}>
           <ChartCard
             title="资源使用趋势（实时监控）"
@@ -298,7 +385,10 @@ export default function ResourceMonitorPage() {
               smooth
               point={{ size: 3 }}
               legend={{ position: 'top' }}
-              xAxis={{ type: 'time', label: { formatter: formatTimeWithSeconds } }}
+              xAxis={{
+                type: 'time',
+                label: { formatter: formatTimeWithSeconds },
+              }}
               yAxis={{ label: { formatter: (t: string) => `${t}%` } }}
               height={CHART_HEIGHT}
             />
@@ -318,7 +408,10 @@ export default function ResourceMonitorPage() {
               smooth
               areaStyle={{ fill: 'l(270) 0:#ffffff 0.5:#7ec2f3 1:#6366f1' }}
               point={{ size: 3 }}
-              xAxis={{ type: 'time', label: { formatter: formatTimeWithSeconds } }}
+              xAxis={{
+                type: 'time',
+                label: { formatter: formatTimeWithSeconds },
+              }}
               yAxis={{ label: { formatter: (t: string) => `${t}ms` } }}
               height={CHART_HEIGHT}
             />
@@ -326,7 +419,7 @@ export default function ResourceMonitorPage() {
         </Col>
       </Row>
 
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 24 }}>
         <CostBenefitSection resourceStatus={resourceStatus} />
       </div>
       <OptimizeSection resourceStatus={resourceStatus} />

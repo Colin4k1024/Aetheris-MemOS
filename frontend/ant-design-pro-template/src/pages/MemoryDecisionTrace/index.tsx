@@ -1,4 +1,3 @@
-import React, { useState, useCallback, useEffect } from 'react';
 import {
   PageContainer,
   ProForm,
@@ -6,22 +5,23 @@ import {
   ProFormSlider,
   ProFormText,
 } from '@ant-design/pro-components';
-import {
-  Descriptions,
-  Steps,
-  Tag,
-  Spin,
-  Table,
-  Button,
-  Space,
-  Select,
-  Progress,
-  message,
-} from 'antd';
 import { useRequest } from '@umijs/max';
-import { getDecisionTrace } from '@/services/memory';
+import {
+  Button,
+  Descriptions,
+  message,
+  Progress,
+  Select,
+  Space,
+  Spin,
+  Steps,
+  Table,
+  Tag,
+} from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ChartCard } from '@/components/MemorySystem';
-import { DEFAULT_USER_ID, DEFAULT_AGENT_ID } from '@/config/appConfig';
+import { DEFAULT_AGENT_ID, DEFAULT_USER_ID } from '@/config/appConfig';
+import { getDecisionTrace } from '@/services/memory';
 
 type PlaybackSpeed = 0.5 | 1 | 2;
 
@@ -29,71 +29,147 @@ type PlaybackSpeed = 0.5 | 1 | 2;
 
 const AnalyzerStep: React.FC<{ trace: API.DecisionTrace }> = ({ trace }) => (
   <Descriptions size="small" column={2} bordered>
-    <Descriptions.Item label="复杂度">{trace.analyzer.task_characteristics.complexity.toFixed(2)}</Descriptions.Item>
-    <Descriptions.Item label="模态数">{trace.analyzer.task_characteristics.modality_count}</Descriptions.Item>
-    <Descriptions.Item label="时间范围">{trace.analyzer.task_characteristics.temporal_scope}</Descriptions.Item>
-    <Descriptions.Item label="推理深度">{trace.analyzer.task_characteristics.reasoning_depth.toFixed(2)}</Descriptions.Item>
-    <Descriptions.Item label="主记忆">{trace.analyzer.memory_strategy.primary_memory}</Descriptions.Item>
-    <Descriptions.Item label="次记忆">{trace.analyzer.memory_strategy.secondary_memory.join(', ') || '-'}</Descriptions.Item>
-    <Descriptions.Item label="置信度">{trace.analyzer.confidence_score.toFixed(2)}</Descriptions.Item>
+    <Descriptions.Item label="复杂度">
+      {trace.analyzer.task_characteristics.complexity.toFixed(2)}
+    </Descriptions.Item>
+    <Descriptions.Item label="模态数">
+      {trace.analyzer.task_characteristics.modality_count}
+    </Descriptions.Item>
+    <Descriptions.Item label="时间范围">
+      {trace.analyzer.task_characteristics.temporal_scope}
+    </Descriptions.Item>
+    <Descriptions.Item label="推理深度">
+      {trace.analyzer.task_characteristics.reasoning_depth.toFixed(2)}
+    </Descriptions.Item>
+    <Descriptions.Item label="主记忆">
+      {trace.analyzer.memory_strategy.primary_memory}
+    </Descriptions.Item>
+    <Descriptions.Item label="次记忆">
+      {trace.analyzer.memory_strategy.secondary_memory.join(', ') || '-'}
+    </Descriptions.Item>
+    <Descriptions.Item label="置信度">
+      {trace.analyzer.confidence_score.toFixed(2)}
+    </Descriptions.Item>
   </Descriptions>
 );
 
 const ResourceStep: React.FC<{ trace: API.DecisionTrace }> = ({ trace }) => (
   <Descriptions size="small" column={2} bordered>
-    <Descriptions.Item label="状态">{trace.resource_status.status}</Descriptions.Item>
-    <Descriptions.Item label="内存">{trace.resource_status.current_status.memory_usage_mb} MB</Descriptions.Item>
-    <Descriptions.Item label="CPU">{trace.resource_status.current_status.cpu_usage_percent}%</Descriptions.Item>
-    <Descriptions.Item label="响应时间">{trace.resource_status.current_status.response_time_ms} ms</Descriptions.Item>
+    <Descriptions.Item label="状态">
+      {trace.resource_status.status}
+    </Descriptions.Item>
+    <Descriptions.Item label="内存">
+      {trace.resource_status.current_status.memory_usage_mb} MB
+    </Descriptions.Item>
+    <Descriptions.Item label="CPU">
+      {trace.resource_status.current_status.cpu_usage_percent}%
+    </Descriptions.Item>
+    <Descriptions.Item label="响应时间">
+      {trace.resource_status.current_status.response_time_ms} ms
+    </Descriptions.Item>
     {trace.resource_status.alerts?.length > 0 && (
-      <Descriptions.Item label="告警" span={2}>{trace.resource_status.alerts.join('; ')}</Descriptions.Item>
+      <Descriptions.Item label="告警" span={2}>
+        {trace.resource_status.alerts.join('; ')}
+      </Descriptions.Item>
     )}
   </Descriptions>
 );
 
-const InitialConfigStep: React.FC<{ trace: API.DecisionTrace }> = ({ trace }) => (
+const InitialConfigStep: React.FC<{ trace: API.DecisionTrace }> = ({
+  trace,
+}) => (
   <Descriptions size="small" column={2} bordered>
-    <Descriptions.Item label="主记忆">{trace.initial_memory_config.primary_memory}</Descriptions.Item>
-    <Descriptions.Item label="次记忆">{trace.initial_memory_config.secondary_memory.join(', ') || '-'}</Descriptions.Item>
-    <Descriptions.Item label="STM">{trace.initial_memory_config.memory_weights.stm.toFixed(2)}</Descriptions.Item>
-    <Descriptions.Item label="LTM">{trace.initial_memory_config.memory_weights.ltm.toFixed(2)}</Descriptions.Item>
-    <Descriptions.Item label="KG">{trace.initial_memory_config.memory_weights.kg.toFixed(2)}</Descriptions.Item>
-    <Descriptions.Item label="MM">{trace.initial_memory_config.memory_weights.mm.toFixed(2)}</Descriptions.Item>
+    <Descriptions.Item label="主记忆">
+      {trace.initial_memory_config.primary_memory}
+    </Descriptions.Item>
+    <Descriptions.Item label="次记忆">
+      {trace.initial_memory_config.secondary_memory.join(', ') || '-'}
+    </Descriptions.Item>
+    <Descriptions.Item label="STM">
+      {trace.initial_memory_config.memory_weights.stm.toFixed(2)}
+    </Descriptions.Item>
+    <Descriptions.Item label="LTM">
+      {trace.initial_memory_config.memory_weights.ltm.toFixed(2)}
+    </Descriptions.Item>
+    <Descriptions.Item label="KG">
+      {trace.initial_memory_config.memory_weights.kg.toFixed(2)}
+    </Descriptions.Item>
+    <Descriptions.Item label="MM">
+      {trace.initial_memory_config.memory_weights.mm.toFixed(2)}
+    </Descriptions.Item>
   </Descriptions>
 );
 
 const PredictorStep: React.FC<{ trace: API.DecisionTrace }> = ({ trace }) => (
   <Descriptions size="small" column={2} bordered>
-    <Descriptions.Item label="效率增益">{trace.predictor.performance_prediction.efficiency_gain.toFixed(3)}</Descriptions.Item>
-    <Descriptions.Item label="连贯增益">{trace.predictor.performance_prediction.coherence_gain.toFixed(3)}</Descriptions.Item>
-    <Descriptions.Item label="协同因子">{trace.predictor.synergy_factor.toFixed(3)}</Descriptions.Item>
-    <Descriptions.Item label="衰减因子">{trace.predictor.decay_factor.toFixed(3)}</Descriptions.Item>
+    <Descriptions.Item label="效率增益">
+      {trace.predictor.performance_prediction.efficiency_gain.toFixed(3)}
+    </Descriptions.Item>
+    <Descriptions.Item label="连贯增益">
+      {trace.predictor.performance_prediction.coherence_gain.toFixed(3)}
+    </Descriptions.Item>
+    <Descriptions.Item label="协同因子">
+      {trace.predictor.synergy_factor.toFixed(3)}
+    </Descriptions.Item>
+    <Descriptions.Item label="衰减因子">
+      {trace.predictor.decay_factor.toFixed(3)}
+    </Descriptions.Item>
   </Descriptions>
 );
 
-const WeightAdjustStep: React.FC<{ trace: API.DecisionTrace }> = ({ trace }) => (
+const WeightAdjustStep: React.FC<{ trace: API.DecisionTrace }> = ({
+  trace,
+}) => (
   <>
-    <p><Tag color="blue">成本效益比: {trace.cost_benefit_ratio.toFixed(2)}</Tag></p>
+    <p>
+      <Tag color="blue">成本效益比: {trace.cost_benefit_ratio.toFixed(2)}</Tag>
+    </p>
     <Descriptions size="small" column={2} bordered>
-      <Descriptions.Item label="调整后 STM">{trace.weight_adjustment.adjusted_weights.stm.toFixed(2)}</Descriptions.Item>
-      <Descriptions.Item label="调整后 LTM">{trace.weight_adjustment.adjusted_weights.ltm.toFixed(2)}</Descriptions.Item>
-      <Descriptions.Item label="调整后 KG">{trace.weight_adjustment.adjusted_weights.kg.toFixed(2)}</Descriptions.Item>
-      <Descriptions.Item label="调整后 MM">{trace.weight_adjustment.adjusted_weights.mm.toFixed(2)}</Descriptions.Item>
-      <Descriptions.Item label="LTM 原因" span={2}>{trace.weight_adjustment.adjustment_reasons.ltm || '-'}</Descriptions.Item>
-      <Descriptions.Item label="KG 原因" span={2}>{trace.weight_adjustment.adjustment_reasons.kg || '-'}</Descriptions.Item>
-      <Descriptions.Item label="MM 原因" span={2}>{trace.weight_adjustment.adjustment_reasons.mm || '-'}</Descriptions.Item>
+      <Descriptions.Item label="调整后 STM">
+        {trace.weight_adjustment.adjusted_weights.stm.toFixed(2)}
+      </Descriptions.Item>
+      <Descriptions.Item label="调整后 LTM">
+        {trace.weight_adjustment.adjusted_weights.ltm.toFixed(2)}
+      </Descriptions.Item>
+      <Descriptions.Item label="调整后 KG">
+        {trace.weight_adjustment.adjusted_weights.kg.toFixed(2)}
+      </Descriptions.Item>
+      <Descriptions.Item label="调整后 MM">
+        {trace.weight_adjustment.adjusted_weights.mm.toFixed(2)}
+      </Descriptions.Item>
+      <Descriptions.Item label="LTM 原因" span={2}>
+        {trace.weight_adjustment.adjustment_reasons.ltm || '-'}
+      </Descriptions.Item>
+      <Descriptions.Item label="KG 原因" span={2}>
+        {trace.weight_adjustment.adjustment_reasons.kg || '-'}
+      </Descriptions.Item>
+      <Descriptions.Item label="MM 原因" span={2}>
+        {trace.weight_adjustment.adjustment_reasons.mm || '-'}
+      </Descriptions.Item>
     </Descriptions>
   </>
 );
 
 const FinalResultStep: React.FC<{ trace: API.DecisionTrace }> = ({ trace }) => (
   <Descriptions size="small" column={2} bordered>
-    <Descriptions.Item label="预估内存">{trace.final_result.resource_requirements.estimated_memory_mb} MB</Descriptions.Item>
-    <Descriptions.Item label="预估 CPU">{trace.final_result.resource_requirements.estimated_cpu_percent}%</Descriptions.Item>
-    <Descriptions.Item label="预估响应">{trace.final_result.resource_requirements.estimated_response_time_ms} ms</Descriptions.Item>
-    <Descriptions.Item label="效率">{trace.final_result.performance_prediction.efficiency_gain.toFixed(3)}</Descriptions.Item>
-    <Descriptions.Item label="连贯">{trace.final_result.performance_prediction.coherence_gain.toFixed(3)}</Descriptions.Item>
-    <Descriptions.Item label="成本">{trace.final_result.performance_prediction.resource_cost.toFixed(3)}</Descriptions.Item>
+    <Descriptions.Item label="预估内存">
+      {trace.final_result.resource_requirements.estimated_memory_mb} MB
+    </Descriptions.Item>
+    <Descriptions.Item label="预估 CPU">
+      {trace.final_result.resource_requirements.estimated_cpu_percent}%
+    </Descriptions.Item>
+    <Descriptions.Item label="预估响应">
+      {trace.final_result.resource_requirements.estimated_response_time_ms} ms
+    </Descriptions.Item>
+    <Descriptions.Item label="效率">
+      {trace.final_result.performance_prediction.efficiency_gain.toFixed(3)}
+    </Descriptions.Item>
+    <Descriptions.Item label="连贯">
+      {trace.final_result.performance_prediction.coherence_gain.toFixed(3)}
+    </Descriptions.Item>
+    <Descriptions.Item label="成本">
+      {trace.final_result.performance_prediction.resource_cost.toFixed(3)}
+    </Descriptions.Item>
   </Descriptions>
 );
 
@@ -128,17 +204,34 @@ const PlaybackController: React.FC<PlaybackControllerProps> = ({
 }) => (
   <ChartCard title="回放控制">
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-      <Progress percent={Math.round(((currentStep + 1) / totalSteps) * 100)} status="active" />
+      <Progress
+        percent={Math.round(((currentStep + 1) / totalSteps) * 100)}
+        status="active"
+      />
       <Space>
-        <Button onClick={onReset} disabled={currentStep === 0}>⏮ 重置</Button>
-        <Button onClick={onBack} disabled={currentStep === 0}>◀ 上一步</Button>
+        <Button onClick={onReset} disabled={currentStep === 0}>
+          ⏮ 重置
+        </Button>
+        <Button onClick={onBack} disabled={currentStep === 0}>
+          ◀ 上一步
+        </Button>
         {isPlaying ? (
-          <Button type="primary" onClick={onPause}>暂停</Button>
+          <Button type="primary" onClick={onPause}>
+            暂停
+          </Button>
         ) : (
-          <Button type="primary" onClick={onPlay}>播放</Button>
+          <Button type="primary" onClick={onPlay}>
+            播放
+          </Button>
         )}
-        <Button onClick={onForward} disabled={currentStep >= totalSteps - 1}>▶ 下一步</Button>
-        <Select value={playbackSpeed} onChange={onSpeedChange} style={{ width: 100 }}>
+        <Button onClick={onForward} disabled={currentStep >= totalSteps - 1}>
+          ▶ 下一步
+        </Button>
+        <Select
+          value={playbackSpeed}
+          onChange={onSpeedChange}
+          style={{ width: 100 }}
+        >
           <Select.Option value={0.5}>0.5x</Select.Option>
           <Select.Option value={1}>1x</Select.Option>
           <Select.Option value={2}>2x</Select.Option>
@@ -256,8 +349,11 @@ export default function MemoryDecisionTracePage() {
   return (
     <PageContainer>
       <ChartCard title="记忆决策链路追踪" extra={null}>
-        <p style={{ color: 'var(--ant-color-text-secondary)', marginBottom: 16 }}>
-          输入任务上下文与约束，查看系统完整的决策过程：Analyzer → Predictor → Weight Adjuster → 最终配置（不落库）。
+        <p
+          style={{ color: 'var(--ant-color-text-secondary)', marginBottom: 16 }}
+        >
+          输入任务上下文与约束，查看系统完整的决策过程：Analyzer → Predictor →
+          Weight Adjuster → 最终配置（不落库）。
         </p>
         <ProForm
           onFinish={handleSubmit}
@@ -291,7 +387,13 @@ export default function MemoryDecisionTracePage() {
               { value: 'query', label: 'Query' },
             ]}
           />
-          <ProFormSlider name="complexity" label="复杂度" min={0} max={1} step={0.1} />
+          <ProFormSlider
+            name="complexity"
+            label="复杂度"
+            min={0}
+            max={1}
+            step={0.1}
+          />
           <ProFormSelect
             name="modality_requirements"
             label="模态需求"
@@ -321,7 +423,13 @@ export default function MemoryDecisionTracePage() {
               { value: 'deep', label: 'Deep' },
             ]}
           />
-          <ProFormSlider name="context_dependency" label="上下文依赖" min={0} max={1} step={0.1} />
+          <ProFormSlider
+            name="context_dependency"
+            label="上下文依赖"
+            min={0}
+            max={1}
+            step={0.1}
+          />
           <ProFormText name="user_id" label="User ID" />
           <ProFormText name="agent_id" label="Agent ID" />
         </ProForm>
@@ -335,9 +443,16 @@ export default function MemoryDecisionTracePage() {
 
       {!loading && trace && (
         <>
-          <div style={{ marginTop: 16 }}>
+          <div style={{ marginTop: 24 }}>
             <ChartCard title="决策路径图">
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 4,
+                }}
+              >
                 {steps.map((step, i) => (
                   <span key={step.key}>
                     <Tag
@@ -350,7 +465,14 @@ export default function MemoryDecisionTracePage() {
                       {step.title}
                     </Tag>
                     {i < steps.length - 1 && (
-                      <span style={{ margin: '0 4px', color: 'var(--ant-color-text-tertiary)' }}>→</span>
+                      <span
+                        style={{
+                          margin: '0 4px',
+                          color: 'var(--ant-color-text-tertiary)',
+                        }}
+                      >
+                        →
+                      </span>
                     )}
                   </span>
                 ))}
@@ -358,7 +480,7 @@ export default function MemoryDecisionTracePage() {
             </ChartCard>
           </div>
 
-          <div style={{ marginTop: 16 }}>
+          <div style={{ marginTop: 24 }}>
             <PlaybackController
               currentStep={currentStep}
               totalSteps={totalSteps}
@@ -374,36 +496,70 @@ export default function MemoryDecisionTracePage() {
             />
           </div>
 
-          {trace.memory_contributions && trace.memory_contributions.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <ChartCard title="Task → Memory 选择映射">
-                <Table
-                  size="small"
-                  rowKey="memory_type"
-                  pagination={false}
-                  dataSource={trace.memory_contributions}
-                  columns={[
-                    { title: '记忆类型', dataIndex: 'memory_type', key: 'memory_type', render: (t: string) => <Tag>{t.toUpperCase()}</Tag> },
-                    { title: '权重', dataIndex: 'weight', key: 'weight', render: (w: number) => w.toFixed(2) },
-                    { title: '原因', dataIndex: 'reason', key: 'reason', ellipsis: true },
-                  ]}
-                />
-              </ChartCard>
-            </div>
-          )}
+          {trace.memory_contributions &&
+            trace.memory_contributions.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <ChartCard title="Task → Memory 选择映射">
+                  <Table
+                    size="small"
+                    rowKey="memory_type"
+                    pagination={false}
+                    dataSource={trace.memory_contributions}
+                    columns={[
+                      {
+                        title: '记忆类型',
+                        dataIndex: 'memory_type',
+                        key: 'memory_type',
+                        render: (t: string) => <Tag>{t.toUpperCase()}</Tag>,
+                      },
+                      {
+                        title: '权重',
+                        dataIndex: 'weight',
+                        key: 'weight',
+                        render: (w: number) => w.toFixed(2),
+                      },
+                      {
+                        title: '原因',
+                        dataIndex: 'reason',
+                        key: 'reason',
+                        ellipsis: true,
+                      },
+                    ]}
+                  />
+                </ChartCard>
+              </div>
+            )}
 
-          <div style={{ marginTop: 16 }}>
+          <div style={{ marginTop: 24 }}>
             <ChartCard title={`决策链路：${trace.task_id}`}>
               <Steps
                 orientation="vertical"
                 current={currentStep}
                 items={[
-                  { title: '1. Analyzer 输出', description: <AnalyzerStep trace={trace} /> },
-                  { title: '2. 资源状态', description: <ResourceStep trace={trace} /> },
-                  { title: '3. 初始记忆配置', description: <InitialConfigStep trace={trace} /> },
-                  { title: '4. Predictor 评估', description: <PredictorStep trace={trace} /> },
-                  { title: '5. 成本效益比与权重调整', description: <WeightAdjustStep trace={trace} /> },
-                  { title: '6. 最终结果', description: <FinalResultStep trace={trace} /> },
+                  {
+                    title: '1. Analyzer 输出',
+                    description: <AnalyzerStep trace={trace} />,
+                  },
+                  {
+                    title: '2. 资源状态',
+                    description: <ResourceStep trace={trace} />,
+                  },
+                  {
+                    title: '3. 初始记忆配置',
+                    description: <InitialConfigStep trace={trace} />,
+                  },
+                  {
+                    title: '4. Predictor 评估',
+                    description: <PredictorStep trace={trace} />,
+                  },
+                  {
+                    title: '5. 成本效益比与权重调整',
+                    description: <WeightAdjustStep trace={trace} />,
+                  },
+                  {
+                    title: '6. 最终结果',
+                    description: <FinalResultStep trace={trace} />,
+                  },
                 ]}
               />
             </ChartCard>
