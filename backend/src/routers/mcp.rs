@@ -909,7 +909,8 @@ async fn read_resource(
                 match entry {
                     Some(e) => {
                         // Get related entries
-                        let related = MMRepository::get_related_entries(&entry_id, Some(5), None).await?;
+                        let related =
+                            MMRepository::get_related_entries(&entry_id, Some(5), None).await?;
                         let relations: Vec<serde_json::Value> = related
                             .iter()
                             .map(|(ent, rel)| {
