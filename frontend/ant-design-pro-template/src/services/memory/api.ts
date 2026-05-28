@@ -1,5 +1,3 @@
-// @ts-ignore
-/* eslint-disable */
 import { request } from '@umijs/max';
 
 /** 自适应记忆选择 POST /api/v1/memory/adaptive */

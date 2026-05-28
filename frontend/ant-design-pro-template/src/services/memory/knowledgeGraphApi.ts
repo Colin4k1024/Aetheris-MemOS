@@ -1,5 +1,3 @@
-// @ts-ignore
-/* eslint-disable */
 import { request } from '@umijs/max';
 
 // ========== 知识图谱实体 ==========

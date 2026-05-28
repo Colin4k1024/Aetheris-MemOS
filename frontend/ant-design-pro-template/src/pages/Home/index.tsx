@@ -90,7 +90,7 @@ const HomePage: React.FC = () => {
           </a>
           <a
             className={styles.navLink}
-            href="https://github.com"
+            href="https://github.com/Colin4k1024/Aetheris-MemOS"
             target="_blank"
             rel="noopener noreferrer"
           >

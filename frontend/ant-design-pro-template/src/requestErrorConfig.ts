@@ -1,5 +1,6 @@
 ﻿import type { RequestOptions } from '@@/plugin-request/request';
 import type { RequestConfig } from '@umijs/max';
+import { history } from '@umijs/max';
 import { message, notification } from 'antd';
 
 // 错误处理方案： 错误类型
@@ -63,7 +64,14 @@ export const errorConfig: RequestConfig = {
               });
               break;
             case ErrorShowType.REDIRECT:
-              // TODO: redirect
+              // 业务错误码触发的重定向 — 通常用于引导用户到指定页面 (登录/订阅/授权)
+              {
+                const redirectPath =
+                  (errorInfo as ResponseStructure & { redirect?: string })
+                    .redirect || '/user/login';
+                localStorage.removeItem('jwt_token');
+                history.push(redirectPath);
+              }
               break;
             default:
               message.error(errorMessage);
@@ -141,7 +149,7 @@ export const errorConfig: RequestConfig = {
       // Umi 的 request 会自动从 response.data 中提取数据
       // 如果后端直接返回数据（没有包装），response.data 就是实际数据
       // 如果后端返回 { success: true, data: ... }，response.data 就是 { success: true, data: ... }
-      const { data } = response as any;
+      const data = (response as unknown as { data?: ResponseStructure }).data;
 
       // 如果响应格式是 { success: false, ... }，显示错误
       if (data && typeof data === 'object' && data.success === false) {

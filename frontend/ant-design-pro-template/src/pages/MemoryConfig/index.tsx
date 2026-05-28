@@ -5,7 +5,7 @@ import {
   ProFormSelect,
   ProFormSlider,
 } from '@ant-design/pro-components';
-import { useRequest } from '@umijs/max';
+import { useIntl, useRequest } from '@umijs/max';
 import { Col, Descriptions, message, Row, Space, Tag } from 'antd';
 import React, { useMemo, useState } from 'react';
 import { ChartCard, MemoryWeightBadge } from '@/components/MemorySystem';
@@ -113,7 +113,9 @@ const ConfigComparison: React.FC<ConfigComparisonProps> = ({
               yField="value"
               seriesField="config"
               isGroup
-              columnStyle={{ radius: [4, 4, 0, 0] as any }}
+              columnStyle={{
+                radius: [4, 4, 0, 0] as [number, number, number, number],
+              }}
               label={{
                 position: 'top',
                 formatter: (d: any) => d.value.toFixed(2),
@@ -267,6 +269,8 @@ export default function MemoryConfigPage() {
       setCurrentStatus(data as API.MemoryStatusResponse),
   });
 
+  const intl = useIntl();
+
   const { loading: configLoading, run: selectConfig } = useRequest(
     selectMemoryConfig,
     {
@@ -275,9 +279,14 @@ export default function MemoryConfigPage() {
         const d = data as API.SelectMemoryResponse;
         setConfigResult(d);
         setConfigHistory((prev) => [...prev, d].slice(-5));
-        message.success('配置选择完成');
+        message.success(
+          intl.formatMessage({ id: 'message.config-select.success' }),
+        );
       },
-      onError: () => message.error('配置选择失败'),
+      onError: () =>
+        message.error(
+          intl.formatMessage({ id: 'message.config-select.failure' }),
+        ),
     },
   );
 
@@ -287,7 +296,9 @@ export default function MemoryConfigPage() {
       manual: true,
       onSuccess: (data: any) => {
         setPredictionResult(data as API.PredictPerformanceResponse);
-        message.success('性能预测完成');
+        message.success(
+          intl.formatMessage({ id: 'message.performance-predict.success' }),
+        );
       },
     },
   );
@@ -323,7 +334,7 @@ export default function MemoryConfigPage() {
 
   const handlePredict = async () => {
     if (!configResult?.memory_config) {
-      message.warning('请先选择记忆配置');
+      message.warning(intl.formatMessage({ id: 'message.config-warning' }));
       return;
     }
     await predict({

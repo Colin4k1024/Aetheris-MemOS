@@ -1,11 +1,16 @@
-import { PageContainer, ProForm, ProFormText, ProFormSelect } from '@ant-design/pro-components';
-import { Descriptions, Tag, Tabs, Row, Col, message } from 'antd';
-import { Radar, Column } from '@ant-design/charts';
-import { useRequest } from '@umijs/max';
-import { analyzeTaskCharacteristics } from '@/services/memory';
+import { Column, Radar } from '@ant-design/charts';
+import {
+  PageContainer,
+  ProForm,
+  ProFormSelect,
+  ProFormText,
+} from '@ant-design/pro-components';
+import { useIntl, useRequest } from '@umijs/max';
+import { Col, Descriptions, message, Row, Tabs, Tag } from 'antd';
 import { useState } from 'react';
 import { ChartCard, MemoryWeightBadge } from '@/components/MemorySystem';
 import { CHART_HEIGHT } from '@/config/appConfig';
+import { analyzeTaskCharacteristics } from '@/services/memory';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -25,7 +30,7 @@ const TaskInputForm: React.FC<TaskInputFormProps> = ({ onSubmit, loading }) => (
         label="任务内容"
         placeholder="请输入任务内容"
         rules={[{ required: true, message: '请输入任务内容' }]}
-        fieldProps={{ type: 'textarea', rows: 4 } as any}
+        fieldProps={{ type: 'textarea', rows: 4 }}
       />
       <ProFormSelect
         name="modality"
@@ -66,19 +71,44 @@ interface AnalysisResultPanelProps {
   loading: boolean;
 }
 
-const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loading }) => {
+const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({
+  result,
+  loading,
+}) => {
   const radarData = [
     { item: '复杂度', value: result.characteristics.complexity * 100 },
     { item: '推理深度', value: result.characteristics.reasoning_depth * 100 },
-    { item: '上下文依赖', value: result.characteristics.context_dependency * 100 },
-    { item: '模态数量', value: (result.characteristics.modality_count / 4) * 100 },
+    {
+      item: '上下文依赖',
+      value: result.characteristics.context_dependency * 100,
+    },
+    {
+      item: '模态数量',
+      value: (result.characteristics.modality_count / 4) * 100,
+    },
   ];
 
   const strategyData = [
-    { type: 'STM', enabled: result.memory_strategy.primary_memory === 'stm' ? 1 : 0, weight: 1.0 },
-    { type: 'LTM', enabled: result.memory_strategy.secondary_memory.includes('ltm') ? 1 : 0, weight: 0.8 },
-    { type: 'KG', enabled: result.memory_strategy.secondary_memory.includes('kg') ? 1 : 0, weight: 0.7 },
-    { type: 'MM', enabled: result.memory_strategy.enable_multimodal ? 1 : 0, weight: 0.6 },
+    {
+      type: 'STM',
+      enabled: result.memory_strategy.primary_memory === 'stm' ? 1 : 0,
+      weight: 1.0,
+    },
+    {
+      type: 'LTM',
+      enabled: result.memory_strategy.secondary_memory.includes('ltm') ? 1 : 0,
+      weight: 0.8,
+    },
+    {
+      type: 'KG',
+      enabled: result.memory_strategy.secondary_memory.includes('kg') ? 1 : 0,
+      weight: 0.7,
+    },
+    {
+      type: 'MM',
+      enabled: result.memory_strategy.enable_multimodal ? 1 : 0,
+      weight: 0.6,
+    },
   ];
 
   const tabItems = [
@@ -86,14 +116,19 @@ const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loadi
       key: 'radar',
       label: '雷达图',
       children: (
-        <ChartCard title="任务特征雷达图" loading={loading} empty={radarData.length === 0} height={CHART_HEIGHT}>
+        <ChartCard
+          title="任务特征雷达图"
+          loading={loading}
+          empty={radarData.length === 0}
+          height={CHART_HEIGHT}
+        >
           <Radar
             data={radarData}
             xField="item"
             yField="value"
             area={{}}
             point={{ size: 4 }}
-            legend={false as any}
+            legend={false}
             yAxis={{ min: 0, max: 100 }}
             height={CHART_HEIGHT}
           />
@@ -110,11 +145,16 @@ const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loadi
             xField="type"
             yField="weight"
             seriesField="enabled"
-            color={({ enabled }: any) => (enabled === 1 ? '#6366f1' : '#d9d9d9')}
-            columnStyle={{ radius: [4, 4, 0, 0] as any }}
+            color={({ enabled }: any) =>
+              enabled === 1 ? '#6366f1' : '#d9d9d9'
+            }
+            columnStyle={{
+              radius: [4, 4, 0, 0] as [number, number, number, number],
+            }}
             label={{
               position: 'top',
-              formatter: (datum: any) => (datum.enabled === 1 ? `${datum.weight.toFixed(1)}` : '禁用'),
+              formatter: (datum: any) =>
+                datum.enabled === 1 ? `${datum.weight.toFixed(1)}` : '禁用',
             }}
             height={CHART_HEIGHT}
           />
@@ -125,11 +165,15 @@ const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loadi
             </p>
             <p>
               <strong>次记忆:</strong>{' '}
-              {result.memory_strategy.secondary_memory.length > 0
-                ? result.memory_strategy.secondary_memory.map((m) => (
-                    <Tag key={m} style={{ marginRight: 8 }}>{m}</Tag>
-                  ))
-                : <Tag>无</Tag>}
+              {result.memory_strategy.secondary_memory.length > 0 ? (
+                result.memory_strategy.secondary_memory.map((m) => (
+                  <Tag key={m} style={{ marginRight: 8 }}>
+                    {m}
+                  </Tag>
+                ))
+              ) : (
+                <Tag>无</Tag>
+              )}
             </p>
             <p>
               <strong>推理深度:</strong>{' '}
@@ -137,7 +181,11 @@ const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loadi
             </p>
             <p>
               <strong>多模态:</strong>{' '}
-              <Tag color={result.memory_strategy.enable_multimodal ? 'green' : 'default'}>
+              <Tag
+                color={
+                  result.memory_strategy.enable_multimodal ? 'green' : 'default'
+                }
+              >
                 {result.memory_strategy.enable_multimodal ? '启用' : '禁用'}
               </Tag>
             </p>
@@ -181,16 +229,18 @@ const AnalysisResultPanel: React.FC<AnalysisResultPanelProps> = ({ result, loadi
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TaskAnalysisPage() {
-  const [analysisResult, setAnalysisResult] = useState<API.AnalyzeTaskResponse | null>(null);
+  const intl = useIntl();
+  const [analysisResult, setAnalysisResult] =
+    useState<API.AnalyzeTaskResponse | null>(null);
 
   const { loading, run: analyzeTask } = useRequest(analyzeTaskCharacteristics, {
     manual: true,
     onSuccess: (data: any) => {
       setAnalysisResult(data as API.AnalyzeTaskResponse);
-      message.success('分析完成');
+      message.success(intl.formatMessage({ id: 'message.analysis.success' }));
     },
     onError: () => {
-      message.error('分析失败');
+      message.error(intl.formatMessage({ id: 'message.analysis.failure' }));
     },
   });
 

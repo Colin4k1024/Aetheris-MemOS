@@ -5,7 +5,7 @@ import {
   ProFormSlider,
   ProFormText,
 } from '@ant-design/pro-components';
-import { useRequest } from '@umijs/max';
+import { useIntl, useRequest } from '@umijs/max';
 import {
   Button,
   Descriptions,
@@ -247,6 +247,7 @@ const PlaybackController: React.FC<PlaybackControllerProps> = ({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MemoryDecisionTracePage() {
+  const intl = useIntl();
   const [trace, setTrace] = useState<API.DecisionTrace | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -258,10 +259,14 @@ export default function MemoryDecisionTracePage() {
       setTrace(data as API.DecisionTrace);
       setCurrentStep(0);
       setIsPlaying(false);
-      message.success('决策链路获取成功');
+      message.success(
+        intl.formatMessage({ id: 'message.decision-trace.success' }),
+      );
     },
     onError: () => {
-      message.error('获取决策链路失败');
+      message.error(
+        intl.formatMessage({ id: 'message.decision-trace.failure' }),
+      );
     },
   });
 

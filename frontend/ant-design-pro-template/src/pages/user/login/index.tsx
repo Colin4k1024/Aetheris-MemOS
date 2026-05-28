@@ -1,8 +1,4 @@
-import {
-  LockOutlined,
-  MobileOutlined,
-  UserOutlined,
-} from '@ant-design/icons';
+import { LockOutlined, MobileOutlined, UserOutlined } from '@ant-design/icons';
 import {
   LoginForm,
   ProFormCaptcha,
@@ -22,8 +18,7 @@ import { createStyles } from 'antd-style';
 import React, { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Footer } from '@/components';
-import { login } from '@/services/ant-design-pro/api';
-import { getFakeCaptcha } from '@/services/ant-design-pro/login';
+import { getFakeCaptcha, login } from '@/services/memory/auth';
 import Settings from '../../../../config/defaultSettings';
 
 const useStyles = createStyles(({ token }) => {
@@ -55,8 +50,7 @@ const useStyles = createStyles(({ token }) => {
       flexDirection: 'column',
       height: '100vh',
       overflow: 'auto',
-      backgroundImage:
-        "url('https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/V-_oS6r-i7wAAAAAAAAAAAAAFl94AQBr')",
+      backgroundImage: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
       backgroundSize: '100% 100%',
     },
   };
@@ -94,7 +88,9 @@ const LoginMessage: React.FC<{
 };
 
 const Login: React.FC = () => {
-  const [userLoginState, setUserLoginState] = useState<Partial<API.LoginResult>>({});
+  const [userLoginState, setUserLoginState] = useState<
+    Partial<API.LoginResult>
+  >({});
   const [type, setType] = useState<string>('account');
   const { initialState, setInitialState } = useModel('@@initialState');
   const { styles } = useStyles();
@@ -128,24 +124,17 @@ const Login: React.FC = () => {
         message.success(defaultLoginSuccessMessage);
 
         // 获取用户信息并更新状态（即使失败也继续跳转）
-        console.log('[Login] 开始获取用户信息...');
         try {
           const userInfo = await initialState?.fetchUserInfo?.();
-          console.log('[Login] 获取到的用户信息:', userInfo);
           if (userInfo) {
-            console.log('[Login] 更新 initialState.currentUser');
             flushSync(() => {
               setInitialState((s) => ({
                 ...s,
                 currentUser: userInfo,
               }));
             });
-            console.log('[Login] initialState 已更新');
-          } else {
-            console.warn('[Login] userInfo 为空，但继续跳转');
           }
-        } catch (error) {
-          console.error('[Login] 获取用户信息失败:', error);
+        } catch {
           // 即使获取用户信息失败，也继续跳转
         }
 
@@ -153,11 +142,9 @@ const Login: React.FC = () => {
         const urlParams = new URL(window.location.href).searchParams;
         const redirect = urlParams.get('redirect');
         const targetPath = redirect || '/';
-        console.log('[Login] 准备跳转到:', targetPath);
 
         // 使用 setTimeout 确保状态更新完成后再跳转
         setTimeout(() => {
-          console.log('[Login] 执行跳转');
           history.replace(targetPath);
         }, 100);
         return;
@@ -167,12 +154,11 @@ const Login: React.FC = () => {
         status: 'error',
         type: values.type || 'account',
       });
-    } catch (error) {
+    } catch {
       const defaultLoginFailureMessage = intl.formatMessage({
         id: 'pages.login.failure',
         defaultMessage: '登录失败，请重试！',
       });
-      console.log(error);
       message.error(defaultLoginFailureMessage);
       // 设置错误状态
       setUserLoginState({
@@ -212,9 +198,7 @@ const Login: React.FC = () => {
           initialValues={{
             autoLogin: true,
           }}
-          actions={[
-            <ActionIcons key="icons" />,
-          ]}
+          actions={[<ActionIcons key="icons" />]}
           onFinish={async (values) => {
             await handleSubmit(values as API.LoginParams);
           }}
@@ -377,7 +361,12 @@ const Login: React.FC = () => {
                   if (!result) {
                     return;
                   }
-                  message.success('获取验证码成功！验证码为：1234');
+                  message.success(
+                    intl.formatMessage({
+                      id: 'pages.login.captcha.success',
+                      defaultMessage: '验证码已发送！',
+                    }),
+                  );
                 }}
               />
             </>

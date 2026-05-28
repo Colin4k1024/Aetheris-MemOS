@@ -15,7 +15,9 @@ const clearCache = () => {
           caches.delete(key);
         });
       })
-      .catch((e) => console.log(e));
+      .catch(() => {
+        // Cache clear failed silently — not critical for user experience
+      });
   }
 };
 

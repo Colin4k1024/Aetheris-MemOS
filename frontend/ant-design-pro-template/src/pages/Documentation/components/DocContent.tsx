@@ -1,4 +1,5 @@
 import { Spin } from 'antd';
+import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import { marked, type Tokens } from 'marked';
 import React, { useEffect, useMemo, useRef } from 'react';
@@ -78,7 +79,13 @@ const DocContent: React.FC<DocContentProps> = ({
 
   const html = useMemo(() => {
     if (!markdown) return '';
-    return marked.parse(markdown) as string;
+    const raw = marked.parse(markdown) as string;
+    // DOMPurify sanitizes HTML to prevent XSS from malicious markdown content
+    return DOMPurify.sanitize(raw, {
+      ADD_ATTR: ['target'],
+      ALLOWED_URI_REGEXP:
+        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+    });
   }, [markdown]);
 
   if (loading) {

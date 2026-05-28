@@ -1,22 +1,21 @@
-import React from 'react';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  PageContainer,
-  ProTable,
   ModalForm,
-  ProFormText,
+  PageContainer,
   ProFormSelect,
+  ProFormText,
+  ProTable,
 } from '@ant-design/pro-components';
-import { useRequest } from '@umijs/max';
+import { useIntl, useRequest } from '@umijs/max';
 import { Button, message, Popconfirm } from 'antd';
-import { useRef, useState } from 'react';
-import {
-  listMemoryConfigs,
-  createMemoryConfig,
-  updateMemoryConfig,
-  deleteMemoryConfig,
-} from '@/services/memory/api';
+import React, { useRef, useState } from 'react';
 import { MemoryConfigFormFields, StatusTag } from '@/components/MemorySystem';
+import {
+  createMemoryConfig,
+  deleteMemoryConfig,
+  listMemoryConfigs,
+  updateMemoryConfig,
+} from '@/services/memory/api';
 
 // ── Shared modal form ────────────────────────────────────────────────────────
 
@@ -85,22 +84,31 @@ const MemoryConfigFormModal: React.FC<MemoryConfigFormModalProps> = ({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const MemoryManagement: React.FC = () => {
+  const intl = useIntl();
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [currentRecord, setCurrentRecord] = useState<API.MemoryConfigRow | null>(null);
+  const [currentRecord, setCurrentRecord] =
+    useState<API.MemoryConfigRow | null>(null);
 
   const { run: deleteRun } = useRequest(deleteMemoryConfig, {
     manual: true,
     onSuccess: () => {
-      message.success('删除成功');
+      message.success(intl.formatMessage({ id: 'message.delete.success' }));
       actionRef.current?.reload();
     },
-    onError: () => message.error('删除失败，请重试'),
+    onError: () =>
+      message.error(intl.formatMessage({ id: 'message.delete.failure' })),
   });
 
   const columns: ProColumns<API.MemoryConfigRow>[] = [
-    { title: '配置ID', dataIndex: 'config_id', width: 200, ellipsis: true, copyable: true },
+    {
+      title: '配置ID',
+      dataIndex: 'config_id',
+      width: 200,
+      ellipsis: true,
+      copyable: true,
+    },
     { title: '配置名称', dataIndex: 'config_name', width: 150 },
     { title: '用户ID', dataIndex: 'user_id', width: 150 },
     { title: '智能体ID', dataIndex: 'agent_id', width: 150 },
@@ -144,7 +152,13 @@ const MemoryManagement: React.FC = () => {
       width: 80,
       render: (_, record) => (record.mm_enabled === 1 ? '启用' : '禁用'),
     },
-    { title: '创建时间', dataIndex: 'created_at', width: 180, valueType: 'dateTime', sorter: true },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 180,
+      valueType: 'dateTime',
+      sorter: true,
+    },
     {
       title: '操作',
       valueType: 'option',
@@ -228,7 +242,11 @@ const MemoryManagement: React.FC = () => {
         rowKey="config_id"
         search={{ labelWidth: 120 }}
         toolBarRender={() => [
-          <Button type="primary" key="primary" onClick={() => setCreateModalVisible(true)}>
+          <Button
+            type="primary"
+            key="primary"
+            onClick={() => setCreateModalVisible(true)}
+          >
             新建配置
           </Button>,
         ]}
@@ -241,7 +259,11 @@ const MemoryManagement: React.FC = () => {
             status: params.status,
             configType: params.config_type,
           });
-          return { data: response.data || [], success: true, total: response.total || 0 };
+          return {
+            data: response.data || [],
+            success: true,
+            total: response.total || 0,
+          };
         }}
         columns={columns}
       />
@@ -253,12 +275,14 @@ const MemoryManagement: React.FC = () => {
         onFinish={async (values) => {
           try {
             await createMemoryConfig(mapFormToCreate(values));
-            message.success('创建成功');
+            message.success(
+              intl.formatMessage({ id: 'message.create.success' }),
+            );
             setCreateModalVisible(false);
             actionRef.current?.reload();
             return true;
           } catch {
-            message.error('创建失败，请重试');
+            message.error(intl.formatMessage({ id: 'message.create.failure' }));
             return false;
           }
         }}
@@ -297,14 +321,19 @@ const MemoryManagement: React.FC = () => {
         onFinish={async (values) => {
           if (!currentRecord) return false;
           try {
-            await updateMemoryConfig(currentRecord.config_id, mapFormToUpdate(values));
-            message.success('更新成功');
+            await updateMemoryConfig(
+              currentRecord.config_id,
+              mapFormToUpdate(values),
+            );
+            message.success(
+              intl.formatMessage({ id: 'message.update.success' }),
+            );
             setEditModalVisible(false);
             setCurrentRecord(null);
             actionRef.current?.reload();
             return true;
           } catch {
-            message.error('更新失败，请重试');
+            message.error(intl.formatMessage({ id: 'message.update.failure' }));
             return false;
           }
         }}

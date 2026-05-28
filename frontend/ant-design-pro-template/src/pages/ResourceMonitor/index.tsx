@@ -4,7 +4,7 @@ import {
   ProForm,
   ProFormSlider,
 } from '@ant-design/pro-components';
-import { useRequest } from '@umijs/max';
+import { useIntl, useRequest } from '@umijs/max';
 import { Alert, Col, Descriptions, List, message, Row } from 'antd';
 import React, { useState } from 'react';
 import { ChartCard, StatusTag } from '@/components/MemorySystem';
@@ -29,17 +29,23 @@ const CostBenefitSection: React.FC<CostBenefitSectionProps> = ({
   const [costBenefit, setCostBenefit] =
     useState<API.CostBenefitResponse | null>(null);
 
+  const intl = useIntl();
+
   const { run: calculateCostBenefitRatio } = useRequest(calculateCostBenefit, {
     manual: true,
     onSuccess: (data: any) => {
       setCostBenefit(data as API.CostBenefitResponse);
-      message.success('成本效益分析完成');
+      message.success(
+        intl.formatMessage({ id: 'message.cost-benefit.success' }),
+      );
     },
   });
 
   const handleSubmit = async (values: any) => {
     if (!resourceStatus) {
-      message.warning('请先获取资源状态');
+      message.warning(
+        intl.formatMessage({ id: 'message.resource-status.warning' }),
+      );
       return;
     }
     await calculateCostBenefitRatio({
@@ -121,13 +127,17 @@ const OptimizeSection: React.FC<OptimizeSectionProps> = ({
     manual: true,
     onSuccess: (data: any) => {
       setOptimization(data as API.OptimizationResult);
-      message.success('优化建议生成完成');
+      message.success(
+        intl.formatMessage({ id: 'message.optimization.success' }),
+      );
     },
   });
 
   const handleSubmit = async (values: any) => {
     if (!resourceStatus) {
-      message.warning('请先获取资源状态');
+      message.warning(
+        intl.formatMessage({ id: 'message.resource-status.warning' }),
+      );
       return;
     }
     await runOptimize({

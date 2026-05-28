@@ -28,7 +28,8 @@ export const formatTime = (text: string | number): string => {
  */
 export const formatDateTime = (text: string | number): string => {
   try {
-    const date = new Date(text as any);
+    const ts = typeof text === 'string' ? parseInt(text, 10) || text : text;
+    const date = new Date(ts as number | string);
     const month = (date.getMonth() + 1).toString();
     const day = date.getDate().toString();
     const h = date.getHours().toString().padStart(2, '0');

@@ -11,7 +11,7 @@ import {
   Question,
   SelectLang,
 } from '@/components';
-import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
+import { currentUser as queryCurrentUser } from '@/services/memory/auth';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
 
@@ -43,18 +43,21 @@ export async function getInitialState(): Promise<{
         skipErrorHandler: true,
       });
       // Backend may return { data: {...} } or directly { name, ... }
-      if (msg && msg.data) {
+      if (msg && 'data' in msg && msg.data) {
         // Reject invalid user (e.g. {isLogin: false} from mock 401)
-        if (msg.data.isLogin === false || !msg.data.name) {
+        if (
+          (msg.data as API.CurrentUser).isLogin === false ||
+          !(msg.data as API.CurrentUser).name
+        ) {
           return undefined;
         }
-        return msg.data;
+        return msg.data as API.CurrentUser;
       }
-      if (msg && (msg as any).name) {
+      if (msg && 'name' in (msg as Record<string, unknown>)) {
         return msg as unknown as API.CurrentUser;
       }
       return undefined;
-    } catch (error) {
+    } catch {
       return undefined;
     }
   };

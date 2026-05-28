@@ -181,7 +181,9 @@ export default function PerformancePage() {
               yField="value"
               seriesField="metric"
               isGroup
-              columnStyle={{ radius: [4, 4, 0, 0] as any }}
+              columnStyle={{
+                radius: [4, 4, 0, 0] as [number, number, number, number],
+              }}
               label={{ position: 'top' }}
               height={CHART_HEIGHT}
             />
