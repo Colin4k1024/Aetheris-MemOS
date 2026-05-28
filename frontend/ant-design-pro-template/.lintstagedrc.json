@@ -1,0 +1,4 @@
+{
+  "*.{ts,tsx}": ["npx @biomejs/biome check --write --no-errors-on-unmatched", "tsc --noEmit"],
+  "*.{json,md,css}": ["npx @biomejs/biome check --write --no-errors-on-unmatched"]
+}

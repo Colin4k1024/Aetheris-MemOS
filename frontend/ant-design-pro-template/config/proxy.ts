@@ -14,8 +14,14 @@ export default {
    * @name 详细的代理配置
    * @doc https://github.com/chimurai/http-proxy-middleware
    */
+  dev: {
+    '/api/': {
+      target: 'http://127.0.0.1:8008',
+      changeOrigin: true,
+      pathRewrite: { '^': '' },
+    },
+  },
   test: {
-    // localhost:8000/api/** -> https://preview.pro.ant.design/api/**
     '/api/': {
       target: 'https://proapi.azurewebsites.net',
       changeOrigin: true,

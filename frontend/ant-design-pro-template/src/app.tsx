@@ -1,8 +1,9 @@
-import { LinkOutlined } from '@ant-design/icons';
+import { LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { Settings as LayoutSettings } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history, Link } from '@umijs/max';
+import { Spin } from 'antd';
 import React from 'react';
 import {
   AvatarDropdown,
@@ -11,6 +12,7 @@ import {
   Question,
   SelectLang,
 } from '@/components';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { currentUser as queryCurrentUser } from '@/services/memory/auth';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
@@ -128,7 +130,24 @@ export const layout: RunTimeLayoutConfig = ({
     childrenRender: (children) => {
       return (
         <>
-          {children}
+          <ErrorBoundary>
+            <React.Suspense
+              fallback={
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    height: '60vh',
+                  }}
+                >
+                  <Spin indicator={<LoadingOutlined spin />} size="large" />
+                </div>
+              }
+            >
+              {children}
+            </React.Suspense>
+          </ErrorBoundary>
           {isDevOrTest && (
             <SettingDrawer
               disableUrlParams

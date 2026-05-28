@@ -33,6 +33,7 @@ export default [
     name: 'dashboard',
     icon: 'dashboard',
     component: './Dashboard',
+    access: 'canAdmin',
   },
   {
     path: '/performance',
