@@ -7,16 +7,28 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::error::AppError;
 use crate::services::embedding::EmbeddingService;
 use crate::services::prompt_injection_probe::{ProbeResult, PromptInjectionProbe};
 use crate::{json_ok, JsonResult};
 
-/// Global prompt injection probe instance
-static PROBE: Lazy<Arc<PromptInjectionProbe>> = Lazy::new(|| {
-    Arc::new(PromptInjectionProbe::new(Arc::new(
-        EmbeddingService::new().unwrap(),
-    )))
+/// Global prompt injection probe instance.
+/// If EmbeddingService fails to init (missing Ollama/config), probe is unavailable.
+static PROBE: Lazy<Option<Arc<PromptInjectionProbe>>> = Lazy::new(|| {
+    match EmbeddingService::new() {
+        Ok(embedding) => Some(Arc::new(PromptInjectionProbe::new(Arc::new(embedding)))),
+        Err(e) => {
+            tracing::warn!("Prompt injection probe unavailable: {}", e);
+            None
+        }
+    }
 });
+
+fn get_probe() -> Result<&'static PromptInjectionProbe, AppError> {
+    PROBE
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("prompt injection probe is not available".into()))
+}
 
 /// Request body for prompt probe check
 #[derive(Debug, Deserialize)]
@@ -39,11 +51,8 @@ pub struct ProbeCheckResponse {
 pub async fn check_prompt_probe(
     Json(request): Json<ProbeCheckRequest>,
 ) -> JsonResult<ProbeCheckResponse> {
-    let probe = PROBE.as_ref();
-
-    // Run the probe check
+    let probe = get_probe()?;
     let result = probe.check(&request.text).await;
-
     json_ok(ProbeCheckResponse { result })
 }
 
@@ -53,7 +62,7 @@ pub async fn check_prompt_probe(
 pub async fn check_prompt_probe_input(
     Json(request): Json<ProbeCheckRequest>,
 ) -> JsonResult<ProbeCheckResponse> {
-    let probe = PROBE.as_ref();
+    let probe = get_probe()?;
     let result = probe.check_input(&request.text).await;
     json_ok(ProbeCheckResponse { result })
 }
@@ -64,7 +73,7 @@ pub async fn check_prompt_probe_input(
 pub async fn check_prompt_probe_output(
     Json(request): Json<ProbeCheckRequest>,
 ) -> JsonResult<ProbeCheckResponse> {
-    let probe = PROBE.as_ref();
+    let probe = get_probe()?;
     let result = probe.check_output(&request.text).await;
     json_ok(ProbeCheckResponse { result })
 }
