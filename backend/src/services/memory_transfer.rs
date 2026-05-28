@@ -97,7 +97,10 @@ impl MemoryTransferService {
                         error = %e,
                         "Memory transfer check failed after max retries"
                     );
-                    // TODO: 可以添加错误上报到监控系统
+                    warn!(
+                        error = %e,
+                        "Memory transfer error threshold exceeded; consider increasing monitoring alert"
+                    );
                 }
             }
             info!("Memory transfer service loop exited");

@@ -112,7 +112,7 @@ impl StorageConfig {
 
         // Log for diagnostics
         if let Some(p) = db_path.to_str() {
-            eprintln!("[storage] SQLite database path resolved to: {}", p);
+            tracing::debug!("[storage] SQLite database path resolved to: {}", p);
         }
 
         let url = format!(

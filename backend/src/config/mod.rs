@@ -37,7 +37,7 @@ fn discover_config_file() -> Option<String> {
     // 1. Explicit env var override
     if let Ok(path) = std::env::var("APP_CONFIG") {
         if !path.is_empty() && std::path::Path::new(&path).exists() {
-            eprintln!("[config] Using config file from APP_CONFIG: {}", path);
+            tracing::info!("[config] Using config file from APP_CONFIG: {}", path);
             return Some(path);
         }
     }
@@ -45,7 +45,7 @@ fn discover_config_file() -> Option<String> {
     // 2. Standard candidates in current directory
     for candidate in &["config.toml", "local.toml"] {
         if std::path::Path::new(candidate).exists() {
-            eprintln!("[config] Found config file: {}", candidate);
+            tracing::info!("[config] Found config file: {}", candidate);
             return Some(candidate.to_string());
         }
     }
@@ -62,7 +62,7 @@ fn discover_config_file() -> Option<String> {
 
     for path in home_candidates {
         if std::path::Path::new(&path).exists() {
-            eprintln!("[config] Found user config file: {}", path);
+            tracing::info!("[config] Found user config file: {}", path);
             return Some(path);
         }
     }
@@ -82,7 +82,7 @@ pub fn init() {
     let mut config = match raw_config.extract::<ServerConfig>() {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Config error (file: {}): {}", config_file, e);
+            tracing::error!("Config error (file: {}): {}", config_file, e);
             std::process::exit(1);
         }
     };
@@ -97,7 +97,7 @@ pub fn init() {
     // Graceful fallback: if no database URL configured, use a local SQLite database
     if config.db.url.is_empty() {
         let storage = crate::config::StorageConfig::resolve_local_sqlite("adaptive_memory.db");
-        eprintln!(
+        tracing::warn!(
             "[config] DATABASE_URL not set. Falling back to local SQLite: {}",
             storage.url
         );

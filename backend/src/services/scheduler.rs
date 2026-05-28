@@ -238,7 +238,11 @@ Agent ID: {}",
                         error = %e,
                         "存储长期记忆失败，已达最大重试次数"
                     );
-                    // TODO: 可以添加错误上报到监控系统
+                    warn!(
+                        task_id = %task_id,
+                        error = %e,
+                        "Scheduler persistence error; consider alerting monitoring"
+                    );
                 }
             });
         }
