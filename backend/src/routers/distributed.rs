@@ -194,7 +194,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pool_status() {
-        let response = get_pool_status().await.expect("get_pool_status should succeed");
+        let response = get_pool_status()
+            .await
+            .expect("get_pool_status should succeed");
         assert!(response.total_slots >= 1);
         assert!(response.idle_slots <= response.total_slots);
         assert_eq!(

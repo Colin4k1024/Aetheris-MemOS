@@ -151,7 +151,8 @@ mod tests {
             }
         });
 
-        let request: DryRunRequest = serde_json::from_value(json).expect("test JSON should deserialize");
+        let request: DryRunRequest =
+            serde_json::from_value(json).expect("test JSON should deserialize");
         assert_eq!(request.plan.steps.len(), 1);
     }
 

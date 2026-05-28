@@ -14,15 +14,14 @@ use crate::{json_ok, JsonResult};
 
 /// Global prompt injection probe instance.
 /// If EmbeddingService fails to init (missing Ollama/config), probe is unavailable.
-static PROBE: Lazy<Option<Arc<PromptInjectionProbe>>> = Lazy::new(|| {
-    match EmbeddingService::new() {
+static PROBE: Lazy<Option<Arc<PromptInjectionProbe>>> =
+    Lazy::new(|| match EmbeddingService::new() {
         Ok(embedding) => Some(Arc::new(PromptInjectionProbe::new(Arc::new(embedding)))),
         Err(e) => {
             tracing::warn!("Prompt injection probe unavailable: {}", e);
             None
         }
-    }
-});
+    });
 
 fn get_probe() -> Result<&'static PromptInjectionProbe, AppError> {
     PROBE

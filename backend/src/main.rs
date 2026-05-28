@@ -112,14 +112,14 @@ async fn main() {
 
     if let Some(tls) = &config.tls {
         let listen_addr = &config.listen_addr;
-tracing::info!(
-                "📖 Open API Page: https://{}/scalar",
-                listen_addr.replace("0.0.0.0", "127.0.0.1")
-            );
-            tracing::info!(
-                "🔑 Login Page: https://{}/login",
-                listen_addr.replace("0.0.0.0", "127.0.0.1")
-            );
+        tracing::info!(
+            "📖 Open API Page: https://{}/scalar",
+            listen_addr.replace("0.0.0.0", "127.0.0.1")
+        );
+        tracing::info!(
+            "🔑 Login Page: https://{}/login",
+            listen_addr.replace("0.0.0.0", "127.0.0.1")
+        );
 
         let addr: std::net::SocketAddr = listen_addr.parse().expect("invalid listen address");
         let rustls_config =
@@ -134,14 +134,14 @@ tracing::info!(
             .await
             .expect("axum tls server failed");
     } else {
-tracing::info!(
-                "📖 Open API Page: http://{}/scalar",
-                config.listen_addr.replace("0.0.0.0", "127.0.0.1")
-            );
-            tracing::info!(
-                "🔑 Login Page: http://{}/login",
-                config.listen_addr.replace("0.0.0.0", "127.0.0.1")
-            );
+        tracing::info!(
+            "📖 Open API Page: http://{}/scalar",
+            config.listen_addr.replace("0.0.0.0", "127.0.0.1")
+        );
+        tracing::info!(
+            "🔑 Login Page: http://{}/login",
+            config.listen_addr.replace("0.0.0.0", "127.0.0.1")
+        );
         let listener = tokio::net::TcpListener::bind(&config.listen_addr)
             .await
             .expect("failed to bind listener");
