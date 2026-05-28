@@ -194,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pool_status() {
-        let response = get_pool_status().await.unwrap();
+        let response = get_pool_status().await.expect("get_pool_status should succeed");
         assert!(response.total_slots >= 1);
         assert!(response.idle_slots <= response.total_slots);
         assert_eq!(
@@ -207,14 +207,18 @@ mod tests {
     async fn test_allocate_and_release() {
         // Allocate 3 slots
         let alloc_request = AllocateRequest { count: 3 };
-        let alloc_response = allocate_slots(Json(alloc_request)).await.unwrap();
+        let alloc_response = allocate_slots(Json(alloc_request))
+            .await
+            .expect("alloc should succeed");
         assert_eq!(alloc_response.allocated_count, 3);
 
         // Release them
         let release_request = ReleaseRequest {
             slot_ids: alloc_response.slot_ids.clone(),
         };
-        let release_response = release_slots(Json(release_request)).await.unwrap();
+        let release_response = release_slots(Json(release_request))
+            .await
+            .expect("release should succeed");
         assert_eq!(release_response.released_count, 3);
     }
 

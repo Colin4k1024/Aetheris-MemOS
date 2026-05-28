@@ -139,19 +139,23 @@ impl QuotaManager {
 
     /// Get quota for a tenant.
     pub fn get_quota(&self, tenant_id: &str) -> Option<ResourceQuota> {
-        let quotas = self.quotas.read().unwrap();
+        let quotas = self.quotas.read().ok()?;
         quotas.get(tenant_id).cloned()
     }
 
     /// Set quota for a tenant.
     pub fn set_quota(&self, tenant_id: &str, quota: ResourceQuota) {
-        let mut quotas = self.quotas.write().unwrap();
-        quotas.insert(tenant_id.to_string(), quota);
+        if let Ok(mut quotas) = self.quotas.write() {
+            quotas.insert(tenant_id.to_string(), quota);
+        }
     }
 
     /// Check if tenant can perform an action.
     pub fn can_perform(&self, tenant_id: &str, resource: &QuotaResource) -> bool {
-        let quotas = self.quotas.read().unwrap();
+        let quotas = match self.quotas.read() {
+            Ok(q) => q,
+            Err(_) => return false,
+        };
         if let Some(quota) = quotas.get(tenant_id) {
             quota.check(resource)
         } else {

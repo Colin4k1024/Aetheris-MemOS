@@ -151,7 +151,7 @@ mod tests {
             }
         });
 
-        let request: DryRunRequest = serde_json::from_value(json).unwrap();
+        let request: DryRunRequest = serde_json::from_value(json).expect("test JSON should deserialize");
         assert_eq!(request.plan.steps.len(), 1);
     }
 
@@ -164,7 +164,9 @@ mod tests {
             timeout_secs: Some(30),
         };
 
-        let response = dry_run(State(state), Json(request)).await.unwrap();
+        let response = dry_run(State(state), Json(request))
+            .await
+            .expect("dry_run handler should succeed");
         assert!(response.success);
         assert_eq!(response.result.execution_trace.steps.len(), 2);
     }
@@ -172,8 +174,10 @@ mod tests {
     #[tokio::test]
     async fn test_reset_sandbox() {
         let state = Arc::new(PlannerState::new());
-        let result = reset_sandbox(State(state)).await.unwrap();
-        let json = result.unwrap().0;
+        let result = reset_sandbox(State(state))
+            .await
+            .expect("reset_sandbox handler should succeed");
+        let json = result.expect("reset_sandbox should return valid JSON").0;
         assert!(json.get("status").is_some());
     }
 }

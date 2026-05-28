@@ -239,7 +239,7 @@ mod tests {
         assert!(filters
             .tags
             .as_ref()
-            .unwrap()
+            .expect("scoped filters should have tags")
             .contains(&"tenant:tenant_123".to_string()));
     }
 
