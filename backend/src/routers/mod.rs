@@ -89,6 +89,9 @@ pub fn root() -> Router {
         )
         .route("/adaptive/trace", post(memory::select_memory_config_trace))
         .route("/traces", get(memory::get_decision_traces))
+        .route("/explain", get(memory::explain_memory_selection))
+        .route("/feedback", post(memory::record_memory_feedback))
+        .route("/forget", post(memory::forget_memory))
         .route(
             "/analyzer/task-characteristics",
             post(memory::analyze_task_characteristics),

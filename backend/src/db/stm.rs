@@ -97,7 +97,7 @@ impl STMRepository {
             "#,
         )
         .bind(&session_id)
-        .bind(user_id)
+        .bind(source_id)
         .bind(agent_id)
         .bind(session_type)
         .bind(max_context_length)

@@ -1,6 +1,6 @@
 //! Knowledge Graph API Routes
 
-use axum::extract::{Path, Query};
+use axum::extract::{Extension, Path, Query};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -8,7 +8,7 @@ use validator::Validate;
 
 use crate::db::kg::KGRepository;
 use crate::db::pool;
-use crate::tenant::get_default_tenant;
+use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
 /// 创建实体请求
@@ -90,6 +90,7 @@ pub struct RelationInfo {
 
 /// 创建实体
 pub async fn create_entity(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<CreateEntityRequest>,
 ) -> JsonResult<CreateEntityResponse> {
     let aliases_refs: Option<Vec<&str>> = body
@@ -97,7 +98,7 @@ pub async fn create_entity(
         .as_deref()
         .map(|v| v.iter().map(|s| s.as_str()).collect());
     let entity_id = KGRepository::create_entity(
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         &body.entity_name,
         &body.entity_type,
         body.description.as_deref(),
@@ -115,8 +116,20 @@ pub async fn create_entity(
 
 /// 创建关系
 pub async fn create_relation(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<CreateRelationRequest>,
 ) -> JsonResult<CreateRelationResponse> {
+    KGRepository::get_entity_by_id(pool(), &tenant_ctx.tenant_id, &body.source_entity_id)
+        .await?
+        .ok_or_else(|| {
+            crate::AppError::NotFound(format!("Entity {} not found", body.source_entity_id))
+        })?;
+    KGRepository::get_entity_by_id(pool(), &tenant_ctx.tenant_id, &body.target_entity_id)
+        .await?
+        .ok_or_else(|| {
+            crate::AppError::NotFound(format!("Entity {} not found", body.target_entity_id))
+        })?;
+
     let relation_id = KGRepository::create_relation(
         &body.source_entity_id,
         &body.target_entity_id,
@@ -132,8 +145,11 @@ pub async fn create_relation(
 }
 
 /// 根据名称获取实体
-pub async fn get_entity_by_name(Path(name): Path<String>) -> JsonResult<Option<EntityInfo>> {
-    let entity = KGRepository::get_entity_by_name(pool(), &get_default_tenant(), &name, None)
+pub async fn get_entity_by_name(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(name): Path<String>,
+) -> JsonResult<Option<EntityInfo>> {
+    let entity = KGRepository::get_entity_by_name(pool(), &tenant_ctx.tenant_id, &name, None)
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get entity: {}", e)))?;
 
@@ -149,6 +165,7 @@ pub async fn get_entity_by_name(Path(name): Path<String>) -> JsonResult<Option<E
 
 /// 获取实体的相关实体
 pub async fn get_related_entities(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entity_id): Path<String>,
     Query(query): Query<RelatedEntitiesQuery>,
 ) -> JsonResult<Vec<RelationInfo>> {
@@ -156,7 +173,7 @@ pub async fn get_related_entities(
 
     let relations = KGRepository::get_related_entities(
         pool(),
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         &entity_id,
         None,
         Some(limit),
@@ -181,12 +198,18 @@ pub async fn get_related_entities(
 
 /// 根据实体搜索知识
 pub async fn search_by_entity(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<SearchEntitiesRequest>,
 ) -> JsonResult<Vec<EntityInfo>> {
     let pool = pool();
-    let entities = KGRepository::search_knowledge_by_entity(pool, &body.query, Some(body.limit))
-        .await
-        .map_err(|e| crate::AppError::Internal(format!("Failed to search: {}", e)))?;
+    let entities = KGRepository::search_knowledge_by_entity_for_tenant(
+        pool,
+        &tenant_ctx.tenant_id,
+        &body.query,
+        Some(body.limit),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to search: {}", e)))?;
 
     let infos: Vec<EntityInfo> = entities
         .into_iter()
@@ -212,6 +235,7 @@ pub struct EntityListResponse {
 
 /// 获取实体列表
 pub async fn list_entities(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(query): Query<ListEntitiesQuery>,
 ) -> JsonResult<EntityListResponse> {
     let limit = query.limit.unwrap_or(20) as i32;
@@ -219,7 +243,7 @@ pub async fn list_entities(
 
     let response = KGRepository::list_entities(
         pool(),
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         query.entity_type.as_deref(),
         Some(limit),
         Some(offset),

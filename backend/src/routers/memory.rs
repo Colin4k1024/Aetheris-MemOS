@@ -153,6 +153,61 @@ pub async fn get_decision_traces(
     json_ok(ListTracesResponse { traces })
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ExplainQuery {
+    #[serde(rename = "traceId")]
+    pub trace_id: Option<String>,
+    #[serde(rename = "taskId")]
+    pub task_id: Option<String>,
+    pub limit: Option<i32>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ExplainResponse {
+    pub traces: Vec<DecisionTraceItem>,
+}
+
+pub async fn explain_memory_selection(
+    Query(q): Query<ExplainQuery>,
+) -> JsonResult<ExplainResponse> {
+    let rows =
+        crate::services::memory_orchestrator::list_decision_traces(q.task_id.as_deref(), q.limit)
+            .await?;
+    let traces = rows
+        .into_iter()
+        .filter(|row| {
+            q.trace_id
+                .as_ref()
+                .map_or(true, |trace_id| &row.trace_id == trace_id)
+        })
+        .map(|row| DecisionTraceItem {
+            trace_id: row.trace_id,
+            task_id: row.task_id,
+            created_at: row.created_at,
+            trace: row.trace,
+        })
+        .collect();
+    json_ok(ExplainResponse { traces })
+}
+
+pub async fn record_memory_feedback(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<crate::services::memory_contract::MemoryFeedbackRequest>,
+) -> JsonResult<crate::services::memory_contract::MemoryFeedbackResponse> {
+    let response =
+        crate::services::memory_contract::record_feedback(&tenant_ctx.tenant_id, req).await?;
+    json_ok(response)
+}
+
+pub async fn forget_memory(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<crate::services::memory_contract::MemoryForgetRequest>,
+) -> JsonResult<crate::services::memory_contract::MemoryForgetResponse> {
+    let response =
+        crate::services::memory_contract::forget_memory(&tenant_ctx.tenant_id, req).await?;
+    json_ok(response)
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct MemoryStatusResponse {
     #[serde(rename = "current_config")]

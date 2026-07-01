@@ -27,6 +27,7 @@ pub mod information_guard;
 pub mod lease_release;
 #[allow(dead_code)]
 pub mod llm;
+pub mod memory_contract;
 pub mod memory_fusion;
 pub mod memory_ingestion;
 pub mod memory_orchestrator;

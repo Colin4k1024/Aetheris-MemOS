@@ -114,38 +114,31 @@ impl RuntimeAdapter for LangChainAdapter {
         session_id: &str,
         limit: usize,
     ) -> MemoryResult<Vec<RuntimeMessage>> {
-        let _query = MemoryQuery {
-            layer: None,
-            text: None,
-            embedding: None,
-            filters: MemoryFilters {
-                session_id: Some(session_id.to_string()),
-                ..Default::default()
-            },
-            limit,
-            ..Default::default()
-        };
+        let memories = self.agent.history(session_id, limit).await?;
+        let mut messages: Vec<RuntimeMessage> = memories
+            .into_iter()
+            .filter_map(|m| match m.entry.content {
+                MemoryContent::Text(content) => Some(RuntimeMessage {
+                    role: MessageRole::User,
+                    content,
+                    session_id: m
+                        .entry
+                        .metadata
+                        .session_id
+                        .unwrap_or_else(|| session_id.to_string()),
+                    timestamp: m.entry.created_at,
+                    metadata: m.entry.metadata.extra,
+                }),
+                _ => None,
+            })
+            .collect();
 
-        // Query the kernel for memories
-        let memories = self
-            .agent
-            .remember(
-                &session_id,
-                Some(session_id),
-                None,
-                MemoryContent::Text(String::new()),
-            )
-            .await;
-
-        // For now, return empty history since we need kernel access
-        // The actual implementation would query the kernel here
-        let _ = memories;
-        Ok(vec![])
+        messages.sort_by_key(|m| m.timestamp);
+        Ok(messages)
     }
 
     async fn search(&self, query: &str) -> MemoryResult<Vec<MemoryMatch>> {
-        // Use the agent's recall method for search
-        self.agent.recall(&"default", query).await
+        self.agent.recall_any(query, 10).await
     }
 }
 
@@ -303,11 +296,25 @@ impl LangChainMemoryTool {
                     )
                 })?;
 
-                // Return a placeholder since we don't have direct kernel access here
+                let memories = self.agent.history(&session_id, 20).await?;
+                let messages: Vec<serde_json::Value> = memories
+                    .into_iter()
+                    .filter_map(|m| match m.entry.content {
+                        MemoryContent::Text(content) => Some(serde_json::json!({
+                            "content": content,
+                            "memory_id": m.entry.id.as_str(),
+                            "layer": m.entry.layer.to_string(),
+                            "created_at": m.entry.created_at,
+                            "score": m.score
+                        })),
+                        _ => None,
+                    })
+                    .collect();
+
                 Ok(serde_json::json!({
                     "status": "history_retrieved",
                     "session_id": session_id,
-                    "messages": []
+                    "messages": messages
                 })
                 .to_string())
             }

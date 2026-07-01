@@ -101,6 +101,41 @@ impl MemoryAgent {
         self.kernel.search(&memory_query).await
     }
 
+    /// Recall memories without requiring a user filter.
+    ///
+    /// Runtime adapters use this when the runtime trait only provides a query
+    /// and no user identifier. Request-scoped REST/MCP paths should continue to
+    /// prefer tenant/user scoped searches.
+    pub async fn recall_any(&self, query: &str, limit: usize) -> MemoryResult<Vec<MemoryMatch>> {
+        let memory_query = MemoryQuery {
+            layer: None,
+            text: Some(query.to_string()),
+            embedding: None,
+            filters: MemoryFilters::default(),
+            limit,
+            offset: 0,
+        };
+
+        self.kernel.search(&memory_query).await
+    }
+
+    /// Return recent memories for a session.
+    pub async fn history(&self, session_id: &str, limit: usize) -> MemoryResult<Vec<MemoryMatch>> {
+        let memory_query = MemoryQuery {
+            layer: Some(LayerType::Stm),
+            text: None,
+            embedding: None,
+            filters: MemoryFilters {
+                session_id: Some(session_id.to_string()),
+                ..Default::default()
+            },
+            limit,
+            offset: 0,
+        };
+
+        self.kernel.search(&memory_query).await
+    }
+
     /// Augment reasoning with relevant memories.
     ///
     /// This is the core method for RAG (Retrieval-Augmented Generation).

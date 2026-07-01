@@ -1,12 +1,13 @@
 //! Multimodal Memory API Routes
 
-use axum::extract::{Path, Query};
+use axum::extract::{Extension, Path, Query};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::db::mm::MMRepository;
+use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
 /// 存储多模态记忆请求
@@ -76,7 +77,10 @@ fn default_limit() -> i32 {
 }
 
 /// 存储多模态记忆
-pub async fn store_mm(Json(body): Json<StoreMMRequest>) -> JsonResult<StoreMMResponse> {
+pub async fn store_mm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(body): Json<StoreMMRequest>,
+) -> JsonResult<StoreMMResponse> {
     // 解析二进制内容
     let _binary_data = if let Some(content) = &body.content {
         use base64::Engine;
@@ -98,7 +102,7 @@ pub async fn store_mm(Json(body): Json<StoreMMRequest>) -> JsonResult<StoreMMRes
         body.image_url.as_deref(),
         body.audio_url.as_deref(),
         None, // video_url
-        body.tenant_id.as_deref(),
+        Some(tenant_ctx.tenant_id.as_str()),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to store multimodal: {}", e)))?;
@@ -108,10 +112,11 @@ pub async fn store_mm(Json(body): Json<StoreMMRequest>) -> JsonResult<StoreMMRes
 
 /// 获取多模态记忆
 pub async fn get_mm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entry_id): Path<String>,
-    Query(query): Query<LimitQuery>,
+    Query(_query): Query<LimitQuery>,
 ) -> JsonResult<Option<MMEntryInfo>> {
-    let entry = MMRepository::get_entry_by_id(&entry_id, query.tenant_id.as_deref())
+    let entry = MMRepository::get_entry_by_id(&entry_id, Some(tenant_ctx.tenant_id.as_str()))
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get multimodal: {}", e)))?;
 
@@ -129,17 +134,19 @@ pub async fn get_mm(
 
 /// 获取会话的多模态记忆
 pub async fn get_session_mm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(session_id): Path<String>,
     Query(query): Query<LimitQuery>,
 ) -> JsonResult<Vec<MMEntryInfo>> {
     let limit = query.limit.unwrap_or(20) as i32;
 
-    let entries =
-        MMRepository::get_entries_by_session(&session_id, Some(limit), query.tenant_id.as_deref())
-            .await
-            .map_err(|e| {
-                crate::AppError::Internal(format!("Failed to get session multimodal: {}", e))
-            })?;
+    let entries = MMRepository::get_entries_by_session(
+        &session_id,
+        Some(limit),
+        Some(tenant_ctx.tenant_id.as_str()),
+    )
+    .await
+    .map_err(|e| crate::AppError::Internal(format!("Failed to get session multimodal: {}", e)))?;
 
     let infos: Vec<MMEntryInfo> = entries
         .into_iter()
@@ -158,6 +165,7 @@ pub async fn get_session_mm(
 
 /// 获取指定模态的多模态记忆
 pub async fn get_by_modality(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(modality_type): Path<String>,
     Query(query): Query<LimitQuery>,
 ) -> JsonResult<Vec<MMEntryInfo>> {
@@ -166,7 +174,7 @@ pub async fn get_by_modality(
     let entries = MMRepository::get_entries_by_modality(
         &modality_type,
         Some(limit),
-        query.tenant_id.as_deref(),
+        Some(tenant_ctx.tenant_id.as_str()),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to get by modality: {}", e)))?;
@@ -196,7 +204,10 @@ pub struct MMEntryListResponse {
 }
 
 /// 获取多模态记忆列表
-pub async fn list_mm(Query(query): Query<ListMMQuery>) -> JsonResult<MMEntryListResponse> {
+pub async fn list_mm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Query(query): Query<ListMMQuery>,
+) -> JsonResult<MMEntryListResponse> {
     let limit = query.limit.unwrap_or(20) as i32;
     let offset = query.offset.unwrap_or(0) as i32;
     let modality_filter = normalized_modality_filter(query.modality_type.as_deref());
@@ -205,7 +216,7 @@ pub async fn list_mm(Query(query): Query<ListMMQuery>) -> JsonResult<MMEntryList
         modality_filter,
         Some(limit),
         Some(offset),
-        query.tenant_id.as_deref(),
+        Some(tenant_ctx.tenant_id.as_str()),
     )
     .await?;
     let infos: Vec<MMEntryInfo> = result

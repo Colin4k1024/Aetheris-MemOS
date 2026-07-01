@@ -11,7 +11,7 @@ use crate::db::{
 use crate::services::{
     embedding::get_embedding_service, qdrant::get_qdrant_client, rerank::get_rerank_service,
 };
-use crate::tenant::get_default_tenant;
+use crate::tenant::{get_default_tenant, TenantId};
 use crate::AppError;
 
 /// 记忆搜索服务
@@ -36,20 +36,33 @@ impl MemorySearchService {
         session_type: Option<&str>,
         limit: Option<i32>,
     ) -> Result<Vec<SessionMessage>, AppError> {
-        info!(
-            "Searching STM: user_id={}, agent_id={}, session_type={:?}",
-            user_id, agent_id, session_type
-        );
-
-        // 获取最近会话
-        let sessions = STMRepository::get_recent_sessions(
-            pool(),
+        Self::search_stm_for_tenant(
             &get_default_tenant(),
             user_id,
             agent_id,
+            session_type,
             limit,
         )
-        .await?;
+        .await
+    }
+
+    /// 搜索短期记忆（租户隔离）
+    #[instrument]
+    pub async fn search_stm_for_tenant(
+        tenant_id: &TenantId,
+        user_id: &str,
+        agent_id: &str,
+        session_type: Option<&str>,
+        limit: Option<i32>,
+    ) -> Result<Vec<SessionMessage>, AppError> {
+        info!(
+            "Searching STM: tenant_id={}, user_id={}, agent_id={}, session_type={:?}",
+            tenant_id, user_id, agent_id, session_type
+        );
+
+        // 获取最近会话
+        let sessions =
+            STMRepository::get_recent_sessions(pool(), tenant_id, user_id, agent_id, limit).await?;
 
         // 获取所有会话的消息
         let mut all_messages = Vec::new();
@@ -63,7 +76,7 @@ impl MemorySearchService {
 
             let messages = STMRepository::get_session_messages(
                 pool(),
-                &get_default_tenant(),
+                tenant_id,
                 &session.session_id,
                 Some(100),
             )
@@ -89,8 +102,28 @@ impl MemorySearchService {
         enable_rerank: Option<bool>,
         min_score: Option<f32>,
     ) -> Result<Vec<SearchResult>, AppError> {
+        Self::search_ltm_for_tenant(
+            &get_default_tenant(),
+            query,
+            top_k,
+            enable_rerank,
+            min_score,
+        )
+        .await
+    }
+
+    /// 搜索长期记忆（租户隔离）
+    #[instrument]
+    pub async fn search_ltm_for_tenant(
+        tenant_id: &TenantId,
+        query: &str,
+        top_k: usize,
+        enable_rerank: Option<bool>,
+        min_score: Option<f32>,
+    ) -> Result<Vec<SearchResult>, AppError> {
         info!(
-            "Searching LTM: query_length={}, top_k={}, enable_rerank={:?}, min_score={:?}",
+            "Searching LTM: tenant_id={}, query_length={}, top_k={}, enable_rerank={:?}, min_score={:?}",
+            tenant_id,
             query.len(),
             top_k,
             enable_rerank,
@@ -149,9 +182,7 @@ impl MemorySearchService {
                 "Processing Qdrant result: id={}, score={:.4}",
                 qdrant_result.id, qdrant_result.score
             );
-            match LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &qdrant_result.id)
-                .await
-            {
+            match LTMRepository::get_entry_by_id(pool(), tenant_id, &qdrant_result.id).await {
                 Ok(Some(entry)) => {
                     info!("Found entry in SQLite: entry_id={}", entry.entry_id);
                     search_results.push(SearchResult {
@@ -205,8 +236,32 @@ impl MemorySearchService {
         enable_rerank: Option<bool>,
         min_score: Option<f32>,
     ) -> Result<Vec<SearchResult>, AppError> {
+        Self::hybrid_search_for_tenant(
+            &get_default_tenant(),
+            query,
+            top_k,
+            keyword_weight,
+            vector_weight,
+            enable_rerank,
+            min_score,
+        )
+        .await
+    }
+
+    /// 混合搜索（租户隔离）
+    #[instrument]
+    pub async fn hybrid_search_for_tenant(
+        tenant_id: &TenantId,
+        query: &str,
+        top_k: usize,
+        keyword_weight: f32,
+        vector_weight: f32,
+        enable_rerank: Option<bool>,
+        min_score: Option<f32>,
+    ) -> Result<Vec<SearchResult>, AppError> {
         info!(
-            "Hybrid search: query_length={}, top_k={}, keyword_weight={}, vector_weight={}, enable_rerank={:?}, min_score={:?}",
+            "Hybrid search: tenant_id={}, query_length={}, top_k={}, keyword_weight={}, vector_weight={}, enable_rerank={:?}, min_score={:?}",
+            tenant_id,
             query.len(),
             top_k,
             keyword_weight,
@@ -227,10 +282,12 @@ impl MemorySearchService {
         };
 
         // 1. 向量搜索
-        let vector_results = Self::search_ltm(query, initial_top_k, Some(false), None).await?;
+        let vector_results =
+            Self::search_ltm_for_tenant(tenant_id, query, initial_top_k, Some(false), None).await?;
 
         // 2. 关键词搜索（基于SQLite的全文搜索）
-        let keyword_results = Self::keyword_search(query, initial_top_k).await?;
+        let keyword_results =
+            Self::keyword_search_for_tenant(tenant_id, query, initial_top_k).await?;
 
         // 3. 合并结果（加权分数）
         // 创建一个HashMap来存储每个entry_id的综合分数
@@ -257,12 +314,9 @@ impl MemorySearchService {
                 );
             } else {
                 // 如果关键词搜索结果不在向量搜索结果中，尝试获取完整的知识条目
-                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
-                    pool(),
-                    &get_default_tenant(),
-                    &entry_id,
-                )
-                .await
+                if let Ok(Some(entry)) =
+                    crate::db::ltm::LTMRepository::get_entry_by_id(pool(), tenant_id, &entry_id)
+                        .await
                 {
                     // 创建一个新的SearchResult
                     let search_result = SearchResult {
@@ -333,10 +387,21 @@ impl MemorySearchService {
     /// 关键词搜索（基于SQLite的全文搜索）
     #[instrument]
     async fn keyword_search(query: &str, limit: usize) -> Result<Vec<(String, f64)>, AppError> {
+        Self::keyword_search_for_tenant(&get_default_tenant(), query, limit).await
+    }
+
+    /// 关键词搜索（租户隔离）
+    #[instrument]
+    async fn keyword_search_for_tenant(
+        tenant_id: &TenantId,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, f64)>, AppError> {
         info!("Keyword search: query={}, limit={}", query, limit);
 
         let db_pool = crate::db::pool();
         let limit_i32 = limit as i32;
+        let tenant_source_pattern = format!("{}%", tenant_id.prefix());
 
         // 使用SQLite的LIKE搜索来实现关键词搜索
         // 实际应用中应该使用SQLite的全文搜索扩展（FTS5）
@@ -353,14 +418,16 @@ impl MemorySearchService {
             FROM knowledge_entries
             WHERE (content LIKE $3 OR title LIKE $4)
             AND status = 'active'
+            AND source_id LIKE $5
             ORDER BY score DESC, access_count DESC, created_at DESC
-            LIMIT $5
+            LIMIT $6
             "#,
         )
         .bind(&query_with_wildcards)
         .bind(&query_with_wildcards)
         .bind(&query_with_wildcards)
         .bind(&query_with_wildcards)
+        .bind(&tenant_source_pattern)
         .bind(limit_i32)
         .fetch_all(db_pool)
         .await
@@ -376,12 +443,9 @@ impl MemorySearchService {
 
             for (entry_id, mut score) in rows {
                 // 获取完整的知识条目
-                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
-                    pool(),
-                    &get_default_tenant(),
-                    &entry_id,
-                )
-                .await
+                if let Ok(Some(entry)) =
+                    crate::db::ltm::LTMRepository::get_entry_by_id(pool(), tenant_id, &entry_id)
+                        .await
                 {
                     let content_lower = entry.content.to_lowercase();
                     let title_lower = entry.title.unwrap_or_default().to_lowercase();
@@ -420,19 +484,27 @@ impl MemorySearchService {
         entity: &str,
         limit: Option<i32>,
     ) -> Result<Vec<SearchResult>, AppError> {
-        info!("Searching by entity: entity={}, limit={:?}", entity, limit);
+        Self::search_by_entity_for_tenant(&get_default_tenant(), entity, limit).await
+    }
+
+    /// 基于实体搜索（知识图谱，租户隔离）
+    #[instrument]
+    pub async fn search_by_entity_for_tenant(
+        tenant_id: &TenantId,
+        entity: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<SearchResult>, AppError> {
+        info!(
+            "Searching by entity: tenant_id={}, entity={}, limit={:?}",
+            tenant_id, entity, limit
+        );
 
         let top_k = limit.unwrap_or(10) as usize;
         let limit_i32 = limit.unwrap_or(10);
 
         // 1. 首先尝试在知识图谱中查找该实体
-        let entity_result = crate::db::KGRepository::get_entity_by_name(
-            pool(),
-            &get_default_tenant(),
-            entity,
-            None,
-        )
-        .await?;
+        let entity_result =
+            crate::db::KGRepository::get_entity_by_name(pool(), tenant_id, entity, None).await?;
 
         let mut entry_ids_with_scores: Vec<(String, f64)> = Vec::new();
 
@@ -444,8 +516,9 @@ impl MemorySearchService {
 
             // 2. 如果找到实体，获取相关的知识条目
             let db_pool = crate::db::pool();
-            let kg_results = crate::db::KGRepository::search_knowledge_by_entity(
+            let kg_results = crate::db::KGRepository::search_knowledge_by_entity_for_tenant(
                 db_pool,
+                tenant_id,
                 &found_entity.entity_name,
                 Some(limit_i32),
             )
@@ -458,19 +531,21 @@ impl MemorySearchService {
             // 3. 获取相关实体，并搜索相关实体的知识条目
             let related_entities = crate::db::KGRepository::get_related_entities(
                 db_pool,
-                &get_default_tenant(),
+                tenant_id,
                 &found_entity.entity_id,
                 None,
                 Some(5),
             )
             .await?;
             for (related_entity, relation) in related_entities {
-                let related_results = crate::db::KGRepository::search_knowledge_by_entity(
-                    db_pool,
-                    &related_entity.entity_name,
-                    Some(limit_i32 / 2),
-                )
-                .await?;
+                let related_results =
+                    crate::db::KGRepository::search_knowledge_by_entity_for_tenant(
+                        db_pool,
+                        tenant_id,
+                        &related_entity.entity_name,
+                        Some(limit_i32 / 2),
+                    )
+                    .await?;
                 for entity in related_results {
                     // 相关实体的分数要乘以关系权重
                     entry_ids_with_scores.push((
@@ -483,8 +558,10 @@ impl MemorySearchService {
             // 4. 如果实体不存在于知识图谱中，搜索包含该实体名称的知识条目
             info!("Entity not found in KG, searching entries containing entity name");
             let pool = crate::db::pool();
-            let text_results =
-                crate::db::KGRepository::search_entries_by_entity(pool, entity, limit_i32).await?;
+            let text_results = crate::db::KGRepository::search_entries_by_entity_for_tenant(
+                pool, tenant_id, entity, limit_i32,
+            )
+            .await?;
             for entity in text_results {
                 entry_ids_with_scores.push((entity.entity_id, entity.popularity_score as f64));
             }
@@ -504,12 +581,8 @@ impl MemorySearchService {
         // 6. 获取完整的知识条目信息
         let mut results = Vec::new();
         for (entry_id, score) in sorted_entries {
-            if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
-                pool(),
-                &get_default_tenant(),
-                &entry_id,
-            )
-            .await
+            if let Ok(Some(entry)) =
+                crate::db::ltm::LTMRepository::get_entry_by_id(pool(), tenant_id, &entry_id).await
             {
                 results.push(SearchResult {
                     entry_id: entry.entry_id,
@@ -613,6 +686,31 @@ impl MemorySearchService {
         enable_rerank: Option<bool>,
         min_score: Option<f32>,
     ) -> Result<Vec<SearchResult>, AppError> {
+        Self::triple_hybrid_search_for_tenant(
+            &get_default_tenant(),
+            query,
+            top_k,
+            vector_weight,
+            keyword_weight,
+            graph_weight,
+            enable_rerank,
+            min_score,
+        )
+        .await
+    }
+
+    /// 三路混合搜索：向量 + 关键词 + KG图谱（租户隔离）
+    #[instrument]
+    pub async fn triple_hybrid_search_for_tenant(
+        tenant_id: &TenantId,
+        query: &str,
+        top_k: usize,
+        vector_weight: Option<f32>,
+        keyword_weight: Option<f32>,
+        graph_weight: Option<f32>,
+        enable_rerank: Option<bool>,
+        min_score: Option<f32>,
+    ) -> Result<Vec<SearchResult>, AppError> {
         let vw = vector_weight.unwrap_or(0.5_f32).clamp(0.0, 1.0);
         let kw = keyword_weight.unwrap_or(0.3_f32).clamp(0.0, 1.0);
         let gw = graph_weight.unwrap_or(0.2_f32).clamp(0.0, 1.0);
@@ -626,8 +724,8 @@ impl MemorySearchService {
         };
 
         info!(
-            "Triple hybrid search: query={}, top_k={}, weights=(v={:.2}, k={:.2}, g={:.2})",
-            query, top_k, vw, kw, gw
+            "Triple hybrid search: tenant_id={}, query={}, top_k={}, weights=(v={:.2}, k={:.2}, g={:.2})",
+            tenant_id, query, top_k, vw, kw, gw
         );
 
         let rerank_config = config::get().rerank.clone();
@@ -640,13 +738,15 @@ impl MemorySearchService {
         };
 
         // --- 1. 向量搜索 ---
-        let vector_results = Self::search_ltm(query, fetch_k, Some(false), None).await?;
+        let vector_results =
+            Self::search_ltm_for_tenant(tenant_id, query, fetch_k, Some(false), None).await?;
 
         // --- 2. 关键词搜索 ---
-        let keyword_results = Self::keyword_search(query, fetch_k).await?;
+        let keyword_results = Self::keyword_search_for_tenant(tenant_id, query, fetch_k).await?;
 
         // --- 3. KG 图谱搜索：取查询中首个词条或整个查询作为实体名 ---
-        let graph_results = Self::search_by_entity(query, Some(fetch_k as i32)).await?;
+        let graph_results =
+            Self::search_by_entity_for_tenant(tenant_id, query, Some(fetch_k as i32)).await?;
 
         // --- 4. 分数融合 ---
         use std::collections::HashMap;
@@ -688,12 +788,9 @@ impl MemorySearchService {
                 continue;
             } else {
                 // 关键词命中但向量未命中 — 拉取条目内容
-                if let Ok(Some(entry)) = crate::db::ltm::LTMRepository::get_entry_by_id(
-                    pool(),
-                    &get_default_tenant(),
-                    entry_id,
-                )
-                .await
+                if let Ok(Some(entry)) =
+                    crate::db::ltm::LTMRepository::get_entry_by_id(pool(), tenant_id, entry_id)
+                        .await
                 {
                     (entry.content, entry.title)
                 } else {

@@ -175,6 +175,40 @@ impl LTMRepository {
         Ok(())
     }
 
+    /// Soft-delete a knowledge entry by marking it deprecated.
+    pub async fn soft_delete_entry(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        entry_id: &str,
+    ) -> Result<bool, AppError> {
+        let entry = Self::get_entry_by_id(pool, tenant_id, entry_id).await?;
+        if entry.is_none() {
+            return Ok(false);
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE knowledge_entries
+            SET status = 'deprecated',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE entry_id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(entry_id)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to soft-delete knowledge entry: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        info!(
+            "Soft-deleted knowledge entry: {} for tenant: {}",
+            entry_id, tenant_id
+        );
+        Ok(result.rows_affected() > 0)
+    }
+
     /// 根据 ID 获取条目（租户隔离）
     pub async fn get_entry_by_id(
         pool: &sqlx::PgPool,

@@ -7,7 +7,7 @@ use tracing::{error, info, instrument, warn};
 use crate::db::pool;
 use crate::db::stm::{STMRepository, Session};
 use crate::services::memory_storage::MemoryStorageService;
-use crate::tenant::get_default_tenant;
+use crate::tenant::{get_default_tenant, TenantId};
 use crate::AppError;
 
 /// 记忆自动转移服务
@@ -128,7 +128,25 @@ impl MemoryTransferService {
         message_count_threshold: i32,
         session_time_threshold: i32,
     ) -> Result<(), AppError> {
-        info!("Checking sessions for transfer to LTM");
+        Self::check_and_transfer_for_tenant(
+            &get_default_tenant(),
+            message_count_threshold,
+            session_time_threshold,
+        )
+        .await
+    }
+
+    /// 检查并转移指定租户下符合条件的会话
+    #[instrument]
+    pub async fn check_and_transfer_for_tenant(
+        tenant_id: &TenantId,
+        message_count_threshold: i32,
+        session_time_threshold: i32,
+    ) -> Result<(), AppError> {
+        info!(
+            "Checking sessions for transfer to LTM: tenant_id={}",
+            tenant_id
+        );
 
         // 动态获取所有活跃的用户和智能体
         let user_ids = STMRepository::get_active_user_ids().await?;
@@ -141,13 +159,12 @@ impl MemoryTransferService {
         let mut transferred_count = 0;
         for user_id in &user_ids {
             // 动态获取该用户的活跃 agent 列表
-            let agent_ids =
-                STMRepository::get_active_agent_ids(pool(), &get_default_tenant(), user_id).await?;
+            let agent_ids = STMRepository::get_active_agent_ids(pool(), tenant_id, user_id).await?;
 
             for agent_id in &agent_ids {
                 let sessions = STMRepository::get_recent_sessions(
                     pool(),
-                    &get_default_tenant(),
+                    tenant_id,
                     user_id,
                     agent_id,
                     Some(100),
@@ -172,7 +189,8 @@ impl MemoryTransferService {
                             session.session_id
                         );
 
-                        match MemoryStorageService::auto_transfer_stm_to_ltm(
+                        match MemoryStorageService::auto_transfer_stm_to_ltm_for_tenant(
+                            tenant_id,
                             &session.session_id,
                             message_count_threshold,
                         )

@@ -146,18 +146,5 @@ async fn not_found() -> impl IntoResponse {
 pub fn create_router() -> Router {
     let cors = cors_layer();
 
-    Router::new()
-        // Public routes - no auth required
-        .route(
-            "/api-doc/openapi.json",
-            get(|| async { openapi_json().await }),
-        )
-        .route("/scalar", get(scalar_ui))
-        .route("/scalar/", get(scalar_ui))
-        .merge(demo::router())
-        .merge(auth::router())
-        // Protected routes - require auth_middleware
-        .merge(protected::protected_router())
-        .layer(cors)
-        .fallback(not_found)
+    crate::routers::root().layer(cors)
 }

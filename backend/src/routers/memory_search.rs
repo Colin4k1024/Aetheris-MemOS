@@ -1,4 +1,4 @@
-use axum::extract::{Path, Query};
+use axum::extract::{Extension, Path, Query};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -8,7 +8,7 @@ use validator::Validate;
 use crate::db::pool;
 use crate::db::SessionMessage;
 use crate::services::memory_search::{MemorySearchService, SearchResult};
-use crate::tenant::get_default_tenant;
+use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
 /// 搜索短期记忆请求
@@ -110,7 +110,10 @@ pub struct TripleHybridSearchResponse {
 }
 
 /// 搜索短期记忆
-pub async fn search_stm(Json(req): Json<SearchSTMRequest>) -> JsonResult<SearchSTMResponse> {
+pub async fn search_stm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<SearchSTMRequest>,
+) -> JsonResult<SearchSTMResponse> {
     req.validate()?;
 
     info!(
@@ -118,7 +121,8 @@ pub async fn search_stm(Json(req): Json<SearchSTMRequest>) -> JsonResult<SearchS
         req.user_id, req.agent_id, req.session_type
     );
 
-    let messages = MemorySearchService::search_stm(
+    let messages = MemorySearchService::search_stm_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.user_id,
         &req.agent_id,
         req.session_type.as_deref(),
@@ -130,7 +134,10 @@ pub async fn search_stm(Json(req): Json<SearchSTMRequest>) -> JsonResult<SearchS
 }
 
 /// 搜索长期记忆（向量搜索）
-pub async fn search_ltm(Json(req): Json<SearchLTMRequest>) -> JsonResult<SearchLTMResponse> {
+pub async fn search_ltm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<SearchLTMRequest>,
+) -> JsonResult<SearchLTMResponse> {
     req.validate()?;
 
     info!(
@@ -139,7 +146,8 @@ pub async fn search_ltm(Json(req): Json<SearchLTMRequest>) -> JsonResult<SearchL
         req.top_k
     );
 
-    let results = MemorySearchService::search_ltm(
+    let results = MemorySearchService::search_ltm_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
         req.enable_rerank,
@@ -152,6 +160,7 @@ pub async fn search_ltm(Json(req): Json<SearchLTMRequest>) -> JsonResult<SearchL
 
 /// 混合搜索
 pub async fn hybrid_search(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<HybridSearchRequest>,
 ) -> JsonResult<HybridSearchResponse> {
     req.validate()?;
@@ -162,7 +171,8 @@ pub async fn hybrid_search(
         req.top_k
     );
 
-    let results = MemorySearchService::hybrid_search(
+    let results = MemorySearchService::hybrid_search_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
         req.keyword_weight.unwrap_or(0.3),
@@ -177,6 +187,7 @@ pub async fn hybrid_search(
 
 /// 基于实体搜索
 pub async fn search_by_entity(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<SearchByEntityRequest>,
 ) -> JsonResult<SearchByEntityResponse> {
     req.validate()?;
@@ -186,13 +197,19 @@ pub async fn search_by_entity(
         req.entity, req.limit
     );
 
-    let results = MemorySearchService::search_by_entity(&req.entity, req.limit).await?;
+    let results = MemorySearchService::search_by_entity_for_tenant(
+        &tenant_ctx.tenant_id,
+        &req.entity,
+        req.limit,
+    )
+    .await?;
 
     json_ok(SearchByEntityResponse { results })
 }
 
 /// 三路混合搜索（向量 + 关键词 + 知识图谱）
 pub async fn triple_hybrid_search(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<TripleHybridSearchRequest>,
 ) -> JsonResult<TripleHybridSearchResponse> {
     req.validate()?;
@@ -203,7 +220,8 @@ pub async fn triple_hybrid_search(
         req.top_k
     );
 
-    let results = MemorySearchService::triple_hybrid_search(
+    let results = MemorySearchService::triple_hybrid_search_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
         req.vector_weight,
@@ -259,6 +277,7 @@ pub struct ScoredSearchResponse {
 
 /// 带置信度的三路混合搜索（向量 + 关键词 + KG + 置信度评分）
 pub async fn scored_search(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<ScoredSearchRequest>,
 ) -> JsonResult<ScoredSearchResponse> {
     req.validate()?;
@@ -270,7 +289,8 @@ pub async fn scored_search(
     );
 
     // 先执行三路混合搜索
-    let raw_results = MemorySearchService::triple_hybrid_search(
+    let raw_results = MemorySearchService::triple_hybrid_search_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
         req.vector_weight,
@@ -314,10 +334,12 @@ pub async fn scored_search(
 }
 
 /// 获取所有知识条目列表
-pub async fn list_ltm_entries() -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
+pub async fn list_ltm_entries(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+) -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {
     let result = crate::db::ltm::LTMRepository::list_entries(
         pool(),
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         None,
         None,
         Some(20),
@@ -330,12 +352,13 @@ pub async fn list_ltm_entries() -> JsonResult<crate::db::ltm::KnowledgeEntryList
 
 /// 获取知识条目详情
 pub async fn get_ltm_entry(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entry_id): Path<String>,
 ) -> JsonResult<crate::db::ltm::KnowledgeEntry> {
     info!("Getting LTM entry: entry_id={}", entry_id);
 
     let entry =
-        crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id)
+        crate::db::ltm::LTMRepository::get_entry_by_id(pool(), &tenant_ctx.tenant_id, &entry_id)
             .await?
             .ok_or_else(|| crate::AppError::NotFound(format!("Entry {} not found", entry_id)))?;
 
@@ -354,6 +377,7 @@ pub struct TimeTravelQuery {
 
 /// 时间旅行查询 - LTM
 pub async fn get_ltm_at_time(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entry_id): Path<String>,
     Query(query): Query<TimeTravelQuery>,
 ) -> JsonResult<Option<crate::db::ltm::KnowledgeEntry>> {
@@ -364,7 +388,7 @@ pub async fn get_ltm_at_time(
 
     let entry = crate::db::ltm::LTMRepository::get_entry_at_time(
         pool(),
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         &entry_id,
         &query.at,
     )
@@ -375,6 +399,7 @@ pub async fn get_ltm_at_time(
 
 /// 时间旅行搜索 - LTM
 pub async fn search_ltm_at_time(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<TimeTravelQuery>,
 ) -> JsonResult<Vec<crate::db::ltm::KnowledgeEntry>> {
     info!("Time travel search LTM: at={}", req.at);
@@ -382,7 +407,7 @@ pub async fn search_ltm_at_time(
     // 使用 "memory" 作为默认查询词
     let results = crate::db::ltm::LTMRepository::search_entries_at_time(
         pool(),
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         "",
         &req.at,
         req.limit,

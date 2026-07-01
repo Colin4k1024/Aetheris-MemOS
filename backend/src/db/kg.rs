@@ -5,7 +5,7 @@ use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
-use crate::tenant::TenantId;
+use crate::tenant::{get_default_tenant, TenantId};
 use crate::AppError;
 
 /// 知识图谱仓库
@@ -370,7 +370,19 @@ impl KGRepository {
         entity_name: &str,
         limit: Option<i32>,
     ) -> Result<Vec<Entity>, AppError> {
+        Self::search_knowledge_by_entity_for_tenant(pool, &get_default_tenant(), entity_name, limit)
+            .await
+    }
+
+    /// 根据实体搜索相关的知识条目 (pool版本，租户隔离)
+    pub async fn search_knowledge_by_entity_for_tenant(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        entity_name: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<Entity>, AppError> {
         let limit = limit.unwrap_or(10);
+        let tenant_entity_pattern = format!("{}%", tenant_id.prefix());
 
         // 搜索与该实体相关的知识条目
         // 通过关系表找到相关的 source/target 实体，然后搜索知识条目
@@ -382,14 +394,18 @@ impl KGRepository {
             FROM entities e
             LEFT JOIN relations r ON e.entity_id = r.source_entity_id OR e.entity_id = r.target_entity_id
             LEFT JOIN knowledge_entries ke ON ke.content LIKE '%' || e.entity_name || '%'
-            WHERE e.entity_name LIKE '%' || $1 || '%'
-               OR r.source_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
-               OR r.target_entity_id IN (SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%')
+            WHERE e.entity_id LIKE $2
+              AND (
+                   e.entity_name LIKE '%' || $1 || '%'
+                OR r.source_entity_id IN (SELECT entity_id FROM entities WHERE entity_id LIKE $2 AND entity_name LIKE '%' || $1 || '%')
+                OR r.target_entity_id IN (SELECT entity_id FROM entities WHERE entity_id LIKE $2 AND entity_name LIKE '%' || $1 || '%')
+              )
             ORDER BY e.popularity_score DESC, e.mention_count DESC
-            LIMIT $2
+            LIMIT $3
             "#,
         )
         .bind(entity_name)
+        .bind(tenant_entity_pattern)
         .bind(limit)
         .fetch_all(pool)
         .await
@@ -407,6 +423,19 @@ impl KGRepository {
         entity_name: &str,
         top_k: i32,
     ) -> Result<Vec<Entity>, AppError> {
+        Self::search_entries_by_entity_for_tenant(pool, &get_default_tenant(), entity_name, top_k)
+            .await
+    }
+
+    /// 搜索包含指定实体的知识条目（租户隔离）
+    pub async fn search_entries_by_entity_for_tenant(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        entity_name: &str,
+        top_k: i32,
+    ) -> Result<Vec<Entity>, AppError> {
+        let tenant_entity_pattern = format!("{}%", tenant_id.prefix());
+
         // 搜索包含该实体名称的知识条目
         let rows = sqlx::query_as::<_, Entity>(
             r#"
@@ -414,24 +443,29 @@ impl KGRepository {
                    e.attributes, e.aliases, e.embedding_vector, e.confidence_score,
                    e.popularity_score, e.relation_count, e.mention_count, e.status
             FROM entities e
-            WHERE e.entity_name LIKE '%' || $1 || '%'
-               OR e.entity_name IN (
+            WHERE e.entity_id LIKE $2
+              AND (
+                e.entity_name LIKE '%' || $1 || '%'
+                OR e.entity_name IN (
                    SELECT entity_name FROM entities
-                   WHERE entity_id IN (
+                   WHERE entity_id LIKE $2
+                     AND entity_id IN (
                        SELECT source_entity_id FROM relations WHERE target_entity_id IN (
-                           SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%'
+                           SELECT entity_id FROM entities WHERE entity_id LIKE $2 AND entity_name LIKE '%' || $1 || '%'
                        )
                        UNION
                        SELECT target_entity_id FROM relations WHERE source_entity_id IN (
-                           SELECT entity_id FROM entities WHERE entity_name LIKE '%' || $1 || '%'
+                           SELECT entity_id FROM entities WHERE entity_id LIKE $2 AND entity_name LIKE '%' || $1 || '%'
                        )
                    )
-               )
+                )
+              )
             ORDER BY e.popularity_score DESC, e.mention_count DESC
-            LIMIT $2
+            LIMIT $3
             "#,
         )
         .bind(entity_name)
+        .bind(tenant_entity_pattern)
         .bind(top_k)
         .fetch_all(pool)
         .await

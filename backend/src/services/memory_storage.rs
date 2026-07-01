@@ -5,7 +5,7 @@ use crate::db::{ltm::LTMRepository, pool, stm::STMRepository};
 use crate::services::{
     embedding::get_embedding_service, llm::get_llm_service, qdrant::get_qdrant_client,
 };
-use crate::tenant::get_default_tenant;
+use crate::tenant::{get_default_tenant, TenantId};
 use crate::AppError;
 
 /// 记忆存储服务
@@ -23,14 +23,39 @@ impl MemoryStorageService {
         max_context_length: i32,
         retention_hours: i32,
     ) -> Result<(String, String), AppError> {
+        Self::store_stm_for_tenant(
+            &get_default_tenant(),
+            user_id,
+            agent_id,
+            session_type,
+            role,
+            content,
+            max_context_length,
+            retention_hours,
+        )
+        .await
+    }
+
+    /// 存储短期记忆（租户隔离）
+    #[instrument]
+    pub async fn store_stm_for_tenant(
+        tenant_id: &TenantId,
+        user_id: &str,
+        agent_id: &str,
+        session_type: &str,
+        role: &str,
+        content: &str,
+        max_context_length: i32,
+        retention_hours: i32,
+    ) -> Result<(String, String), AppError> {
         info!(
-            "Storing STM: user_id={}, agent_id={}, session_type={}",
-            user_id, agent_id, session_type
+            "Storing STM: tenant_id={}, user_id={}, agent_id={}, session_type={}",
+            tenant_id, user_id, agent_id, session_type
         );
 
         // 创建或获取会话
         let session_id = STMRepository::create_session(
-            &get_default_tenant(),
+            tenant_id,
             user_id,
             agent_id,
             session_type,
@@ -42,7 +67,7 @@ impl MemoryStorageService {
         // 添加消息到会话
         let message_id = STMRepository::add_message(
             pool(),
-            &get_default_tenant(),
+            tenant_id,
             &session_id,
             role,
             content,
@@ -61,6 +86,25 @@ impl MemoryStorageService {
     /// 存储长期记忆（调用 LLM 总结 + 向量化 + 存储到 Qdrant）
     #[instrument]
     pub async fn store_ltm(
+        source_id: &str,
+        source_type: &str,
+        content: &str,
+        title: Option<&str>,
+    ) -> Result<String, AppError> {
+        Self::store_ltm_for_tenant(
+            &get_default_tenant(),
+            source_id,
+            source_type,
+            content,
+            title,
+        )
+        .await
+    }
+
+    /// 存储长期记忆（租户隔离）
+    #[instrument]
+    pub async fn store_ltm_for_tenant(
+        tenant_id: &TenantId,
         source_id: &str,
         source_type: &str,
         content: &str,
@@ -157,7 +201,7 @@ impl MemoryStorageService {
         let quality_score = Some(0.8); // 可以根据实际情况计算质量分数
         if let Err(db_err) = LTMRepository::create_knowledge_entry_with_id(
             Some(entry_id.clone()),
-            &get_default_tenant(),
+            tenant_id,
             source_id,
             normalized_source_type,
             title,
@@ -218,16 +262,26 @@ impl MemoryStorageService {
         session_id: &str,
         message_count_threshold: i32,
     ) -> Result<Vec<String>, AppError> {
+        Self::auto_transfer_stm_to_ltm_for_tenant(
+            &get_default_tenant(),
+            session_id,
+            message_count_threshold,
+        )
+        .await
+    }
+
+    /// 自动将 STM 转移到 LTM（租户隔离）
+    #[instrument]
+    pub async fn auto_transfer_stm_to_ltm_for_tenant(
+        tenant_id: &TenantId,
+        session_id: &str,
+        message_count_threshold: i32,
+    ) -> Result<Vec<String>, AppError> {
         info!("Auto transferring STM to LTM: session_id={}", session_id);
 
         // 获取会话消息
-        let messages = STMRepository::get_session_messages(
-            pool(),
-            &get_default_tenant(),
-            session_id,
-            Some(1000),
-        )
-        .await?;
+        let messages =
+            STMRepository::get_session_messages(pool(), tenant_id, session_id, Some(1000)).await?;
 
         if messages.len() < message_count_threshold as usize {
             info!(
@@ -246,7 +300,8 @@ impl MemoryStorageService {
             .join("\n\n");
 
         // 存储为长期记忆
-        let entry_id = Self::store_ltm(
+        let entry_id = Self::store_ltm_for_tenant(
+            tenant_id,
             session_id,
             "session",
             &combined_content,
@@ -263,12 +318,29 @@ impl MemoryStorageService {
     pub async fn batch_store_ltm(
         entries: Vec<(String, String, String, Option<String>)>, // (source_id, source_type, content, title)
     ) -> Result<Vec<String>, AppError> {
+        Self::batch_store_ltm_for_tenant(&get_default_tenant(), entries).await
+    }
+
+    /// 批量存储长期记忆（租户隔离）
+    #[instrument]
+    pub async fn batch_store_ltm_for_tenant(
+        tenant_id: &TenantId,
+        entries: Vec<(String, String, String, Option<String>)>, // (source_id, source_type, content, title)
+    ) -> Result<Vec<String>, AppError> {
         let total_count = entries.len();
         info!("Batch storing LTM: count={}", total_count);
 
         let mut entry_ids = Vec::new();
         for (source_id, source_type, content, title) in entries {
-            match Self::store_ltm(&source_id, &source_type, &content, title.as_deref()).await {
+            match Self::store_ltm_for_tenant(
+                tenant_id,
+                &source_id,
+                &source_type,
+                &content,
+                title.as_deref(),
+            )
+            .await
+            {
                 Ok(entry_id) => entry_ids.push(entry_id),
                 Err(e) => {
                     error!(

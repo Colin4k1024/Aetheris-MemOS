@@ -4,6 +4,8 @@ Adaptive Memory Client
 Provides a simple client for interacting with the Adaptive Memory System.
 """
 
+from __future__ import annotations
+
 import json
 from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin
@@ -83,6 +85,144 @@ class MemoryClient:
             "POST",
             "api/mcp/tools/call",
             json={"name": tool_name, "arguments": arguments or {}},
+        )
+
+    # === Agent Memory Contract ===
+
+    def remember(
+        self,
+        content: str,
+        user_id: str,
+        agent_id: str,
+        session_id: Optional[str] = None,
+        layer: str = "stm",
+        importance: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Store memory through the stable agent-facing contract.
+
+        Args:
+            content: Text to remember
+            user_id: User identifier
+            agent_id: Agent identifier
+            session_id: Optional external session identifier
+            layer: stm or ltm
+            importance: Optional importance hint, reserved for compatible servers
+            metadata: Optional metadata, reserved for compatible servers
+            tenant_id: Optional tenant identifier
+        """
+        layer = layer.lower()
+        if layer == "stm":
+            return self.store_stm(
+                user_id=user_id,
+                agent_id=agent_id,
+                content=content,
+                session_type=session_id or "default",
+            )
+        if layer == "ltm":
+            return self.store_ltm(
+                source_id=(metadata or {}).get("sourceId") or session_id or user_id,
+                source_type=(metadata or {}).get("sourceType") or "user_input",
+                content=content,
+                title=(metadata or {}).get("title"),
+            )
+        return self.call_mcp_tool(
+            "memory_write",
+            {
+                "content": content,
+                "layer": layer,
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "session_id": session_id,
+                "importance": importance,
+                "metadata": metadata or {},
+                "tenant_id": tenant_id,
+            },
+        )
+
+    def recall(
+        self,
+        query: str,
+        user_id: str,
+        agent_id: str,
+        session_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Recall relevant context for an agent task."""
+        if session_id:
+            return self.call_mcp_tool(
+                "memory_recall", {"session_id": session_id, "limit": limit}
+            )
+        return self.search_hybrid(query=query, user_id=user_id, limit=limit)
+
+    def search(
+        self,
+        query: str,
+        layer: str = "hybrid",
+        user_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Search memory across STM, LTM, KG, MM, or hybrid retrieval."""
+        layer = layer.lower()
+        if layer == "stm":
+            return self.search_stm(query=query, user_id=user_id, limit=limit)
+        if layer == "ltm":
+            return self.search_ltm(query=query, user_id=user_id, limit=limit)
+        if layer == "hybrid":
+            return self.search_hybrid(query=query, user_id=user_id, limit=limit)
+        return self.call_mcp_tool(
+            "memory_search",
+            {"query": query, "layer": layer, "user_id": user_id, "limit": limit},
+        )
+
+    def forget(self, memory_id: str, layer: str = "ltm") -> Dict[str, Any]:
+        """Forget or invalidate a memory when supported by the server."""
+        return self._request(
+            "POST",
+            "api/v1/memory/forget",
+            json={"memoryId": memory_id, "layer": layer},
+        )
+
+    def explain(
+        self,
+        trace_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """Fetch decision traces for explaining memory selection."""
+        params: Dict[str, Any] = {"limit": limit}
+        if task_id:
+            params["taskId"] = task_id
+        if trace_id:
+            params["traceId"] = trace_id
+        return self._request("GET", "api/v1/memory/explain", params=params)
+
+    def feedback(
+        self,
+        memory_id: str,
+        useful: bool,
+        query: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Record retrieval feedback.
+
+        Record retrieval feedback through the server-side agent memory
+        contract.
+        """
+        return self._request(
+            "POST",
+            "api/v1/memory/feedback",
+            json={
+                "memoryId": memory_id,
+                "useful": useful,
+                "query": query,
+                "traceId": trace_id,
+                "metadata": metadata or {},
+            },
         )
 
     # === Memory Write ===
@@ -288,6 +428,13 @@ class AsyncMemoryClient:
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self._client: Optional[aiohttp.ClientSession] = None
 
+    async def __aenter__(self):
+        await self._get_client()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
     async def _get_client(self) -> aiohttp.ClientSession:
         if self._client is None or self._client.closed:
             headers = {}
@@ -334,6 +481,46 @@ class AsyncMemoryClient:
             },
         )
 
+    async def remember(
+        self,
+        content: str,
+        user_id: str,
+        agent_id: str,
+        session_id: Optional[str] = None,
+        layer: str = "stm",
+        importance: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        layer = layer.lower()
+        if layer == "stm":
+            return await self.store_stm(
+                user_id=user_id,
+                agent_id=agent_id,
+                content=content,
+                session_type=session_id or "default",
+            )
+        if layer == "ltm":
+            return await self.store_ltm(
+                source_id=(metadata or {}).get("sourceId") or session_id or user_id,
+                source_type=(metadata or {}).get("sourceType") or "user_input",
+                content=content,
+                title=(metadata or {}).get("title"),
+            )
+        return await self.call_mcp_tool(
+            "memory_write",
+            {
+                "content": content,
+                "layer": layer,
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "session_id": session_id,
+                "importance": importance,
+                "metadata": metadata or {},
+                "tenant_id": tenant_id,
+            },
+        )
+
     async def store_ltm(
         self,
         source_id: str,
@@ -361,6 +548,89 @@ class AsyncMemoryClient:
         return await self.call_mcp_tool(
             "memory_search",
             {"query": query, "layer": "ltm", "user_id": user_id, "limit": limit},
+        )
+
+    async def search_hybrid(
+        self,
+        query: str,
+        user_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            "api/v1/memory/search/hybrid",
+            json={"query": query, "userId": user_id, "limit": limit},
+        )
+
+    async def recall(
+        self,
+        query: str,
+        user_id: str,
+        agent_id: str,
+        session_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        if session_id:
+            return await self.call_mcp_tool(
+                "memory_recall", {"session_id": session_id, "limit": limit}
+            )
+        return await self.search_hybrid(query=query, user_id=user_id, limit=limit)
+
+    async def search(
+        self,
+        query: str,
+        layer: str = "hybrid",
+        user_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        layer = layer.lower()
+        if layer == "ltm":
+            return await self.search_ltm(query=query, user_id=user_id, limit=limit)
+        if layer == "hybrid":
+            return await self.search_hybrid(query=query, user_id=user_id, limit=limit)
+        return await self.call_mcp_tool(
+            "memory_search",
+            {"query": query, "layer": layer, "user_id": user_id, "limit": limit},
+        )
+
+    async def forget(self, memory_id: str, layer: str = "ltm") -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            "api/v1/memory/forget",
+            json={"memoryId": memory_id, "layer": layer},
+        )
+
+    async def explain(
+        self,
+        trace_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"limit": limit}
+        if task_id:
+            params["taskId"] = task_id
+        if trace_id:
+            params["traceId"] = trace_id
+        return await self._request("GET", "api/v1/memory/explain", params=params)
+
+    async def feedback(
+        self,
+        memory_id: str,
+        useful: bool,
+        query: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            "api/v1/memory/feedback",
+            json={
+                "memoryId": memory_id,
+                "useful": useful,
+                "query": query,
+                "traceId": trace_id,
+                "metadata": metadata or {},
+            },
         )
 
     async def call_mcp_tool(

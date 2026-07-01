@@ -135,24 +135,31 @@ impl RuntimeAdapter for OpenAIMemoryAdapter {
         session_id: &str,
         limit: usize,
     ) -> MemoryResult<Vec<RuntimeMessage>> {
-        let query = MemoryQuery {
-            layer: None,
-            text: None,
-            filters: MemoryFilters {
-                session_id: Some(session_id.to_string()),
-                ..Default::default()
-            },
-            limit,
-            ..Default::default()
-        };
+        let memories = self.agent.history(session_id, limit).await?;
+        let mut messages: Vec<RuntimeMessage> = memories
+            .into_iter()
+            .filter_map(|m| match m.entry.content {
+                MemoryContent::Text(content) => Some(RuntimeMessage {
+                    role: MessageRole::User,
+                    content,
+                    session_id: m
+                        .entry
+                        .metadata
+                        .session_id
+                        .unwrap_or_else(|| session_id.to_string()),
+                    timestamp: m.entry.created_at,
+                    metadata: m.entry.metadata.extra,
+                }),
+                _ => None,
+            })
+            .collect();
 
-        // This would need a kernel reference - simplified for now
-        Ok(vec![])
+        messages.sort_by_key(|m| m.timestamp);
+        Ok(messages)
     }
 
     async fn search(&self, query: &str) -> MemoryResult<Vec<MemoryMatch>> {
-        // This would need user context - simplified for now
-        Ok(vec![])
+        self.agent.recall_any(query, 10).await
     }
 }
 

@@ -1,4 +1,4 @@
-use axum::extract::{Path, Query};
+use axum::extract::{Extension, Path, Query};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -7,7 +7,7 @@ use validator::Validate;
 
 use crate::db::pool;
 use crate::services::memory_storage::MemoryStorageService;
-use crate::tenant::get_default_tenant;
+use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
 /// 存储短期记忆请求
@@ -100,7 +100,10 @@ pub struct BatchStoreLTMResponse {
 }
 
 /// 存储短期记忆
-pub async fn store_stm(Json(req): Json<StoreSTMRequest>) -> JsonResult<StoreSTMResponse> {
+pub async fn store_stm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<StoreSTMRequest>,
+) -> JsonResult<StoreSTMResponse> {
     req.validate()?;
 
     info!(
@@ -108,7 +111,8 @@ pub async fn store_stm(Json(req): Json<StoreSTMRequest>) -> JsonResult<StoreSTMR
         req.user_id, req.agent_id, req.session_type
     );
 
-    let (session_id, message_id) = MemoryStorageService::store_stm(
+    let (session_id, message_id) = MemoryStorageService::store_stm_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.user_id,
         &req.agent_id,
         &req.session_type,
@@ -126,7 +130,10 @@ pub async fn store_stm(Json(req): Json<StoreSTMRequest>) -> JsonResult<StoreSTMR
 }
 
 /// 存储长期记忆
-pub async fn store_ltm(Json(req): Json<StoreLTMRequest>) -> JsonResult<StoreLTMResponse> {
+pub async fn store_ltm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<StoreLTMRequest>,
+) -> JsonResult<StoreLTMResponse> {
     req.validate()?;
 
     info!(
@@ -136,7 +143,8 @@ pub async fn store_ltm(Json(req): Json<StoreLTMRequest>) -> JsonResult<StoreLTMR
         req.content.len()
     );
 
-    let entry_id = MemoryStorageService::store_ltm(
+    let entry_id = MemoryStorageService::store_ltm_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.source_id,
         &req.source_type,
         &req.content,
@@ -148,12 +156,16 @@ pub async fn store_ltm(Json(req): Json<StoreLTMRequest>) -> JsonResult<StoreLTMR
 }
 
 /// 手动触发 STM 到 LTM 转移
-pub async fn transfer_stm_to_ltm(Json(req): Json<TransferRequest>) -> JsonResult<TransferResponse> {
+pub async fn transfer_stm_to_ltm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<TransferRequest>,
+) -> JsonResult<TransferResponse> {
     req.validate()?;
 
     info!("Manual transfer: session_id={}", req.session_id);
 
-    let entry_ids = MemoryStorageService::auto_transfer_stm_to_ltm(
+    let entry_ids = MemoryStorageService::auto_transfer_stm_to_ltm_for_tenant(
+        &tenant_ctx.tenant_id,
         &req.session_id,
         req.message_count_threshold.unwrap_or(100),
     )
@@ -164,6 +176,7 @@ pub async fn transfer_stm_to_ltm(Json(req): Json<TransferRequest>) -> JsonResult
 
 /// 批量存储长期记忆
 pub async fn batch_store_ltm(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<BatchStoreLTMRequest>,
 ) -> JsonResult<BatchStoreLTMResponse> {
     req.validate()?;
@@ -176,18 +189,20 @@ pub async fn batch_store_ltm(
         .map(|e| (e.source_id, e.source_type, e.content, e.title))
         .collect();
 
-    let entry_ids = MemoryStorageService::batch_store_ltm(entries).await?;
+    let entry_ids =
+        MemoryStorageService::batch_store_ltm_for_tenant(&tenant_ctx.tenant_id, entries).await?;
 
     json_ok(BatchStoreLTMResponse { entry_ids })
 }
 
 /// 获取所有会话列表
 pub async fn list_sessions(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(params): Query<ListSessionsQuery>,
 ) -> JsonResult<crate::db::SessionListResponse> {
     let sessions = crate::db::stm::STMRepository::list_sessions(
         pool(),
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         params.user_id.as_deref(),
         params.status.as_deref(),
         params.limit,
@@ -200,12 +215,13 @@ pub async fn list_sessions(
 
 /// 获取会话消息
 pub async fn get_session_messages(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(session_id): Path<String>,
     Query(params): Query<GetSessionMessagesQuery>,
 ) -> JsonResult<Vec<crate::db::SessionMessage>> {
     let messages = crate::db::stm::STMRepository::get_session_messages(
         pool(),
-        &get_default_tenant(),
+        &tenant_ctx.tenant_id,
         &session_id,
         params.limit,
     )

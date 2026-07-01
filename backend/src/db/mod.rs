@@ -30,6 +30,7 @@ pub mod kg;
 #[allow(dead_code)]
 pub mod ltm;
 pub mod memory;
+pub mod memory_feedback;
 #[allow(dead_code)]
 pub mod mm;
 #[allow(dead_code)]

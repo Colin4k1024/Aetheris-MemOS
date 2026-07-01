@@ -536,13 +536,18 @@ async fn handle_memory_forget(
         .ok_or_else(|| AppError::BadRequest("Missing 'layer' parameter".to_string()))?
         .to_lowercase();
 
-    // TODO: Implement actual deletion based on layer
-    let text = serde_json::json!({
-        "success": true,
-        "message": format!("Memory layer {} forget operation acknowledged", layer),
-        "layer": layer
-    })
-    .to_string();
+    let response = crate::services::memory_contract::forget_memory(
+        &get_default_tenant(),
+        crate::services::memory_contract::MemoryForgetRequest {
+            memory_id: _memory_id,
+            layer,
+        },
+    )
+    .await?;
+
+    let text = serde_json::to_string(&response).map_err(|e| {
+        AppError::Serialization(format!("Failed to serialize forget response: {e}"))
+    })?;
 
     Ok(vec![crate::protocol::mcp::ToolContent::Text(text)])
 }

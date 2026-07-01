@@ -42,7 +42,7 @@ use tracing::{error, info, warn};
 use crate::db::pool;
 use crate::db::stm::STMRepository;
 use crate::services::memory_storage::MemoryStorageService;
-use crate::tenant::get_default_tenant;
+use crate::tenant::{get_default_tenant, TenantId};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -183,6 +183,13 @@ async fn reflection_loop(cfg: IngestionConfig, running: Arc<AtomicBool>) {
 /// 3. Promote high-importance messages to LTM.
 /// 4. Enforce the sliding-window limit per session.
 async fn run_reflection_cycle(cfg: &IngestionConfig) -> anyhow::Result<()> {
+    run_reflection_cycle_for_tenant(&get_default_tenant(), cfg).await
+}
+
+pub(crate) async fn run_reflection_cycle_for_tenant(
+    tenant_id: &TenantId,
+    cfg: &IngestionConfig,
+) -> anyhow::Result<()> {
     let user_ids = match STMRepository::get_active_user_ids().await {
         Ok(ids) => ids,
         Err(e) => {
@@ -200,18 +207,17 @@ async fn run_reflection_cycle(cfg: &IngestionConfig) -> anyhow::Result<()> {
 
     for user_id in &user_ids {
         // Fetch active agent IDs for this user
-        let agent_ids =
-            match STMRepository::get_active_agent_ids(pool(), &get_default_tenant(), user_id).await
-            {
-                Ok(ids) => ids,
-                Err(_) => continue,
-            };
+        let agent_ids = match STMRepository::get_active_agent_ids(pool(), tenant_id, user_id).await
+        {
+            Ok(ids) => ids,
+            Err(_) => continue,
+        };
 
         for agent_id in &agent_ids {
             // Fetch recent sessions (limit 50 per agent to keep cycles bounded)
             let sessions = match STMRepository::get_recent_sessions(
                 pool(),
-                &get_default_tenant(),
+                tenant_id,
                 user_id,
                 agent_id,
                 Some(50),
@@ -225,7 +231,7 @@ async fn run_reflection_cycle(cfg: &IngestionConfig) -> anyhow::Result<()> {
             for session in &sessions {
                 let msgs = match STMRepository::get_session_messages(
                     pool(),
-                    &get_default_tenant(),
+                    tenant_id,
                     &session.session_id,
                     Some(1000),
                 )
@@ -243,7 +249,8 @@ async fn run_reflection_cycle(cfg: &IngestionConfig) -> anyhow::Result<()> {
                     }
                     // Build a descriptive source_id for LTM
                     let source_id = format!("stm:{}:{}", session.session_id, msg.message_id);
-                    match MemoryStorageService::store_ltm(
+                    match MemoryStorageService::store_ltm_for_tenant(
+                        tenant_id,
                         &source_id,
                         "user_input",
                         &msg.content,
