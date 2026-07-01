@@ -43,7 +43,7 @@ impl HybridSearchService {
 
         let filters = request.filters.clone().unwrap_or_default();
 
-        let embedding = self.generate_query_embedding(&request.query)?;
+        let embedding = self.generate_query_embedding(&request.query).await?;
 
         let start = Instant::now();
 
@@ -297,9 +297,19 @@ impl HybridSearchService {
         }
     }
 
-    fn generate_query_embedding(&self, _query: &str) -> MemoryResult<Vec<f32>> {
-        // TODO: integrate with EmbeddingService for real embeddings
-        // Return a placeholder embedding; callers should eventually inject an EmbeddingService
+    #[cfg(not(test))]
+    async fn generate_query_embedding(&self, query: &str) -> MemoryResult<Vec<f32>> {
+        let embedding_service = crate::services::embedding::get_embedding_service()
+            .map_err(|e| MemoryError::Internal(format!("embedding service unavailable: {e}")))?;
+
+        embedding_service
+            .generate_embedding(query)
+            .await
+            .map_err(|e| MemoryError::Internal(format!("failed to generate query embedding: {e}")))
+    }
+
+    #[cfg(test)]
+    async fn generate_query_embedding(&self, _query: &str) -> MemoryResult<Vec<f32>> {
         Ok(vec![0.0; 384])
     }
 }

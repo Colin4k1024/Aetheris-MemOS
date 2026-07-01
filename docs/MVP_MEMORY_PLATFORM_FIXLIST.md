@@ -35,24 +35,49 @@ memory substrate for external agents.
   `remember -> recall/search -> feedback` flow.
 - Added a live-router smoke test that verifies MVP memory/KG/MM paths are
   mounted on the real startup router and protected by auth.
+- Removed the dead simplified `backend/src/axum_routers/*` memory, storage,
+  search, KG, MM, user, and protected routers from the compatibility entry.
+- Retrieval feedback now adjusts LTM, hybrid, triple-hybrid, and entity search
+  scores before thresholding, with the adjustment recorded in result metadata.
+- Search results now expose stable agent-facing fields such as `memoryId`,
+  `sourceLayer`, `score`, `traceId`, `explanation`, and `metadata`.
+- New LTM vector writes include `tenantId` Qdrant metadata and vector search
+  applies the matching tenant filter.
+- GraphRAG query embeddings now use the configured embedding service in
+  production instead of a hardcoded zero vector.
+- `/api-doc/openapi.json` now lists the stable MVP memory, KG, MM, and MCP
+  routes instead of returning an empty path map.
+- Live-router smoke coverage now includes adaptive, STM/LTM, hybrid,
+  triple/scored search, KG, MM, MCP, and OpenAPI route registration.
+- Workflow evidence remains available on the real router at
+  `/api/v1/workflows/{id}/evidence`, with API tests covering success, not found,
+  and OpenAPI path registration.
+- Background STM-to-LTM transfer and reflection daemons now enumerate the
+  default tenant plus registered tenants each cycle instead of only scanning the
+  default tenant.
+- Added a protected Qdrant tenant metadata backfill endpoint:
+  `POST /api/v1/memory/storage/qdrant/backfill-tenant-metadata`, with `dryRun`
+  enabled by default.
+- MCP memory tool handlers now use the authenticated request tenant context for
+  STM/LTM/KG/MM operations.
+- Added `backend/tests/memory_platform_e2e.rs`, an environment-backed E2E flow
+  gated by `AMS_E2E=1`, covering authenticated STM write/read, LTM write,
+  hybrid search, adaptive trace, MCP memory write, and Qdrant backfill dry-run.
+- OpenAPI now includes request/response schemas for the core stable
+  agent-facing memory and MCP endpoints, and live-router tests assert schema
+  coverage.
 
 ## Remaining P0 work
 
-- Replace or remove the dead simplified `backend/src/axum_routers/*` memory,
-  storage, search, KG, MM, and user handlers to prevent future regressions.
-- Feed persisted retrieval feedback into ranking/importance scoring.
-- Add integration tests that boot the live router and verify STM write/read,
-  LTM write/read/search, hybrid search, adaptive trace, and MCP memory tools.
+- Run the `AMS_E2E=1 cargo test --test memory_platform_e2e` flow in an
+  environment with test PostgreSQL, Qdrant, and Ollama/embedding services.
 
 ## Remaining P1 work
 
-- Finish tenant scheduling/enumeration for background jobs and Qdrant metadata
-  filters.
-- Replace placeholder GraphRAG query embedding with the configured embedding
-  service.
-- Standardize search responses with `memoryId`, `sourceLayer`, `score`,
-  `traceId`, `explanation`, and `metadata`.
-- Update OpenAPI output so it reflects only stable MVP routes.
+- Execute the Qdrant tenant metadata backfill with `dryRun=false` against the
+  target collection after reviewing the dry-run count.
+- Continue expanding OpenAPI schemas for non-MVP/internal routes as those
+  contracts become stable.
 
 ## Acceptance commands
 
@@ -62,6 +87,13 @@ When Rust tooling is available:
 cd backend
 cargo check
 cargo test
+```
+
+For environment-backed E2E:
+
+```bash
+cd backend
+AMS_E2E=1 cargo test --test memory_platform_e2e
 ```
 
 For the SDK demo after starting the backend:

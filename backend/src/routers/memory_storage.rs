@@ -99,6 +99,14 @@ pub struct BatchStoreLTMResponse {
     pub entry_ids: Vec<String>,
 }
 
+#[derive(Deserialize, ToSchema, Validate)]
+pub struct BackfillQdrantTenantMetadataRequest {
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+    #[serde(rename = "dryRun")]
+    pub dry_run: Option<bool>,
+}
+
 /// 存储短期记忆
 pub async fn store_stm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
@@ -193,6 +201,22 @@ pub async fn batch_store_ltm(
         MemoryStorageService::batch_store_ltm_for_tenant(&tenant_ctx.tenant_id, entries).await?;
 
     json_ok(BatchStoreLTMResponse { entry_ids })
+}
+
+/// Backfill Qdrant tenantId payload from LTM source_id prefixes.
+pub async fn backfill_qdrant_tenant_metadata(
+    Json(req): Json<BackfillQdrantTenantMetadataRequest>,
+) -> JsonResult<crate::services::memory_storage::QdrantTenantBackfillReport> {
+    req.validate()?;
+
+    let report = MemoryStorageService::backfill_qdrant_tenant_metadata(
+        req.limit.unwrap_or(500),
+        req.offset.unwrap_or(0),
+        req.dry_run.unwrap_or(true),
+    )
+    .await?;
+
+    json_ok(report)
 }
 
 /// 获取所有会话列表

@@ -11,6 +11,17 @@ use crate::AppError;
 /// 记忆存储服务
 pub struct MemoryStorageService;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct QdrantTenantBackfillReport {
+    #[serde(rename = "dryRun")]
+    pub dry_run: bool,
+    pub scanned: usize,
+    pub planned: usize,
+    pub updated: usize,
+    #[serde(rename = "skippedWithoutTenant")]
+    pub skipped_without_tenant: usize,
+}
+
 impl MemoryStorageService {
     /// 存储短期记忆
     #[instrument]
@@ -176,6 +187,7 @@ impl MemoryStorageService {
 
         let entry_id = ulid::Ulid::new().to_string();
         let metadata = serde_json::json!({
+            "tenantId": tenant_id.as_str(),
             "title": title,
             "summary": extraction.summary.clone(),
             "entities": extraction.entities.clone(),
@@ -358,5 +370,64 @@ impl MemoryStorageService {
             total_count
         );
         Ok(entry_ids)
+    }
+
+    /// Backfill Qdrant `tenantId` payload from LTM DB source_id prefixes.
+    pub async fn backfill_qdrant_tenant_metadata(
+        limit: i32,
+        offset: i32,
+        dry_run: bool,
+    ) -> Result<QdrantTenantBackfillReport, AppError> {
+        let limit = limit.clamp(1, 1000);
+        let offset = offset.max(0);
+        let rows =
+            LTMRepository::list_qdrant_tenant_backfill_entries(pool(), limit, offset).await?;
+
+        let mut report = QdrantTenantBackfillReport {
+            dry_run,
+            scanned: rows.len(),
+            planned: 0,
+            updated: 0,
+            skipped_without_tenant: 0,
+        };
+
+        let mut by_tenant: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for row in rows {
+            if let Some(tenant_id) = tenant_id_from_source_id(&row.source_id) {
+                report.planned += 1;
+                by_tenant.entry(tenant_id).or_default().push(row.entry_id);
+            } else {
+                report.skipped_without_tenant += 1;
+            }
+        }
+
+        if dry_run || by_tenant.is_empty() {
+            return Ok(report);
+        }
+
+        let qdrant_client = get_qdrant_client()
+            .map_err(|e| AppError::Internal(format!("Failed to get Qdrant client: {}", e)))?;
+        for (tenant_id, entry_ids) in by_tenant {
+            let updated = qdrant_client
+                .set_tenant_payload_for_entries(entry_ids, &tenant_id)
+                .await
+                .map_err(|e| {
+                    AppError::Internal(format!("Failed to backfill Qdrant tenantId: {}", e))
+                })?;
+            report.updated += updated;
+        }
+
+        Ok(report)
+    }
+}
+
+fn tenant_id_from_source_id(source_id: &str) -> Option<String> {
+    let rest = source_id.strip_prefix("t:")?;
+    let tenant_id = rest.split(':').next().unwrap_or_default();
+    if tenant_id.is_empty() {
+        None
+    } else {
+        Some(tenant_id.to_string())
     }
 }

@@ -204,10 +204,28 @@ pub fn get_tenant(tenant_id: &str) -> Option<TenantConfig> {
 
 /// 列举所有租户 ID
 pub fn list_tenants() -> Vec<String> {
-    registry()
+    let mut tenants: Vec<String> = registry()
         .read()
         .map(|r| r.keys().cloned().collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    tenants.sort();
+    tenants
+}
+
+/// Return the tenant IDs that background maintenance jobs should scan.
+///
+/// The default tenant is retained for single-tenant deployments and legacy
+/// data. Registered tenants are appended once, sorted for deterministic
+/// scheduling and tests.
+pub fn list_scheduled_tenants() -> Vec<crate::tenant::TenantId> {
+    let mut tenants = vec![crate::tenant::get_default_tenant()];
+    for tenant_id in list_tenants() {
+        let tenant = crate::tenant::TenantId::from_string(tenant_id);
+        if !tenants.iter().any(|existing| existing == &tenant) {
+            tenants.push(tenant);
+        }
+    }
+    tenants
 }
 
 // ============ 访问控制器 ============
@@ -436,5 +454,34 @@ impl QuotaEnforcer {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scheduled_tenants_include_default_and_registered_tenants_once() {
+        register_tenant(TenantConfig::new("tenant_scheduled_a", "Tenant A"));
+        register_tenant(TenantConfig::new("tenant_scheduled_b", "Tenant B"));
+        register_tenant(TenantConfig::new("tenant_scheduled_a", "Tenant A Updated"));
+
+        let tenants = list_scheduled_tenants();
+        let tenant_ids: Vec<String> = tenants
+            .iter()
+            .map(|tenant| tenant.as_str().to_string())
+            .collect();
+
+        assert_eq!(tenant_ids.first().map(String::as_str), Some("default"));
+        assert!(tenant_ids.contains(&"tenant_scheduled_a".to_string()));
+        assert!(tenant_ids.contains(&"tenant_scheduled_b".to_string()));
+        assert_eq!(
+            tenant_ids
+                .iter()
+                .filter(|tenant_id| tenant_id.as_str() == "tenant_scheduled_a")
+                .count(),
+            1
+        );
     }
 }

@@ -190,6 +190,16 @@ pub async fn explain_memory_selection(
     json_ok(ExplainResponse { traces })
 }
 
+#[derive(Deserialize, Debug, Default, ToSchema)]
+pub struct WorkflowEvidenceQuery {}
+
+pub async fn get_workflow_evidence(
+    Path(workflow_id): Path<String>,
+    Query(_query): Query<WorkflowEvidenceQuery>,
+) -> JsonResult<WorkflowEvidenceResponse> {
+    json_ok(crate::services::evidence_graph::list_workflow_evidence(&workflow_id).await?)
+}
+
 pub async fn record_memory_feedback(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<crate::services::memory_contract::MemoryFeedbackRequest>,

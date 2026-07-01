@@ -170,7 +170,7 @@ async fn reflection_loop(cfg: IngestionConfig, running: Arc<AtomicBool>) {
     while running.load(Ordering::Relaxed) {
         sleep(Duration::from_secs(cfg.reflection_interval_seconds)).await;
 
-        if let Err(e) = run_reflection_cycle(&cfg).await {
+        if let Err(e) = run_reflection_cycle_all_tenants(&cfg).await {
             error!("Reflection cycle error: {}", e);
         }
     }
@@ -184,6 +184,20 @@ async fn reflection_loop(cfg: IngestionConfig, running: Arc<AtomicBool>) {
 /// 4. Enforce the sliding-window limit per session.
 async fn run_reflection_cycle(cfg: &IngestionConfig) -> anyhow::Result<()> {
     run_reflection_cycle_for_tenant(&get_default_tenant(), cfg).await
+}
+
+pub(crate) async fn run_reflection_cycle_all_tenants(cfg: &IngestionConfig) -> anyhow::Result<()> {
+    let tenants = crate::services::multi_tenant::list_scheduled_tenants();
+    info!(
+        tenant_count = tenants.len(),
+        "Running reflection cycle for all scheduled tenants"
+    );
+
+    for tenant_id in tenants {
+        run_reflection_cycle_for_tenant(&tenant_id, cfg).await?;
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn run_reflection_cycle_for_tenant(

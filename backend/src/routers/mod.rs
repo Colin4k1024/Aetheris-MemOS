@@ -78,6 +78,10 @@ pub fn root() -> Router {
         )
         .route_layer(auth_layer.clone());
 
+    let workflow_evidence_routes = Router::new()
+        .route("/{id}/evidence", get(memory::get_workflow_evidence))
+        .route_layer(auth_layer.clone());
+
     let memory_routes = Router::new()
         // Canonical adaptive endpoints
         .route("/adaptive/select", post(memory::select_memory_config))
@@ -130,6 +134,10 @@ pub fn root() -> Router {
                 .route("/ltm", post(memory_storage::store_ltm))
                 .route("/transfer", post(memory_storage::transfer_stm_to_ltm))
                 .route("/batch-ltm", post(memory_storage::batch_store_ltm))
+                .route(
+                    "/qdrant/backfill-tenant-metadata",
+                    post(memory_storage::backfill_qdrant_tenant_metadata),
+                )
                 .route("/compress/session", post(memory_storage::compress_session))
                 .route(
                     "/compress/messages",
@@ -306,6 +314,7 @@ pub fn root() -> Router {
         .route("/currentUser", get(auth::get_current_user))
         .merge(user_routes)
         .nest("/v1", agent_routes)
+        .nest("/v1/workflows", workflow_evidence_routes)
         .nest("/v1/memory", memory_routes)
         .nest(
             "/kg",
@@ -439,8 +448,177 @@ async fn favicon() -> impl IntoResponse {
 async fn openapi_json() -> impl IntoResponse {
     Json(serde_json::json!({
         "openapi": "3.0.3",
-        "info": { "title": "adaptive-memory-system api", "version": "0.0.1" },
-        "paths": {}
+        "info": {
+            "title": "Aetheris MemOS MVP API",
+            "version": "0.0.1",
+            "description": "Stable MVP routes for agent-facing memory operations."
+        },
+        "paths": {
+            "/api/v1/memory/health": { "get": { "summary": "Memory health check" } },
+            "/api/v1/memory/adaptive/status": { "get": { "summary": "Get adaptive memory status" } },
+            "/api/v1/memory/adaptive/select": { "post": {
+                "summary": "Select memory configuration",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SelectMemoryRequest" } } } },
+                "responses": { "200": { "description": "Memory configuration selected", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SelectMemoryResponse" } } } } }
+            } },
+            "/api/v1/memory/adaptive/trace": { "post": {
+                "summary": "Select memory configuration with trace",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SelectMemoryRequest" } } } },
+                "responses": { "200": { "description": "Decision trace", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DecisionTrace" } } } } }
+            } },
+            "/api/v1/memory/traces": { "get": { "summary": "List decision traces" } },
+            "/api/v1/memory/explain": { "get": { "summary": "Explain memory selection" } },
+            "/api/v1/memory/feedback": { "post": {
+                "summary": "Record retrieval feedback",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryFeedbackRequest" } } } },
+                "responses": { "200": { "description": "Feedback recorded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryFeedbackResponse" } } } } }
+            } },
+            "/api/v1/memory/forget": { "post": {
+                "summary": "Forget a memory item",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryForgetRequest" } } } },
+                "responses": { "200": { "description": "Forget result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryForgetResponse" } } } } }
+            } },
+            "/api/v1/memory/storage/sessions": { "get": { "summary": "List STM sessions" } },
+            "/api/v1/memory/storage/stm": { "post": {
+                "summary": "Store STM message",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StoreSTMRequest" } } } },
+                "responses": { "200": { "description": "STM message stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StoreSTMResponse" } } } } }
+            } },
+            "/api/v1/memory/storage/stm/{session_id}": { "get": { "summary": "Get STM session messages" } },
+            "/api/v1/memory/storage/ltm": { "post": {
+                "summary": "Store LTM entry",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StoreLTMRequest" } } } },
+                "responses": { "200": { "description": "LTM entry stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StoreLTMResponse" } } } } }
+            } },
+            "/api/v1/memory/storage/transfer": { "post": {
+                "summary": "Transfer STM to LTM",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransferRequest" } } } },
+                "responses": { "200": { "description": "Transfer result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransferResponse" } } } } }
+            } },
+            "/api/v1/memory/storage/batch-ltm": { "post": { "summary": "Batch store LTM entries" } },
+            "/api/v1/memory/storage/qdrant/backfill-tenant-metadata": { "post": {
+                "summary": "Backfill Qdrant tenant metadata",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BackfillQdrantTenantMetadataRequest" } } } },
+                "responses": { "200": { "description": "Backfill report", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QdrantTenantBackfillReport" } } } } }
+            } },
+            "/api/v1/memory/search/stm": { "post": { "summary": "Search STM" } },
+            "/api/v1/memory/search/ltm": {
+                "get": { "summary": "List LTM entries" },
+                "post": {
+                    "summary": "Search LTM",
+                    "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchLTMRequest" } } } },
+                    "responses": { "200": { "description": "LTM search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } } }
+                }
+            },
+            "/api/v1/memory/search/ltm/{entry_id}": { "get": { "summary": "Get LTM entry" } },
+            "/api/v1/memory/search/hybrid": { "post": {
+                "summary": "Hybrid memory search",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HybridSearchRequest" } } } },
+                "responses": { "200": { "description": "Hybrid search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } } }
+            } },
+            "/api/v1/memory/search/triple": { "post": {
+                "summary": "Triple hybrid memory search",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TripleHybridSearchRequest" } } } },
+                "responses": { "200": { "description": "Triple hybrid search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } } }
+            } },
+            "/api/v1/memory/search/scored": { "post": {
+                "summary": "Confidence-scored memory search",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScoredSearchRequest" } } } },
+                "responses": { "200": { "description": "Scored search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } } }
+            } },
+            "/api/v1/memory/search/entity": { "post": { "summary": "Search memory by entity" } },
+            "/api/v1/memory/search/graphrag": { "post": { "summary": "GraphRAG hybrid search" } },
+            "/api/v1/workflows/{id}/evidence": { "get": { "summary": "Get workflow evidence graph" } },
+            "/api/kg/entities": { "get": { "summary": "List KG entities" }, "post": { "summary": "Create KG entity" } },
+            "/api/kg/entities/by-name/{name}": { "get": { "summary": "Get KG entity by name" } },
+            "/api/kg/entities/{entity_id}/related": { "get": { "summary": "Get related KG entities" } },
+            "/api/kg/relations": { "post": { "summary": "Create KG relation" } },
+            "/api/mm/list": { "get": { "summary": "List multimodal memories" } },
+            "/api/mm/store": { "post": { "summary": "Store multimodal memory" } },
+            "/api/mm/entry/{entry_id}": { "get": { "summary": "Get multimodal memory" } },
+            "/api/mm/session/{session_id}": { "get": { "summary": "Get session multimodal memories" } },
+            "/api/mm/modality/{modality_type}": { "get": { "summary": "Get multimodal memories by modality" } },
+            "/api/mcp/tools": { "get": { "summary": "List MCP memory tools" } },
+            "/api/mcp/tools/call": { "post": {
+                "summary": "Call MCP memory tool",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolCallParams" } } } },
+                "responses": { "200": { "description": "MCP tool response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolCallResponse" } } } } }
+            } }
+        },
+        "components": {
+            "schemas": {
+                "SelectMemoryRequest": {
+                    "type": "object",
+                    "required": ["task_context", "resource_constraints", "preferences"],
+                    "properties": {
+                        "task_context": { "$ref": "#/components/schemas/TaskContext" },
+                        "resource_constraints": { "$ref": "#/components/schemas/ResourceConstraints" },
+                        "preferences": { "$ref": "#/components/schemas/TaskPreferences" },
+                        "explain": { "type": "boolean" },
+                        "dry_run": { "type": "boolean" },
+                        "persist_trace": { "type": "boolean" },
+                        "what_if_constraints": { "$ref": "#/components/schemas/ResourceConstraints" }
+                    }
+                },
+                "TaskContext": {
+                    "type": "object",
+                    "required": ["task_id", "task_type", "complexity", "modality_requirements", "temporal_scope", "reasoning_depth", "context_dependency", "user_id", "agent_id"],
+                    "properties": {
+                        "task_id": { "type": "string" },
+                        "task_type": { "type": "string", "enum": ["conversation", "task", "query"] },
+                        "complexity": { "type": "number" },
+                        "modality_requirements": { "type": "array", "items": { "type": "string", "enum": ["text", "image", "audio", "video"] } },
+                        "temporal_scope": { "type": "string", "enum": ["short", "medium", "long"] },
+                        "reasoning_depth": { "type": "string", "enum": ["shallow", "medium", "deep"] },
+                        "context_dependency": { "type": "number" },
+                        "user_id": { "type": "string" },
+                        "agent_id": { "type": "string" }
+                    }
+                },
+                "ResourceConstraints": {
+                    "type": "object",
+                    "required": ["max_memory_usage_mb", "max_cpu_usage_percent", "max_response_time_ms", "storage_quota_percent"],
+                    "properties": {
+                        "max_memory_usage_mb": { "type": "integer", "format": "uint64" },
+                        "max_cpu_usage_percent": { "type": "integer", "format": "uint8" },
+                        "max_response_time_ms": { "type": "integer", "format": "uint64" },
+                        "storage_quota_percent": { "type": "integer", "format": "uint8" }
+                    }
+                },
+                "TaskPreferences": {
+                    "type": "object",
+                    "required": ["prioritize_efficiency", "prioritize_coherence", "enable_multimodal", "enable_reasoning"],
+                    "properties": {
+                        "prioritize_efficiency": { "type": "boolean" },
+                        "prioritize_coherence": { "type": "boolean" },
+                        "enable_multimodal": { "type": "boolean" },
+                        "enable_reasoning": { "type": "boolean" }
+                    }
+                },
+                "SelectMemoryResponse": { "type": "object", "properties": { "memory_config": { "type": "object" }, "performance_prediction": { "type": "object" }, "resource_requirements": { "type": "object" }, "trace": { "$ref": "#/components/schemas/DecisionTrace" } } },
+                "DecisionTrace": { "type": "object", "additionalProperties": true },
+                "MemoryFeedbackRequest": { "type": "object", "required": ["memoryId", "feedback"], "properties": { "memoryId": { "type": "string" }, "feedback": { "type": "string", "enum": ["useful", "not_useful"] }, "query": { "type": "string" }, "metadata": { "type": "object", "additionalProperties": true } } },
+                "MemoryFeedbackResponse": { "type": "object", "required": ["recorded", "memoryId"], "properties": { "recorded": { "type": "boolean" }, "memoryId": { "type": "string" } } },
+                "MemoryForgetRequest": { "type": "object", "required": ["memoryId", "layer"], "properties": { "memoryId": { "type": "string" }, "layer": { "type": "string", "enum": ["stm", "ltm", "kg", "mm"] } } },
+                "MemoryForgetResponse": { "type": "object", "required": ["forgotten", "memoryId"], "properties": { "forgotten": { "type": "boolean" }, "memoryId": { "type": "string" }, "layer": { "type": "string" } } },
+                "StoreSTMRequest": { "type": "object", "required": ["userId", "agentId", "sessionType", "role", "content"], "properties": { "userId": { "type": "string" }, "agentId": { "type": "string" }, "sessionType": { "type": "string" }, "role": { "type": "string" }, "content": { "type": "string" }, "maxContextLength": { "type": "integer" }, "retentionHours": { "type": "integer" } } },
+                "StoreSTMResponse": { "type": "object", "required": ["sessionId", "messageId"], "properties": { "sessionId": { "type": "string" }, "messageId": { "type": "string" } } },
+                "StoreLTMRequest": { "type": "object", "required": ["sourceId", "sourceType", "content"], "properties": { "sourceId": { "type": "string" }, "sourceType": { "type": "string" }, "content": { "type": "string" }, "title": { "type": "string" } } },
+                "StoreLTMResponse": { "type": "object", "required": ["entryId"], "properties": { "entryId": { "type": "string" } } },
+                "TransferRequest": { "type": "object", "required": ["sessionId"], "properties": { "sessionId": { "type": "string" }, "messageCountThreshold": { "type": "integer" } } },
+                "TransferResponse": { "type": "object", "required": ["entryIds"], "properties": { "entryIds": { "type": "array", "items": { "type": "string" } } } },
+                "BackfillQdrantTenantMetadataRequest": { "type": "object", "properties": { "limit": { "type": "integer" }, "offset": { "type": "integer" }, "dryRun": { "type": "boolean", "default": true } } },
+                "QdrantTenantBackfillReport": { "type": "object", "required": ["dryRun", "scanned", "planned", "updated", "skippedWithoutTenant"], "properties": { "dryRun": { "type": "boolean" }, "scanned": { "type": "integer" }, "planned": { "type": "integer" }, "updated": { "type": "integer" }, "skippedWithoutTenant": { "type": "integer" } } },
+                "SearchLTMRequest": { "type": "object", "required": ["query"], "properties": { "query": { "type": "string" }, "topK": { "type": "integer" }, "enableRerank": { "type": "boolean" }, "minScore": { "type": "number" } } },
+                "HybridSearchRequest": { "allOf": [{ "$ref": "#/components/schemas/SearchLTMRequest" }], "properties": { "keywordWeight": { "type": "number" }, "vectorWeight": { "type": "number" } } },
+                "TripleHybridSearchRequest": { "allOf": [{ "$ref": "#/components/schemas/HybridSearchRequest" }], "properties": { "graphWeight": { "type": "number" } } },
+                "ScoredSearchRequest": { "allOf": [{ "$ref": "#/components/schemas/TripleHybridSearchRequest" }], "properties": { "confidence_config": { "type": "object", "additionalProperties": true } } },
+                "SearchResponse": { "type": "object", "required": ["results"], "properties": { "results": { "type": "array", "items": { "$ref": "#/components/schemas/SearchResult" } } } },
+                "SearchResult": { "type": "object", "required": ["memoryId", "sourceLayer", "score", "content", "metadata"], "properties": { "memoryId": { "type": "string" }, "entry_id": { "type": "string" }, "sourceLayer": { "type": "string" }, "score": { "type": "number" }, "content": { "type": "string" }, "title": { "type": "string" }, "traceId": { "type": "string" }, "explanation": { "type": "string" }, "metadata": { "type": "object", "additionalProperties": true } } },
+                "ToolCallParams": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "arguments": { "type": "object", "additionalProperties": true } } },
+                "ToolCallResponse": { "type": "object", "required": ["content"], "properties": { "content": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "is_error": { "type": "boolean" } } }
+            }
+        }
     }))
 }
 

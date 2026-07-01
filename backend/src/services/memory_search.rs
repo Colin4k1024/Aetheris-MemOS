@@ -5,6 +5,7 @@ use tracing::{error, info, instrument, warn};
 use crate::config;
 use crate::db::{
     ltm::LTMRepository,
+    memory_feedback::MemoryFeedbackRepository,
     pool,
     stm::{STMRepository, SessionMessage},
 };
@@ -20,11 +21,53 @@ pub struct MemorySearchService;
 /// 搜索结果
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchResult {
+    #[serde(rename = "memoryId")]
+    pub memory_id: String,
     pub entry_id: String,
+    #[serde(rename = "sourceLayer")]
+    pub source_layer: String,
     pub score: f32,
     pub content: String,
     pub title: Option<String>,
+    #[serde(rename = "traceId", skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
     pub metadata: serde_json::Value,
+}
+
+impl SearchResult {
+    fn new(
+        entry_id: String,
+        source_layer: impl Into<String>,
+        score: f32,
+        content: String,
+        title: Option<String>,
+        metadata: serde_json::Value,
+    ) -> Self {
+        let trace_id = metadata
+            .get("traceId")
+            .or_else(|| metadata.get("trace_id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+
+        let explanation = metadata
+            .get("explanation")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+
+        Self {
+            memory_id: entry_id.clone(),
+            entry_id,
+            source_layer: source_layer.into(),
+            score,
+            content,
+            title,
+            trace_id,
+            explanation,
+            metadata,
+        }
+    }
 }
 
 impl MemorySearchService {
@@ -163,7 +206,7 @@ impl MemorySearchService {
             .map_err(|e| AppError::Internal(format!("Failed to get Qdrant client: {}", e)))?;
 
         let qdrant_results = qdrant_client
-            .search(query_vector, initial_top_k)
+            .search_for_tenant(query_vector, initial_top_k, tenant_id.as_str())
             .await
             .map_err(|e| {
                 error!("Qdrant search failed: {}", e);
@@ -185,13 +228,14 @@ impl MemorySearchService {
             match LTMRepository::get_entry_by_id(pool(), tenant_id, &qdrant_result.id).await {
                 Ok(Some(entry)) => {
                     info!("Found entry in SQLite: entry_id={}", entry.entry_id);
-                    search_results.push(SearchResult {
-                        entry_id: entry.entry_id,
-                        score: qdrant_result.score,
-                        content: entry.content,
-                        title: entry.title,
-                        metadata: qdrant_result.metadata,
-                    });
+                    search_results.push(SearchResult::new(
+                        entry.entry_id,
+                        "ltm",
+                        qdrant_result.score,
+                        entry.content,
+                        entry.title,
+                        qdrant_result.metadata,
+                    ));
                 }
                 Ok(None) => {
                     warn!("Entry not found in SQLite: id={}", qdrant_result.id);
@@ -210,6 +254,9 @@ impl MemorySearchService {
             info!("Applying rerank to {} candidates", search_results.len());
             search_results = Self::apply_rerank(query, search_results).await?;
         }
+
+        // 5. Apply persisted retrieval feedback before thresholding.
+        search_results = Self::apply_feedback_adjustments(tenant_id, search_results).await?;
 
         // 5. 应用最低分数阈值过滤
         if min_score_threshold > 0.0 {
@@ -319,13 +366,14 @@ impl MemorySearchService {
                         .await
                 {
                     // 创建一个新的SearchResult
-                    let search_result = SearchResult {
-                        entry_id: entry.entry_id.clone(),
-                        score: 0.0, // 初始向量分数为0，后续会被关键词分数加权
-                        content: entry.content.clone(),
-                        title: entry.title.clone(),
-                        metadata: serde_json::Value::Null,
-                    };
+                    let search_result = SearchResult::new(
+                        entry.entry_id.clone(),
+                        "ltm",
+                        0.0, // 初始向量分数为0，后续会被关键词分数加权
+                        entry.content.clone(),
+                        entry.title.clone(),
+                        serde_json::json!({}),
+                    );
 
                     entry_scores
                         .insert(entry_id.clone(), (search_result, 0.0, keyword_score as f32));
@@ -368,6 +416,8 @@ impl MemorySearchService {
             );
             results = Self::apply_rerank(query, results).await?;
         }
+
+        results = Self::apply_feedback_adjustments(tenant_id, results).await?;
 
         // 7. 应用最低分数阈值过滤
         if min_score_threshold > 0.0 {
@@ -439,9 +489,9 @@ impl MemorySearchService {
         // 进一步优化：如果查询包含多个关键词，增加匹配多个关键词的条目的分数
         let keywords: Vec<&str> = query.split_whitespace().collect();
         if keywords.len() > 1 {
-            let mut enhanced_rows = Vec::new();
+            let mut enhanced_rows: Vec<(String, f64)> = Vec::new();
 
-            for (entry_id, mut score) in rows {
+            for (entry_id, mut score) in rows.into_iter() {
                 // 获取完整的知识条目
                 if let Ok(Some(entry)) =
                     crate::db::ltm::LTMRepository::get_entry_by_id(pool(), tenant_id, &entry_id)
@@ -584,15 +634,18 @@ impl MemorySearchService {
             if let Ok(Some(entry)) =
                 crate::db::ltm::LTMRepository::get_entry_by_id(pool(), tenant_id, &entry_id).await
             {
-                results.push(SearchResult {
-                    entry_id: entry.entry_id,
-                    score: score as f32,
-                    content: entry.content,
-                    title: entry.title,
-                    metadata: serde_json::json!({ "entity": entity }),
-                });
+                results.push(SearchResult::new(
+                    entry.entry_id,
+                    "kg",
+                    score as f32,
+                    entry.content,
+                    entry.title,
+                    serde_json::json!({ "entity": entity }),
+                ));
             }
         }
+
+        results = Self::apply_feedback_adjustments(tenant_id, results).await?;
 
         info!("Entity search completed: found {} results", results.len());
         Ok(results)
@@ -839,17 +892,18 @@ impl MemorySearchService {
             .map(|(entry_id, s)| {
                 let combined_score =
                     vw * s.vector_score + kw * s.keyword_score + gw * s.graph_score;
-                SearchResult {
+                SearchResult::new(
                     entry_id,
-                    score: combined_score,
-                    content: s.content,
-                    title: s.title,
-                    metadata: serde_json::json!({
+                    "hybrid",
+                    combined_score,
+                    s.content,
+                    s.title,
+                    serde_json::json!({
                         "vector_score": s.vector_score,
                         "keyword_score": s.keyword_score,
                         "graph_score": s.graph_score,
                     }),
-                }
+                )
             })
             .collect();
 
@@ -869,6 +923,8 @@ impl MemorySearchService {
             results = Self::apply_rerank(query, results).await?;
         }
 
+        results = Self::apply_feedback_adjustments(tenant_id, results).await?;
+
         // --- 7. 过滤最低分 ---
         if min_score_threshold > 0.0 {
             results = Self::filter_by_threshold(results, min_score_threshold);
@@ -877,6 +933,75 @@ impl MemorySearchService {
         results.truncate(top_k);
         info!("Triple hybrid search completed: {} results", results.len());
         Ok(results)
+    }
+
+    async fn apply_feedback_adjustments(
+        tenant_id: &TenantId,
+        results: Vec<SearchResult>,
+    ) -> Result<Vec<SearchResult>, AppError> {
+        if results.is_empty() {
+            return Ok(results);
+        }
+
+        let mut adjusted = Vec::with_capacity(results.len());
+
+        for mut result in results {
+            match MemoryFeedbackRepository::list_by_memory(tenant_id, &result.memory_id, Some(50))
+                .await
+            {
+                Ok(feedback) if !feedback.is_empty() => {
+                    let useful_count = feedback.iter().filter(|f| f.useful).count() as f32;
+                    let not_useful_count = feedback.len() as f32 - useful_count;
+                    let signal = (useful_count - not_useful_count) / feedback.len() as f32;
+                    let adjustment = signal * 0.10;
+                    let original_score = result.score;
+                    result.score = (result.score + adjustment).max(0.0);
+
+                    let feedback_meta = serde_json::json!({
+                        "usefulCount": useful_count as i64,
+                        "notUsefulCount": not_useful_count as i64,
+                        "signal": signal,
+                        "scoreAdjustment": adjustment,
+                        "originalScore": original_score,
+                    });
+
+                    if let Some(obj) = result.metadata.as_object_mut() {
+                        obj.insert("feedback".to_string(), feedback_meta);
+                    } else {
+                        result.metadata = serde_json::json!({ "feedback": feedback_meta });
+                    }
+
+                    let feedback_note = format!(
+                        "feedback adjusted score by {:+.3} from {} samples",
+                        adjustment,
+                        feedback.len()
+                    );
+                    result.explanation = Some(match result.explanation {
+                        Some(existing) if !existing.is_empty() => {
+                            format!("{existing}; {feedback_note}")
+                        }
+                        _ => feedback_note,
+                    });
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(
+                        "Failed to load retrieval feedback for memory_id={}: {}",
+                        result.memory_id, e
+                    );
+                }
+            }
+
+            adjusted.push(result);
+        }
+
+        adjusted.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(adjusted)
     }
 
     /// 根据最低分数阈值过滤结果

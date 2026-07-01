@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use axum::Json;
 use serde::Serialize;
 use tokio::signal;

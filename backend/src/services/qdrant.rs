@@ -1,7 +1,8 @@
 use anyhow::Result;
 use qdrant_client::qdrant::{
-    CreateCollection, Distance, PointId, PointStruct, SearchPoints, VectorParams, Vectors,
-    VectorsConfig,
+    condition::ConditionOneOf, r#match::MatchValue, Condition, CreateCollection, Distance,
+    FieldCondition, Filter, Match, PointId, PointStruct, PointsIdsList, PointsSelector,
+    SearchPoints, SetPayloadPoints, VectorParams, Vectors, VectorsConfig,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -230,6 +231,19 @@ impl QdrantClient {
         self.search_with_filter(query_vector, top_k, None).await
     }
 
+    /// Tenant-scoped vector similarity search.
+    #[instrument(skip(self))]
+    pub async fn search_for_tenant(
+        &self,
+        query_vector: Vec<f32>,
+        top_k: usize,
+        tenant_id: &str,
+    ) -> Result<Vec<SearchResult>> {
+        let filter = tenant_filter(tenant_id);
+        self.search_with_filter(query_vector, top_k, Some(filter))
+            .await
+    }
+
     /// 向量相似度搜索（带过滤器）
     #[instrument(skip(self))]
     pub async fn search_with_filter(
@@ -375,6 +389,66 @@ impl QdrantClient {
         info!("Successfully deleted vectors");
         Ok(())
     }
+
+    /// Set tenantId payload for existing points identified by original LTM entry IDs.
+    #[instrument(skip(self))]
+    pub async fn set_tenant_payload_for_entries(
+        &self,
+        entry_ids: Vec<String>,
+        tenant_id: &str,
+    ) -> Result<usize> {
+        if entry_ids.is_empty() {
+            return Ok(0);
+        }
+
+        use qdrant_client::qdrant::point_id::PointIdOptions;
+        use qdrant_client::qdrant::points_selector::PointsSelectorOneOf;
+
+        let ids: Vec<PointId> = entry_ids
+            .into_iter()
+            .map(|entry_id| PointId {
+                point_id_options: Some(PointIdOptions::Num(numeric_point_id(&entry_id))),
+            })
+            .collect();
+        let count = ids.len();
+
+        let mut payload = HashMap::new();
+        payload.insert(
+            "tenantId".to_string(),
+            qdrant_client::qdrant::Value {
+                kind: Some(qdrant_client::qdrant::value::Kind::StringValue(
+                    tenant_id.to_string(),
+                )),
+            },
+        );
+
+        self.client
+            .set_payload(SetPayloadPoints {
+                collection_name: self.collection_name.clone(),
+                wait: Some(true),
+                payload,
+                points_selector: Some(PointsSelector {
+                    points_selector_one_of: Some(PointsSelectorOneOf::Points(PointsIdsList {
+                        ids,
+                    })),
+                }),
+                ordering: None,
+                shard_key_selector: None,
+                key: None,
+                timeout: None,
+            })
+            .await
+            .map_err(|e| {
+                error!("Failed to set tenantId payload in Qdrant: {}", e);
+                anyhow::anyhow!("Failed to set tenantId payload: {}", e)
+            })?;
+
+        info!(
+            tenant_id,
+            count, "Updated Qdrant tenantId payload for existing LTM points"
+        );
+        Ok(count)
+    }
 }
 
 /// 将 JSON Value 转换为 Qdrant Payload
@@ -449,6 +523,39 @@ fn qdrant_value_to_json_value(v: &qdrant_client::qdrant::Value) -> Value {
         Some(qdrant_client::qdrant::value::Kind::NullValue(_)) => Value::Null,
         _ => Value::Null,
     }
+}
+
+fn tenant_filter(tenant_id: &str) -> Filter {
+    Filter {
+        must: vec![Condition {
+            condition_one_of: Some(ConditionOneOf::Field(FieldCondition {
+                key: "tenantId".to_string(),
+                r#match: Some(Match {
+                    match_value: Some(MatchValue::Keyword(tenant_id.to_string())),
+                }),
+                range: None,
+                geo_bounding_box: None,
+                geo_radius: None,
+                values_count: None,
+                geo_polygon: None,
+                datetime_range: None,
+                is_empty: None,
+                is_null: None,
+            })),
+        }],
+        should: vec![],
+        must_not: vec![],
+        min_should: None,
+    }
+}
+
+fn numeric_point_id(id: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    id.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// 全局 Qdrant 客户端实例

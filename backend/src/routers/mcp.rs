@@ -3,7 +3,7 @@
 //! This module provides HTTP endpoints for MCP protocol communication.
 
 use axum::{
-    extract::State,
+    extract::{Extension, State},
     middleware,
     routing::{get, post},
     Json, Router,
@@ -30,7 +30,7 @@ use crate::protocol::mcp::{
     TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
 };
 use crate::services::{memory_search::MemorySearchService, memory_storage::MemoryStorageService};
-use crate::tenant::get_default_tenant;
+use crate::tenant::{RequestTenantContext, TenantId};
 use crate::{json_ok, AppError, JsonResult};
 
 /// MCP Router State
@@ -222,15 +222,18 @@ pub struct ToolCallParams {
 }
 
 /// Call MCP tool
-async fn call_tool(Json(params): Json<ToolCallParams>) -> JsonResult<ToolCallResponse> {
+async fn call_tool(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(params): Json<ToolCallParams>,
+) -> JsonResult<ToolCallResponse> {
     info!("MCP tool call: {}", params.name);
 
     let result = match params.name.as_str() {
-        TOOL_MEMORY_WRITE => handle_memory_write(params.arguments).await,
-        TOOL_MEMORY_SEARCH => handle_memory_search(params.arguments).await,
-        TOOL_MEMORY_RECALL => handle_memory_recall(params.arguments).await,
-        TOOL_MEMORY_FORGET => handle_memory_forget(params.arguments).await,
-        TOOL_MEMORY_LIST => handle_memory_list(params.arguments).await,
+        TOOL_MEMORY_WRITE => handle_memory_write(&tenant_ctx.tenant_id, params.arguments).await,
+        TOOL_MEMORY_SEARCH => handle_memory_search(&tenant_ctx.tenant_id, params.arguments).await,
+        TOOL_MEMORY_RECALL => handle_memory_recall(&tenant_ctx.tenant_id, params.arguments).await,
+        TOOL_MEMORY_FORGET => handle_memory_forget(&tenant_ctx.tenant_id, params.arguments).await,
+        TOOL_MEMORY_LIST => handle_memory_list(&tenant_ctx.tenant_id, params.arguments).await,
         _ => {
             return Err(AppError::BadRequest(format!(
                 "Unknown tool: {}",
@@ -253,6 +256,7 @@ async fn call_tool(Json(params): Json<ToolCallParams>) -> JsonResult<ToolCallRes
 
 /// Handle memory_write tool
 async fn handle_memory_write(
+    tenant_id: &TenantId,
     arguments: Option<serde_json::Value>,
 ) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
     let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
@@ -274,7 +278,8 @@ async fn handle_memory_write(
         "stm" => {
             let agent = agent_id.unwrap_or_else(|| "mcp_agent".to_string());
 
-            let (session_id, message_id) = MemoryStorageService::store_stm(
+            let (session_id, message_id) = MemoryStorageService::store_stm_for_tenant(
+                tenant_id,
                 &user_id,
                 &agent,
                 "mcp_session",
@@ -297,8 +302,14 @@ async fn handle_memory_write(
         }
         "ltm" => {
             let source_id = format!("mcp_{}", ulid::Ulid::new());
-            let entry_id =
-                MemoryStorageService::store_ltm(&source_id, "user_input", &content, None).await?;
+            let entry_id = MemoryStorageService::store_ltm_for_tenant(
+                tenant_id,
+                &source_id,
+                "user_input",
+                &content,
+                None,
+            )
+            .await?;
 
             Ok(vec![crate::protocol::mcp::ToolContent::Text(
                 serde_json::json!({
@@ -320,7 +331,7 @@ async fn handle_memory_write(
             let description = args["description"].as_str();
 
             let entity_id = KGRepository::create_entity(
-                &get_default_tenant(),
+                tenant_id,
                 &entity_name,
                 entity_type,
                 description,
@@ -357,7 +368,7 @@ async fn handle_memory_write(
                 None,
                 None,
                 None,
-                None,
+                Some(tenant_id.as_str()),
             )
             .await?;
 
@@ -377,6 +388,7 @@ async fn handle_memory_write(
 
 /// Handle memory_search tool
 async fn handle_memory_search(
+    tenant_id: &TenantId,
     arguments: Option<serde_json::Value>,
 ) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
     let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
@@ -395,7 +407,14 @@ async fn handle_memory_search(
             // Search in STM sessions - returns SessionMessage
             let user = user_id.unwrap_or("default");
             let agent = "mcp_agent";
-            let messages = MemorySearchService::search_stm(user, agent, None, Some(limit)).await?;
+            let messages = MemorySearchService::search_stm_for_tenant(
+                tenant_id,
+                user,
+                agent,
+                None,
+                Some(limit),
+            )
+            .await?;
             // Convert to a unified format
             let results: Vec<serde_json::Value> = messages
                 .iter()
@@ -411,8 +430,14 @@ async fn handle_memory_search(
         }
         "ltm" => {
             // Search in LTM - returns SearchResult
-            let search_results =
-                MemorySearchService::search_ltm(&query, limit as usize, None, None).await?;
+            let search_results = MemorySearchService::search_ltm_for_tenant(
+                tenant_id,
+                &query,
+                limit as usize,
+                None,
+                None,
+            )
+            .await?;
             let results_json: Vec<serde_json::Value> = search_results
                 .iter()
                 .map(|m| {
@@ -427,14 +452,9 @@ async fn handle_memory_search(
         }
         "kg" => {
             // Search in knowledge graph entities
-            let entities = KGRepository::list_entities(
-                pool(),
-                &get_default_tenant(),
-                Some(&query),
-                Some(limit),
-                Some(0),
-            )
-            .await?;
+            let entities =
+                KGRepository::list_entities(pool(), tenant_id, Some(&query), Some(limit), Some(0))
+                    .await?;
             let results_json: Vec<serde_json::Value> = entities
                 .entities
                 .iter()
@@ -452,7 +472,12 @@ async fn handle_memory_search(
         }
         "mm" => {
             // Search in multimodal memories by modality type
-            let entries = MMRepository::get_entries_by_modality("text", Some(limit), None).await?;
+            let entries = MMRepository::get_entries_by_modality(
+                "text",
+                Some(limit),
+                Some(tenant_id.as_str()),
+            )
+            .await?;
             // Filter by query if possible
             let results_json: Vec<serde_json::Value> = entries
                 .iter()
@@ -484,6 +509,7 @@ async fn handle_memory_search(
 
 /// Handle memory_recall tool
 async fn handle_memory_recall(
+    tenant_id: &TenantId,
     arguments: Option<serde_json::Value>,
 ) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
     let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
@@ -495,13 +521,8 @@ async fn handle_memory_recall(
     let limit = args["limit"].as_u64().unwrap_or(10) as i32;
 
     // Recall memories from a session
-    let messages = STMRepository::get_session_messages(
-        pool(),
-        &get_default_tenant(),
-        &session_id,
-        Some(limit),
-    )
-    .await?;
+    let messages =
+        STMRepository::get_session_messages(pool(), tenant_id, &session_id, Some(limit)).await?;
 
     let text = serde_json::json!({
         "success": true,
@@ -523,6 +544,7 @@ async fn handle_memory_recall(
 
 /// Handle memory_forget tool
 async fn handle_memory_forget(
+    tenant_id: &TenantId,
     arguments: Option<serde_json::Value>,
 ) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
     let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
@@ -537,7 +559,7 @@ async fn handle_memory_forget(
         .to_lowercase();
 
     let response = crate::services::memory_contract::forget_memory(
-        &get_default_tenant(),
+        tenant_id,
         crate::services::memory_contract::MemoryForgetRequest {
             memory_id: _memory_id,
             layer,
@@ -554,6 +576,7 @@ async fn handle_memory_forget(
 
 /// Handle memory_list tool
 async fn handle_memory_list(
+    tenant_id: &TenantId,
     arguments: Option<serde_json::Value>,
 ) -> Result<Vec<crate::protocol::mcp::ToolContent>, AppError> {
     let args = arguments.ok_or_else(|| AppError::BadRequest("Missing arguments".to_string()))?;
@@ -571,7 +594,7 @@ async fn handle_memory_list(
             // List STM sessions
             let response = STMRepository::list_sessions(
                 pool(),
-                &get_default_tenant(),
+                tenant_id,
                 user_id,
                 None,
                 Some(limit),
@@ -599,7 +622,7 @@ async fn handle_memory_list(
             // List LTM entries
             let response = LTMRepository::list_entries(
                 pool(),
-                &get_default_tenant(),
+                tenant_id,
                 None,
                 None,
                 Some(limit),
@@ -626,7 +649,7 @@ async fn handle_memory_list(
             let entity_type = args["entity_type"].as_str();
             let response = KGRepository::list_entities(
                 pool(),
-                &get_default_tenant(),
+                tenant_id,
                 entity_type,
                 Some(limit),
                 Some(offset),
@@ -652,8 +675,13 @@ async fn handle_memory_list(
         "mm" => {
             // List MM entries
             let modality_type = args["modality_type"].as_str();
-            let response =
-                MMRepository::list_entries(modality_type, Some(limit), Some(offset), None).await?;
+            let response = MMRepository::list_entries(
+                modality_type,
+                Some(limit),
+                Some(offset),
+                Some(tenant_id.as_str()),
+            )
+            .await?;
 
             serde_json::json!({
                 "type": "mm_entries",
@@ -738,6 +766,7 @@ pub struct ResourceReadRequest {
 
 /// Read resource content
 async fn read_resource(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<ResourceReadRequest>,
 ) -> JsonResult<ResourceContentResponse> {
     info!("MCP resource read: {}", req.uri);
@@ -756,17 +785,14 @@ async fn read_resource(
 
     let layer = parts[0];
     let id = parts.get(1).map(|s| s.to_string());
+    let tenant_id = &tenant_ctx.tenant_id;
 
     let content = match layer {
         "stm" => {
             if let Some(session_id) = id {
-                let messages = STMRepository::get_session_messages(
-                    pool(),
-                    &get_default_tenant(),
-                    &session_id,
-                    Some(50),
-                )
-                .await?;
+                let messages =
+                    STMRepository::get_session_messages(pool(), tenant_id, &session_id, Some(50))
+                        .await?;
 
                 serde_json::json!({
                     "sessionId": session_id,
@@ -775,15 +801,9 @@ async fn read_resource(
                 .to_string()
             } else {
                 // List all sessions
-                let response = STMRepository::list_sessions(
-                    pool(),
-                    &get_default_tenant(),
-                    None,
-                    None,
-                    Some(20),
-                    Some(0),
-                )
-                .await?;
+                let response =
+                    STMRepository::list_sessions(pool(), tenant_id, None, None, Some(20), Some(0))
+                        .await?;
 
                 serde_json::json!({
                     "sessions": response.sessions
@@ -793,9 +813,7 @@ async fn read_resource(
         }
         "ltm" => {
             if let Some(entry_id) = id {
-                let entry =
-                    LTMRepository::get_entry_by_id(pool(), &get_default_tenant(), &entry_id)
-                        .await?;
+                let entry = LTMRepository::get_entry_by_id(pool(), tenant_id, &entry_id).await?;
 
                 match entry {
                     Some(e) => serde_json::json!({
@@ -812,15 +830,9 @@ async fn read_resource(
                     }
                 }
             } else {
-                let response = LTMRepository::list_entries(
-                    pool(),
-                    &get_default_tenant(),
-                    None,
-                    None,
-                    Some(20),
-                    Some(0),
-                )
-                .await?;
+                let response =
+                    LTMRepository::list_entries(pool(), tenant_id, None, None, Some(20), Some(0))
+                        .await?;
 
                 serde_json::json!({
                     "entries": response.entries
@@ -831,16 +843,14 @@ async fn read_resource(
         "kg" => {
             // Knowledge graph resources
             if let Some(entity_id) = id {
-                let entity =
-                    KGRepository::get_entity_by_id(pool(), &get_default_tenant(), &entity_id)
-                        .await?;
+                let entity = KGRepository::get_entity_by_id(pool(), tenant_id, &entity_id).await?;
 
                 match entity {
                     Some(e) => {
                         // Get related entities
                         let related = KGRepository::get_related_entities(
                             pool(),
-                            &get_default_tenant(),
+                            tenant_id,
                             &entity_id,
                             None,
                             Some(5),
@@ -883,14 +893,8 @@ async fn read_resource(
                 }
             } else {
                 // List all entities
-                let response = KGRepository::list_entities(
-                    pool(),
-                    &get_default_tenant(),
-                    None,
-                    Some(20),
-                    Some(0),
-                )
-                .await?;
+                let response =
+                    KGRepository::list_entities(pool(), tenant_id, None, Some(20), Some(0)).await?;
 
                 serde_json::json!({
                     "entities": response.entities.iter().map(|e| {
@@ -909,13 +913,18 @@ async fn read_resource(
         "mm" => {
             // Multimodal resources
             if let Some(entry_id) = id {
-                let entry = MMRepository::get_entry_by_id(&entry_id, None).await?;
+                let entry =
+                    MMRepository::get_entry_by_id(&entry_id, Some(tenant_id.as_str())).await?;
 
                 match entry {
                     Some(e) => {
                         // Get related entries
-                        let related =
-                            MMRepository::get_related_entries(&entry_id, Some(5), None).await?;
+                        let related = MMRepository::get_related_entries(
+                            &entry_id,
+                            Some(5),
+                            Some(tenant_id.as_str()),
+                        )
+                        .await?;
                         let relations: Vec<serde_json::Value> = related
                             .iter()
                             .map(|(ent, rel)| {
@@ -953,7 +962,9 @@ async fn read_resource(
                 }
             } else {
                 // List all entries
-                let response = MMRepository::list_entries(None, Some(20), Some(0), None).await?;
+                let response =
+                    MMRepository::list_entries(None, Some(20), Some(0), Some(tenant_id.as_str()))
+                        .await?;
 
                 serde_json::json!({
                     "entries": response.entries.iter().map(|e| {

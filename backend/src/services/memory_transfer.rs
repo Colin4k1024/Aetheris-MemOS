@@ -71,8 +71,11 @@ impl MemoryTransferService {
                 let mut last_error = None;
 
                 for attempt in 1..=max_retries {
-                    match Self::check_and_transfer(message_count_threshold, session_time_threshold)
-                        .await
+                    match Self::check_and_transfer_all_tenants(
+                        message_count_threshold,
+                        session_time_threshold,
+                    )
+                    .await
                     {
                         Ok(_) => {
                             break; // 成功，跳出重试循环
@@ -134,6 +137,30 @@ impl MemoryTransferService {
             session_time_threshold,
         )
         .await
+    }
+
+    /// Check and transfer eligible sessions for every scheduled tenant.
+    #[instrument]
+    pub async fn check_and_transfer_all_tenants(
+        message_count_threshold: i32,
+        session_time_threshold: i32,
+    ) -> Result<(), AppError> {
+        let tenants = crate::services::multi_tenant::list_scheduled_tenants();
+        info!(
+            tenant_count = tenants.len(),
+            "Checking all scheduled tenants for STM to LTM transfer"
+        );
+
+        for tenant_id in tenants {
+            Self::check_and_transfer_for_tenant(
+                &tenant_id,
+                message_count_threshold,
+                session_time_threshold,
+            )
+            .await?;
+        }
+
+        Ok(())
     }
 
     /// 检查并转移指定租户下符合条件的会话

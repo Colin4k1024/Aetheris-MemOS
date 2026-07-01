@@ -116,6 +116,7 @@ async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTr
 #[tokio::test]
 async fn get_workflow_evidence_returns_workflow_metadata_nodes_edges_and_verification() {
     let _guard = test_guard();
+    ensure_config();
     init_test_db().await;
 
     let trace = sample_trace("workflow-evidence-api-success").await;
@@ -167,6 +168,7 @@ async fn get_workflow_evidence_returns_workflow_metadata_nodes_edges_and_verific
 #[tokio::test]
 async fn get_workflow_evidence_returns_app_error_not_found_payload() {
     let _guard = test_guard();
+    ensure_config();
     init_test_db().await;
 
     let app = backend::axum_routers::create_router();
@@ -202,6 +204,7 @@ async fn get_workflow_evidence_returns_app_error_not_found_payload() {
 
 #[tokio::test]
 async fn openapi_includes_get_workflow_evidence_path() {
+    ensure_config();
     let app = backend::axum_routers::create_router();
 
     let response = app

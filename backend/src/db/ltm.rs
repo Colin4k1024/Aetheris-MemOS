@@ -10,6 +10,12 @@ use crate::AppError;
 /// 长期记忆仓库
 pub struct LTMRepository;
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct QdrantTenantBackfillEntry {
+    pub entry_id: String,
+    pub source_id: String,
+}
+
 /// 知识条目列表响应
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct KnowledgeEntryListResponse {
@@ -404,6 +410,32 @@ impl LTMRepository {
                 })?;
 
         Ok(row.0)
+    }
+
+    /// List active LTM entries that can be used to repair Qdrant tenant payloads.
+    pub async fn list_qdrant_tenant_backfill_entries(
+        pool: &sqlx::PgPool,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<QdrantTenantBackfillEntry>, AppError> {
+        sqlx::query_as::<_, QdrantTenantBackfillEntry>(
+            r#"
+            SELECT entry_id, source_id
+            FROM knowledge_entries
+            WHERE status = 'active'
+              AND source_id LIKE 't:%'
+            ORDER BY created_at ASC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to list Qdrant tenant backfill entries: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })
     }
 
     // ============ Bi-temporal Tracking Methods (租户隔离) ============
