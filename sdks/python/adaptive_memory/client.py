@@ -234,6 +234,7 @@ class MemoryClient:
         content: str,
         session_type: str = "default",
         role: str = "user",
+        session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Store content in Short-Term Memory.
@@ -244,6 +245,7 @@ class MemoryClient:
             content: Content to store
             session_type: Type of session
             role: Role of the message sender
+            session_id: Optional existing session ID to append to
 
         Returns:
             Dict with session_id and message_id
@@ -253,16 +255,20 @@ class MemoryClient:
         if session_type not in valid_types:
             session_type = "conversation"
 
+        payload: Dict[str, Any] = {
+            "userId": user_id,
+            "agentId": agent_id,
+            "sessionType": session_type,
+            "role": role,
+            "content": content,
+        }
+        if session_id:
+            payload["sessionId"] = session_id
+
         return self._request(
             "POST",
             "api/v1/memory/storage/stm",
-            json={
-                "userId": user_id,
-                "agentId": agent_id,
-                "sessionType": session_type,
-                "role": role,
-                "content": content,
-            },
+            json=payload,
         )
 
     def store_ltm(
@@ -473,21 +479,26 @@ class AsyncMemoryClient:
         content: str,
         session_type: str = "default",
         role: str = "user",
+        session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         valid_types = ("conversation", "task", "query")
         if session_type not in valid_types:
             session_type = "conversation"
 
+        payload: Dict[str, Any] = {
+            "userId": user_id,
+            "agentId": agent_id,
+            "sessionType": session_type,
+            "role": role,
+            "content": content,
+        }
+        if session_id:
+            payload["sessionId"] = session_id
+
         return await self._request(
             "POST",
             "api/v1/memory/storage/stm",
-            json={
-                "userId": user_id,
-                "agentId": agent_id,
-                "sessionType": session_type,
-                "role": role,
-                "content": content,
-            },
+            json=payload,
         )
 
     async def remember(

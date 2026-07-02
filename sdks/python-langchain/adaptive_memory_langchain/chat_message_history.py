@@ -98,7 +98,8 @@ class AdaptiveMemoryChatMessageHistory(BaseChatMessageHistory):
         """Add messages to the session.
 
         If no session_id exists yet, the first write will create one and store
-        the session_id for subsequent operations.
+        the session_id for subsequent operations.  Subsequent messages are
+        appended to the same session.
         """
         for message in messages:
             role = self._message_to_role(message)
@@ -106,8 +107,9 @@ class AdaptiveMemoryChatMessageHistory(BaseChatMessageHistory):
                 user_id=self.user_id,
                 agent_id=self.agent_id,
                 content=message.content,
-                session_type=self.session_id or self.session_type,
+                session_type=self.session_type,
                 role=role,
+                session_id=self.session_id,
             )
             # Capture session_id from first successful write
             if not self.session_id and "sessionId" in result:

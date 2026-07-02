@@ -19,6 +19,8 @@ pub struct StoreSTMRequest {
     pub user_id: String,
     #[serde(rename = "agentId")]
     pub agent_id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
     #[serde(rename = "sessionType")]
     pub session_type: String,
     pub role: String,
@@ -115,8 +117,8 @@ pub async fn store_stm(
     req.validate()?;
 
     info!(
-        "Storing STM: user_id={}, agent_id={}, session_type={}",
-        req.user_id, req.agent_id, req.session_type
+        "Storing STM: user_id={}, agent_id={}, session_type={}, session_id={:?}",
+        req.user_id, req.agent_id, req.session_type, req.session_id
     );
 
     let (session_id, message_id) = MemoryStorageService::store_stm_for_tenant(
@@ -128,6 +130,7 @@ pub async fn store_stm(
         &req.content,
         req.max_context_length.unwrap_or(4096),
         req.retention_hours.unwrap_or(24),
+        req.session_id.as_deref(),
     )
     .await?;
 

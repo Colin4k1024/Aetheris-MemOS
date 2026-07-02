@@ -43,6 +43,7 @@ impl MemoryStorageService {
             content,
             max_context_length,
             retention_hours,
+            None,
         )
         .await
     }
@@ -58,22 +59,28 @@ impl MemoryStorageService {
         content: &str,
         max_context_length: i32,
         retention_hours: i32,
+        existing_session_id: Option<&str>,
     ) -> Result<(String, String), AppError> {
         info!(
-            "Storing STM: tenant_id={}, user_id={}, agent_id={}, session_type={}",
-            tenant_id, user_id, agent_id, session_type
+            "Storing STM: tenant_id={}, user_id={}, agent_id={}, session_type={}, existing_session={:?}",
+            tenant_id, user_id, agent_id, session_type, existing_session_id
         );
 
-        // 创建或获取会话
-        let session_id = STMRepository::create_session(
-            tenant_id,
-            user_id,
-            agent_id,
-            session_type,
-            max_context_length,
-            retention_hours,
-        )
-        .await?;
+        // If an existing session_id is provided, append to it directly
+        let session_id = if let Some(sid) = existing_session_id {
+            sid.to_string()
+        } else {
+            // 创建新会话
+            STMRepository::create_session(
+                tenant_id,
+                user_id,
+                agent_id,
+                session_type,
+                max_context_length,
+                retention_hours,
+            )
+            .await?
+        };
 
         // 添加消息到会话
         let message_id = STMRepository::add_message(

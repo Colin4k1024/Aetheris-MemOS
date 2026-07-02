@@ -210,10 +210,9 @@ def test_chat_message_history():
         role = "Human" if isinstance(msg, HumanMessage) else "AI"
         print(f"    [{role}] {msg.content[:60]}...")
 
-    # Note: current backend creates a new session per store_stm call.
-    # The first message is always readable from the captured session_id.
-    assert len(messages) >= 1, f"Expected >=1 messages, got {len(messages)}"
+    assert len(messages) >= 3, f"Expected >=3 messages, got {len(messages)}"
     assert isinstance(messages[0], HumanMessage)
+    assert isinstance(messages[1], AIMessage)
     print("  Message types: PASS")
 
     # Clear

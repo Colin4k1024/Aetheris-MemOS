@@ -287,6 +287,7 @@ async fn handle_memory_write(
                 &content,
                 4000,
                 24,
+                session_id.as_deref(),
             )
             .await?;
 
