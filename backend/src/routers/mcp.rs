@@ -282,7 +282,7 @@ async fn handle_memory_write(
                 tenant_id,
                 &user_id,
                 &agent,
-                "mcp_session",
+                "conversation",
                 "user",
                 &content,
                 4000,

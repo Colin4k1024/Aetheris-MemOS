@@ -92,7 +92,7 @@ async fn environment_backed_memory_platform_flow() {
         Some(json!({
             "userId": "e2e-user",
             "agentId": "e2e-agent",
-            "sessionType": "e2e",
+            "sessionType": "conversation",
             "role": "user",
             "content": "E2E short-term memory message",
             "maxContextLength": 128,
@@ -211,4 +211,19 @@ async fn environment_backed_memory_platform_flow() {
         "Qdrant backfill dry run failed: {backfill}"
     );
     assert_eq!(backfill["dryRun"], Value::Bool(true));
+
+    // Execute actual backfill (dryRun=false) to verify the write path
+    let (status, backfill_exec) = request_json(
+        Method::POST,
+        "/api/v1/memory/storage/qdrant/backfill-tenant-metadata",
+        &auth,
+        Some(json!({ "limit": 100, "offset": 0, "dryRun": false })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "Qdrant backfill execution failed: {backfill_exec}"
+    );
+    assert_eq!(backfill_exec["dryRun"], Value::Bool(false));
 }

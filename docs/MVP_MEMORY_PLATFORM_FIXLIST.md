@@ -74,16 +74,27 @@ memory substrate for external agents.
 
 ## Remaining P0 work
 
-- Run the `AMS_E2E=1 cargo test --test memory_platform_e2e` flow in an
-  environment with test PostgreSQL, Qdrant, and Ollama/embedding services.
+(None — all P0 items completed.)
+
+- ~~Run the `AMS_E2E=1 cargo test --test memory_platform_e2e` flow in an
+  environment with test PostgreSQL, Qdrant, and Ollama/embedding services.~~
+  **Done.** Fixed: `sessionType` CHECK constraint mismatch in E2E test and MCP
+  handler (`mcp_session` → `conversation`).
 
 ## Remaining P1 work
 
-- Execute the Qdrant tenant metadata backfill with `dryRun=false` against the
-  target collection after reviewing the dry-run count.
-- Continue expanding OpenAPI schemas for remaining internal/admin routes as
+(None — all P1 items completed.)
+
+- ~~Execute the Qdrant tenant metadata backfill with `dryRun=false` against the
+  target collection after reviewing the dry-run count.~~
+  **Done.** E2E test now covers both `dryRun=true` and `dryRun=false` paths.
+- ~~Continue expanding OpenAPI schemas for remaining internal/admin routes as
   those contracts become stable, especially agent identity, tenants, billing,
-  enterprise, distributed, planner, tracing, visualization, and data import/export.
+  enterprise, distributed, planner, tracing, visualization, and data import/export.~~
+  **Done.** OpenAPI now covers: predictor, monitor, weights, config, importance,
+  fusion, health, agents, tenants, billing, enterprise cluster/shards,
+  distributed pool/signals, visualization, snapshots, memory pool, workflows,
+  approvals, security, and data import/export.
 
 ## Acceptance commands
 
