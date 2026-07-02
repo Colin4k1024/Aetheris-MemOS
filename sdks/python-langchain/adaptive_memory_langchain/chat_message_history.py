@@ -70,8 +70,10 @@ class AdaptiveMemoryChatMessageHistory(BaseChatMessageHistory):
             return []
 
         try:
-            response = self.client.recall_session(
-                session_id=self.session_id, limit=1000
+            # Use direct REST endpoint for reliable message retrieval
+            response = self.client._request(
+                "GET",
+                f"api/v1/memory/storage/stm/{self.session_id}",
             )
         except Exception:
             return []

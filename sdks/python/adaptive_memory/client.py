@@ -248,6 +248,11 @@ class MemoryClient:
         Returns:
             Dict with session_id and message_id
         """
+        # Normalize session_type to match DB CHECK constraint
+        valid_types = ("conversation", "task", "query")
+        if session_type not in valid_types:
+            session_type = "conversation"
+
         return self._request(
             "POST",
             "api/v1/memory/storage/stm",
@@ -469,6 +474,10 @@ class AsyncMemoryClient:
         session_type: str = "default",
         role: str = "user",
     ) -> Dict[str, Any]:
+        valid_types = ("conversation", "task", "query")
+        if session_type not in valid_types:
+            session_type = "conversation"
+
         return await self._request(
             "POST",
             "api/v1/memory/storage/stm",
