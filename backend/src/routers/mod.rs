@@ -495,13 +495,31 @@ async fn openapi_json() -> impl IntoResponse {
                 "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransferRequest" } } } },
                 "responses": { "200": { "description": "Transfer result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransferResponse" } } } } }
             } },
-            "/api/v1/memory/storage/batch-ltm": { "post": { "summary": "Batch store LTM entries" } },
+            "/api/v1/memory/storage/batch-ltm": { "post": {
+                "summary": "Batch store LTM entries",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchStoreLTMRequest" } } } },
+                "responses": { "200": { "description": "Batch LTM entries stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchStoreLTMResponse" } } } } }
+            } },
             "/api/v1/memory/storage/qdrant/backfill-tenant-metadata": { "post": {
                 "summary": "Backfill Qdrant tenant metadata",
                 "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BackfillQdrantTenantMetadataRequest" } } } },
                 "responses": { "200": { "description": "Backfill report", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QdrantTenantBackfillReport" } } } } }
             } },
-            "/api/v1/memory/search/stm": { "post": { "summary": "Search STM" } },
+            "/api/v1/memory/storage/compress/session": { "post": {
+                "summary": "Compress messages from an STM session",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompressSessionRequest" } } } },
+                "responses": { "200": { "description": "Compressed context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompressionResult" } } } } }
+            } },
+            "/api/v1/memory/storage/compress/messages": { "post": {
+                "summary": "Compress a provided message list",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompressMessagesRequest" } } } },
+                "responses": { "200": { "description": "Compressed context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompressionResult" } } } } }
+            } },
+            "/api/v1/memory/search/stm": { "post": {
+                "summary": "Search STM",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchSTMRequest" } } } },
+                "responses": { "200": { "description": "STM search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchSTMResponse" } } } } }
+            } },
             "/api/v1/memory/search/ltm": {
                 "get": { "summary": "List LTM entries" },
                 "post": {
@@ -511,6 +529,36 @@ async fn openapi_json() -> impl IntoResponse {
                 }
             },
             "/api/v1/memory/search/ltm/{entry_id}": { "get": { "summary": "Get LTM entry" } },
+            "/api/v1/memory/search/ltm/{entry_id}/at": { "get": {
+                "summary": "Get an LTM entry as of a timestamp",
+                "parameters": [
+                    { "name": "entry_id", "in": "path", "required": true, "schema": { "type": "string" } },
+                    { "name": "at", "in": "query", "required": true, "schema": { "type": "string", "format": "date-time" } },
+                    { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" } }
+                ],
+                "responses": { "200": { "description": "LTM entry version", "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/KnowledgeEntry" }, { "type": "null" }] } } } } }
+            } },
+            "/api/v1/memory/search/ltm/{entry_id}/history": { "get": {
+                "summary": "List LTM entry history",
+                "responses": { "200": { "description": "LTM entry versions", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/KnowledgeEntry" } } } } } }
+            } },
+            "/api/v1/memory/search/ltm/time-travel": { "post": {
+                "summary": "Search LTM as of a timestamp",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TimeTravelQuery" } } } },
+                "responses": { "200": { "description": "LTM entries at timestamp", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/KnowledgeEntry" } } } } } }
+            } },
+            "/api/v1/memory/search/kg/{entity_id}/at": { "get": {
+                "summary": "Get a KG entity as of a timestamp",
+                "parameters": [
+                    { "name": "entity_id", "in": "path", "required": true, "schema": { "type": "string" } },
+                    { "name": "at", "in": "query", "required": true, "schema": { "type": "string", "format": "date-time" } }
+                ],
+                "responses": { "200": { "description": "KG entity version", "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/KGEntity" }, { "type": "null" }] } } } } }
+            } },
+            "/api/v1/memory/search/kg/{entity_id}/history": { "get": {
+                "summary": "List KG entity history",
+                "responses": { "200": { "description": "KG entity versions", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/KGEntity" } } } } } }
+            } },
             "/api/v1/memory/search/hybrid": { "post": {
                 "summary": "Hybrid memory search",
                 "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HybridSearchRequest" } } } },
@@ -526,23 +574,62 @@ async fn openapi_json() -> impl IntoResponse {
                 "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScoredSearchRequest" } } } },
                 "responses": { "200": { "description": "Scored search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } } }
             } },
-            "/api/v1/memory/search/entity": { "post": { "summary": "Search memory by entity" } },
+            "/api/v1/memory/search/entity": { "post": {
+                "summary": "Search memory by entity",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchByEntityRequest" } } } },
+                "responses": { "200": { "description": "Entity search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } } }
+            } },
             "/api/v1/memory/search/graphrag": { "post": { "summary": "GraphRAG hybrid search" } },
             "/api/v1/workflows/{id}/evidence": { "get": { "summary": "Get workflow evidence graph" } },
-            "/api/kg/entities": { "get": { "summary": "List KG entities" }, "post": { "summary": "Create KG entity" } },
-            "/api/kg/entities/by-name/{name}": { "get": { "summary": "Get KG entity by name" } },
-            "/api/kg/entities/{entity_id}/related": { "get": { "summary": "Get related KG entities" } },
-            "/api/kg/relations": { "post": { "summary": "Create KG relation" } },
-            "/api/mm/list": { "get": { "summary": "List multimodal memories" } },
-            "/api/mm/store": { "post": { "summary": "Store multimodal memory" } },
-            "/api/mm/entry/{entry_id}": { "get": { "summary": "Get multimodal memory" } },
-            "/api/mm/session/{session_id}": { "get": { "summary": "Get session multimodal memories" } },
-            "/api/mm/modality/{modality_type}": { "get": { "summary": "Get multimodal memories by modality" } },
+            "/api/kg/entities": {
+                "get": { "summary": "List KG entities", "responses": { "200": { "description": "KG entities", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntityListResponse" } } } } } },
+                "post": {
+                    "summary": "Create KG entity",
+                    "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateEntityRequest" } } } },
+                    "responses": { "200": { "description": "KG entity created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateEntityResponse" } } } } }
+                }
+            },
+            "/api/kg/entities/by-name/{name}": { "get": {
+                "summary": "Get KG entity by name",
+                "responses": { "200": { "description": "KG entity", "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/EntityInfo" }, { "type": "null" }] } } } } }
+            } },
+            "/api/kg/entities/{entity_id}/related": { "get": {
+                "summary": "Get related KG entities",
+                "responses": { "200": { "description": "KG relations", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/RelationInfo" } } } } } }
+            } },
+            "/api/kg/relations": { "post": {
+                "summary": "Create KG relation",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRelationRequest" } } } },
+                "responses": { "200": { "description": "KG relation created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRelationResponse" } } } } }
+            } },
+            "/api/kg/search": { "post": {
+                "summary": "Search KG entities",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchEntitiesRequest" } } } },
+                "responses": { "200": { "description": "KG entity search results", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/EntityInfo" } } } } } }
+            } },
+            "/api/mm/list": { "get": { "summary": "List multimodal memories", "responses": { "200": { "description": "Multimodal memories", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MMEntryListResponse" } } } } } } },
+            "/api/mm/store": { "post": {
+                "summary": "Store multimodal memory",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StoreMMRequest" } } } },
+                "responses": { "200": { "description": "Multimodal memory stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StoreMMResponse" } } } } }
+            } },
+            "/api/mm/entry/{entry_id}": { "get": { "summary": "Get multimodal memory", "responses": { "200": { "description": "Multimodal memory", "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/MMEntryInfo" }, { "type": "null" }] } } } } } } },
+            "/api/mm/session/{session_id}": { "get": { "summary": "Get session multimodal memories", "responses": { "200": { "description": "Session multimodal memories", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/MMEntryInfo" } } } } } } } },
+            "/api/mm/modality/{modality_type}": { "get": { "summary": "Get multimodal memories by modality", "responses": { "200": { "description": "Modality-filtered multimodal memories", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/MMEntryInfo" } } } } } } } },
             "/api/mcp/tools": { "get": { "summary": "List MCP memory tools" } },
             "/api/mcp/tools/call": { "post": {
                 "summary": "Call MCP memory tool",
                 "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolCallParams" } } } },
                 "responses": { "200": { "description": "MCP tool response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolCallResponse" } } } } }
+            } },
+            "/api/mcp/resources": { "get": {
+                "summary": "List MCP memory resources",
+                "responses": { "200": { "description": "MCP resources", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourcesListResponse" } } } } }
+            } },
+            "/api/mcp/resources/read": { "post": {
+                "summary": "Read MCP memory resource",
+                "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceReadParams" } } } },
+                "responses": { "200": { "description": "MCP resource content", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceReadResponse" } } } } }
             } }
         },
         "components": {
@@ -605,18 +692,50 @@ async fn openapi_json() -> impl IntoResponse {
                 "StoreSTMResponse": { "type": "object", "required": ["sessionId", "messageId"], "properties": { "sessionId": { "type": "string" }, "messageId": { "type": "string" } } },
                 "StoreLTMRequest": { "type": "object", "required": ["sourceId", "sourceType", "content"], "properties": { "sourceId": { "type": "string" }, "sourceType": { "type": "string" }, "content": { "type": "string" }, "title": { "type": "string" } } },
                 "StoreLTMResponse": { "type": "object", "required": ["entryId"], "properties": { "entryId": { "type": "string" } } },
+                "BatchStoreLTMRequest": { "type": "object", "required": ["entries"], "properties": { "entries": { "type": "array", "items": { "$ref": "#/components/schemas/BatchStoreEntry" } } } },
+                "BatchStoreEntry": { "type": "object", "required": ["sourceId", "sourceType", "content"], "properties": { "tenantId": { "type": "string" }, "sourceId": { "type": "string" }, "sourceType": { "type": "string" }, "content": { "type": "string" }, "title": { "type": "string" } } },
+                "BatchStoreLTMResponse": { "type": "object", "required": ["entryIds"], "properties": { "entryIds": { "type": "array", "items": { "type": "string" } } } },
                 "TransferRequest": { "type": "object", "required": ["sessionId"], "properties": { "sessionId": { "type": "string" }, "messageCountThreshold": { "type": "integer" } } },
                 "TransferResponse": { "type": "object", "required": ["entryIds"], "properties": { "entryIds": { "type": "array", "items": { "type": "string" } } } },
                 "BackfillQdrantTenantMetadataRequest": { "type": "object", "properties": { "limit": { "type": "integer" }, "offset": { "type": "integer" }, "dryRun": { "type": "boolean", "default": true } } },
                 "QdrantTenantBackfillReport": { "type": "object", "required": ["dryRun", "scanned", "planned", "updated", "skippedWithoutTenant"], "properties": { "dryRun": { "type": "boolean" }, "scanned": { "type": "integer" }, "planned": { "type": "integer" }, "updated": { "type": "integer" }, "skippedWithoutTenant": { "type": "integer" } } },
+                "CompressionStrategy": { "type": "string", "enum": ["sliding_window", "llm_summary", "importance_prune", "hierarchical"] },
+                "MessageEntry": { "type": "object", "required": ["role", "content"], "properties": { "role": { "type": "string" }, "content": { "type": "string" }, "timestamp": { "type": "string" }, "importance": { "type": "number" }, "metadata": { "type": "object", "additionalProperties": true } } },
+                "CompressSessionRequest": { "type": "object", "required": ["session_id"], "properties": { "session_id": { "type": "string" }, "strategy": { "$ref": "#/components/schemas/CompressionStrategy" }, "token_budget": { "type": "integer" }, "window_size": { "type": "integer" }, "hierarchical_recent_k": { "type": "integer" } } },
+                "CompressMessagesRequest": { "type": "object", "required": ["messages"], "properties": { "messages": { "type": "array", "items": { "$ref": "#/components/schemas/MessageEntry" } }, "strategy": { "$ref": "#/components/schemas/CompressionStrategy" }, "token_budget": { "type": "integer" }, "window_size": { "type": "integer" }, "hierarchical_recent_k": { "type": "integer" } } },
+                "CompressionResult": { "type": "object", "required": ["messages", "original_token_count", "compressed_token_count", "compression_ratio", "strategy_used"], "properties": { "messages": { "type": "array", "items": { "$ref": "#/components/schemas/MessageEntry" } }, "summary": { "type": "string" }, "original_token_count": { "type": "integer" }, "compressed_token_count": { "type": "integer" }, "compression_ratio": { "type": "number" }, "strategy_used": { "$ref": "#/components/schemas/CompressionStrategy" } } },
+                "SearchSTMRequest": { "type": "object", "required": ["userId", "agentId"], "properties": { "userId": { "type": "string" }, "agentId": { "type": "string" }, "sessionType": { "type": "string" }, "limit": { "type": "integer" } } },
+                "SearchSTMResponse": { "type": "object", "required": ["messages"], "properties": { "messages": { "type": "array", "items": { "$ref": "#/components/schemas/SessionMessage" } } } },
+                "SessionMessage": { "type": "object", "additionalProperties": true },
+                "KnowledgeEntry": { "type": "object", "additionalProperties": true },
+                "KGEntity": { "type": "object", "additionalProperties": true },
+                "TimeTravelQuery": { "type": "object", "required": ["at"], "properties": { "at": { "type": "string", "format": "date-time" }, "limit": { "type": "integer" } } },
                 "SearchLTMRequest": { "type": "object", "required": ["query"], "properties": { "query": { "type": "string" }, "topK": { "type": "integer" }, "enableRerank": { "type": "boolean" }, "minScore": { "type": "number" } } },
                 "HybridSearchRequest": { "allOf": [{ "$ref": "#/components/schemas/SearchLTMRequest" }], "properties": { "keywordWeight": { "type": "number" }, "vectorWeight": { "type": "number" } } },
                 "TripleHybridSearchRequest": { "allOf": [{ "$ref": "#/components/schemas/HybridSearchRequest" }], "properties": { "graphWeight": { "type": "number" } } },
-                "ScoredSearchRequest": { "allOf": [{ "$ref": "#/components/schemas/TripleHybridSearchRequest" }], "properties": { "confidence_config": { "type": "object", "additionalProperties": true } } },
+                "ConfidenceConfigInput": { "type": "object", "properties": { "quality_weight": { "type": "number" }, "relevance_weight": { "type": "number" }, "recency_weight": { "type": "number" }, "access_weight": { "type": "number" }, "completeness_weight": { "type": "number" }, "recency_half_life_days": { "type": "number" } } },
+                "ScoredSearchRequest": { "allOf": [{ "$ref": "#/components/schemas/TripleHybridSearchRequest" }], "properties": { "confidence_config": { "$ref": "#/components/schemas/ConfidenceConfigInput" } } },
+                "SearchByEntityRequest": { "type": "object", "required": ["entity"], "properties": { "entity": { "type": "string" }, "limit": { "type": "integer" } } },
                 "SearchResponse": { "type": "object", "required": ["results"], "properties": { "results": { "type": "array", "items": { "$ref": "#/components/schemas/SearchResult" } } } },
                 "SearchResult": { "type": "object", "required": ["memoryId", "sourceLayer", "score", "content", "metadata"], "properties": { "memoryId": { "type": "string" }, "entry_id": { "type": "string" }, "sourceLayer": { "type": "string" }, "score": { "type": "number" }, "content": { "type": "string" }, "title": { "type": "string" }, "traceId": { "type": "string" }, "explanation": { "type": "string" }, "metadata": { "type": "object", "additionalProperties": true } } },
+                "CreateEntityRequest": { "type": "object", "required": ["entityName", "entityType"], "properties": { "entityName": { "type": "string" }, "entityType": { "type": "string" }, "description": { "type": "string" }, "aliases": { "type": "array", "items": { "type": "string" } } } },
+                "CreateEntityResponse": { "type": "object", "required": ["entityId"], "properties": { "entityId": { "type": "string" } } },
+                "CreateRelationRequest": { "type": "object", "required": ["sourceEntityId", "targetEntityId", "relationType"], "properties": { "sourceEntityId": { "type": "string" }, "targetEntityId": { "type": "string" }, "relationType": { "type": "string" }, "weight": { "type": "number" }, "confidence": { "type": "number" } } },
+                "CreateRelationResponse": { "type": "object", "required": ["relationId"], "properties": { "relationId": { "type": "string" } } },
+                "SearchEntitiesRequest": { "type": "object", "required": ["query"], "properties": { "query": { "type": "string" }, "limit": { "type": "integer", "default": 10 } } },
+                "EntityInfo": { "type": "object", "required": ["entityId", "entityName", "entityType"], "properties": { "entityId": { "type": "string" }, "entityName": { "type": "string" }, "entityType": { "type": "string" }, "description": { "type": "string" } } },
+                "RelationInfo": { "type": "object", "required": ["relationId", "sourceEntityId", "targetEntityId", "relationType", "weight", "confidence"], "properties": { "relationId": { "type": "string" }, "sourceEntityId": { "type": "string" }, "targetEntityId": { "type": "string" }, "relationType": { "type": "string" }, "weight": { "type": "number" }, "confidence": { "type": "number" } } },
+                "EntityListResponse": { "type": "object", "required": ["entities", "total", "limit", "offset"], "properties": { "entities": { "type": "array", "items": { "$ref": "#/components/schemas/EntityInfo" } }, "total": { "type": "integer" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } },
+                "StoreMMRequest": { "type": "object", "required": ["sourceId", "modalityType"], "properties": { "sessionId": { "type": "string" }, "sourceId": { "type": "string" }, "tenantId": { "type": "string" }, "modalityType": { "type": "string", "enum": ["text", "image", "audio", "video"] }, "title": { "type": "string" }, "description": { "type": "string" }, "content": { "type": "string", "description": "Base64 encoded binary content" }, "textContent": { "type": "string" }, "imageUrl": { "type": "string" }, "audioUrl": { "type": "string" } } },
+                "StoreMMResponse": { "type": "object", "required": ["entryId"], "properties": { "entryId": { "type": "string" } } },
+                "MMEntryInfo": { "type": "object", "required": ["entryId", "sourceId", "modalityType"], "properties": { "entryId": { "type": "string" }, "sessionId": { "type": "string" }, "sourceId": { "type": "string" }, "modalityType": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" } } },
+                "MMEntryListResponse": { "type": "object", "required": ["entries", "total", "limit", "offset"], "properties": { "entries": { "type": "array", "items": { "$ref": "#/components/schemas/MMEntryInfo" } }, "total": { "type": "integer" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } },
                 "ToolCallParams": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "arguments": { "type": "object", "additionalProperties": true } } },
-                "ToolCallResponse": { "type": "object", "required": ["content"], "properties": { "content": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "is_error": { "type": "boolean" } } }
+                "ToolCallResponse": { "type": "object", "required": ["content"], "properties": { "content": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "is_error": { "type": "boolean" } } },
+                "McpResource": { "type": "object", "required": ["uri", "name"], "properties": { "uri": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" }, "mimeType": { "type": "string" } } },
+                "ResourcesListResponse": { "type": "object", "required": ["resources"], "properties": { "resources": { "type": "array", "items": { "$ref": "#/components/schemas/McpResource" } } } },
+                "ResourceReadParams": { "type": "object", "required": ["uri"], "properties": { "uri": { "type": "string" } } },
+                "ResourceReadResponse": { "type": "object", "required": ["contents"], "properties": { "contents": { "type": "array", "items": { "type": "object", "additionalProperties": true } } } }
             }
         }
     }))

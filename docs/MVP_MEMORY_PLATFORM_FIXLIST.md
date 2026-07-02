@@ -66,6 +66,11 @@ memory substrate for external agents.
 - OpenAPI now includes request/response schemas for the core stable
   agent-facing memory and MCP endpoints, and live-router tests assert schema
   coverage.
+- OpenAPI coverage was expanded for stable secondary surfaces: STM search,
+  batch LTM writes, context compression, LTM/KG time-travel reads, entity
+  search, KG create/search/list/relation routes, MM store/list/read routes, and
+  MCP resource list/read routes. Live-router smoke tests now assert these paths
+  and schemas remain present.
 
 ## Remaining P0 work
 
@@ -76,8 +81,9 @@ memory substrate for external agents.
 
 - Execute the Qdrant tenant metadata backfill with `dryRun=false` against the
   target collection after reviewing the dry-run count.
-- Continue expanding OpenAPI schemas for non-MVP/internal routes as those
-  contracts become stable.
+- Continue expanding OpenAPI schemas for remaining internal/admin routes as
+  those contracts become stable, especially agent identity, tenants, billing,
+  enterprise, distributed, planner, tracing, visualization, and data import/export.
 
 ## Acceptance commands
 

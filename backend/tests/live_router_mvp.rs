@@ -85,14 +85,21 @@ async fn openapi_lists_stable_mvp_routes() {
         "/api/v1/memory/forget",
         "/api/v1/memory/storage/stm",
         "/api/v1/memory/storage/ltm",
+        "/api/v1/memory/storage/batch-ltm",
         "/api/v1/memory/search/ltm",
+        "/api/v1/memory/storage/compress/messages",
+        "/api/v1/memory/search/stm",
         "/api/v1/memory/search/hybrid",
         "/api/v1/memory/search/triple",
         "/api/v1/memory/search/scored",
+        "/api/v1/memory/search/entity",
+        "/api/v1/memory/search/ltm/time-travel",
         "/api/v1/memory/storage/qdrant/backfill-tenant-metadata",
         "/api/kg/entities",
         "/api/kg/entities/by-name/{name}",
         "/api/kg/entities/{entity_id}/related",
+        "/api/kg/relations",
+        "/api/kg/search",
         "/api/mm/list",
         "/api/mm/store",
         "/api/mm/entry/{entry_id}",
@@ -100,6 +107,8 @@ async fn openapi_lists_stable_mvp_routes() {
         "/api/mm/modality/{modality_type}",
         "/api/mcp/tools",
         "/api/mcp/tools/call",
+        "/api/mcp/resources",
+        "/api/mcp/resources/read",
     ] {
         assert!(paths.contains_key(path), "missing stable MVP path {path}");
     }
@@ -113,11 +122,25 @@ async fn openapi_lists_stable_mvp_routes() {
         "SelectMemoryRequest",
         "StoreSTMRequest",
         "StoreLTMRequest",
+        "BatchStoreLTMRequest",
+        "CompressMessagesRequest",
+        "CompressionResult",
+        "SearchSTMRequest",
+        "TimeTravelQuery",
         "BackfillQdrantTenantMetadataRequest",
         "QdrantTenantBackfillReport",
+        "SearchByEntityRequest",
         "SearchResult",
+        "CreateEntityRequest",
+        "CreateRelationRequest",
+        "EntityListResponse",
+        "StoreMMRequest",
+        "MMEntryListResponse",
         "ToolCallParams",
         "ToolCallResponse",
+        "ResourcesListResponse",
+        "ResourceReadParams",
+        "ResourceReadResponse",
     ] {
         assert!(schemas.contains_key(schema), "missing schema {schema}");
     }
@@ -128,6 +151,17 @@ async fn openapi_lists_stable_mvp_routes() {
     assert!(spec
         .pointer(
             "/paths/~1api~1mcp~1tools~1call/post/responses/200/content/application~1json/schema"
+        )
+        .is_some());
+    assert!(spec
+        .pointer("/paths/~1api~1kg~1entities/post/requestBody/content/application~1json/schema")
+        .is_some());
+    assert!(spec
+        .pointer("/paths/~1api~1mm~1store/post/responses/200/content/application~1json/schema")
+        .is_some());
+    assert!(spec
+        .pointer(
+            "/paths/~1api~1mcp~1resources~1read/post/requestBody/content/application~1json/schema"
         )
         .is_some());
 }
