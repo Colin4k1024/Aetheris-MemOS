@@ -6,6 +6,10 @@ Welcome to the Adaptive Memory Management System documentation. | 欢迎阅读�
 
 | Document                                                                                  | 文档     | Description                                         | 描述                                 |
 | ----------------------------------------------------------------------------------------- | -------- | --------------------------------------------------- | ------------------------------------ |
+| [LATEST_TEST_REPORTS.md](LATEST_TEST_REPORTS.md)                                           | 最新测试报告 | Latest LangChain SDK and real-agent memory validation summary | 最新 LangChain SDK 与真实 Agent 记忆验证摘要 |
+| [memory_demo_report_with_logs.md](memory_demo_report_with_logs.md)                         | 记忆演示报告 | Real local LLM memory-vs-no-memory demo report      | 真实本地 LLM 记忆对比演示报告       |
+| [memory_comparison_report.md](memory_comparison_report.md)                                 | 对比报告 | Quantified memory capability comparison             | 量化记忆能力对比                     |
+| [demo_backend_logs.txt](demo_backend_logs.txt)                                             | 后端日志 | Raw backend traces from the latest E2E demo         | 最新 E2E 演示后端原始日志           |
 | [API_EXAMPLES.md](API_EXAMPLES.md)                                                         | API 示例 | Complete curl + Python examples for all endpoints   | 所有端点的 curl + Python 示例        |
 | [INTEGRATION_COOKBOOK.md](INTEGRATION_COOKBOOK.md)                                        | 集成食谱 | Real-world integration patterns                     | 实战集成模式                          |
 | [ARCHITECTURE_DEEP_DIVE.md](ARCHITECTURE_DEEP_DIVE.md)                                    | 架构解析 | System design philosophy and internals               | 系统设计原理与内部实现                |

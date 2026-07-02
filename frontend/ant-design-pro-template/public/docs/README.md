@@ -24,6 +24,17 @@ Most agent stacks today stop at orchestration. They can route prompts, call tool
 
 MemOS turns memory into infrastructure. It gives agents a persistent kernel spanning short-term memory, long-term memory, knowledge graphs, and multimodal context, exposed through a consistent API and adaptive decision pipeline.
 
+## Latest Test Reports
+
+The newest validation package is centered on the 2026-07-02 LangChain SDK and real-agent memory demonstration.
+
+| Report | Focus |
+|--------|-------|
+| [Latest Test Reports](LATEST_TEST_REPORTS.md) | Concise validation summary for GitHub Pages |
+| [LangChain Memory Demo Report](memory_demo_report_with_logs.md) | Real local LLM demo comparing stateless and memory-enabled LangChain agents |
+| [Memory Comparison Report](memory_comparison_report.md) | Quantified impact across a 10-day developer journey |
+| [Backend Demo Logs](demo_backend_logs.txt) | Raw STM, hybrid search, embedding, Qdrant, and SQLite operation traces |
+
 ```text
 Without MemOS                    With MemOS
 -----------------                ----------------------------------

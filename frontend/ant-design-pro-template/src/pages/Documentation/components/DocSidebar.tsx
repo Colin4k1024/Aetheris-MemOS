@@ -2,6 +2,7 @@ import {
   ApiOutlined,
   ClusterOutlined,
   ExperimentOutlined,
+  FileTextOutlined,
   LinkOutlined,
   ProjectOutlined,
   RocketOutlined,
@@ -15,6 +16,7 @@ const iconMap: Record<string, React.ReactNode> = {
   cluster: <ClusterOutlined />,
   api: <ApiOutlined />,
   experiment: <ExperimentOutlined />,
+  'file-text': <FileTextOutlined />,
   link: <LinkOutlined />,
   project: <ProjectOutlined />,
 };

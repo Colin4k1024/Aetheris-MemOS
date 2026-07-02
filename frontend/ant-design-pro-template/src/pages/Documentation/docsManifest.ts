@@ -16,6 +16,44 @@ export interface DocCategory {
 
 export const docsManifest: DocCategory[] = [
   {
+    key: 'reports',
+    title: 'Reports & Evidence',
+    titleZh: '测试报告与证据',
+    icon: 'file-text',
+    children: [
+      {
+        id: 'latest-test-reports',
+        title: 'Latest Test Reports',
+        titleZh: '最新测试报告',
+        path: 'LATEST_TEST_REPORTS.md',
+      },
+      {
+        id: 'memory-demo',
+        title: 'LangChain Memory Demo',
+        titleZh: 'LangChain 记忆演示',
+        path: 'memory_demo_report_with_logs.md',
+      },
+      {
+        id: 'memory-comparison',
+        title: 'Memory Comparison Report',
+        titleZh: '记忆能力对比报告',
+        path: 'memory_comparison_report.md',
+      },
+      {
+        id: 'backend-demo-logs',
+        title: 'Backend Demo Logs',
+        titleZh: '后端演示日志',
+        path: 'demo_backend_logs.txt',
+      },
+      {
+        id: 'langchain-sdk-prd',
+        title: 'LangChain SDK PRD',
+        titleZh: 'LangChain SDK PRD',
+        path: 'artifacts/2026-07-02-langchain-framework-sdk/prd.md',
+      },
+    ],
+  },
+  {
     key: 'getting-started',
     title: 'Getting Started',
     titleZh: '快速开始',
