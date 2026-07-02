@@ -162,8 +162,9 @@ impl KGRepository {
                 r#"
                 SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
                        embedding_vector, embedding_model, embedding_dimension,
-                       created_at, updated_at, confidence_score, popularity_score,
-                       relation_count, mention_count, status
+                       created_at::text, updated_at::text, confidence_score, popularity_score,
+                       relation_count, mention_count, status,
+                       valid_from::text, valid_until::text, superseded_by
                 FROM entities
                 WHERE entity_name = $1 AND entity_type = $2 AND entity_id LIKE $3 AND status = 'active'
                 LIMIT 1
@@ -177,8 +178,9 @@ impl KGRepository {
                 r#"
                 SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
                        embedding_vector, embedding_model, embedding_dimension,
-                       created_at, updated_at, confidence_score, popularity_score,
-                       relation_count, mention_count, status
+                       created_at::text, updated_at::text, confidence_score, popularity_score,
+                       relation_count, mention_count, status,
+                       valid_from::text, valid_until::text, superseded_by
                 FROM entities
                 WHERE entity_name = $1 AND entity_id LIKE $2 AND status = 'active'
                 LIMIT 1
@@ -208,8 +210,9 @@ impl KGRepository {
             r#"
             SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
                    embedding_vector, embedding_model, embedding_dimension,
-                   created_at, updated_at, confidence_score, popularity_score,
-                   relation_count, mention_count, status
+                   created_at::text, updated_at::text, confidence_score, popularity_score,
+                   relation_count, mention_count, status,
+                       valid_from::text, valid_until::text, superseded_by
             FROM entities
             WHERE entity_id = $1 AND status = 'active'
             LIMIT 1
@@ -499,7 +502,8 @@ impl KGRepository {
                 SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
                        embedding_vector, embedding_model, embedding_dimension,
                        created_at::text as created_at, updated_at::text as updated_at,
-                       confidence_score, popularity_score, relation_count, mention_count, status
+                       confidence_score, popularity_score, relation_count, mention_count, status,
+                       valid_from::text, valid_until::text, superseded_by
                 FROM entities
                 WHERE entity_id LIKE $1 AND status = 'active' AND entity_type = $2
                 ORDER BY created_at DESC
@@ -538,7 +542,8 @@ impl KGRepository {
                 SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
                        embedding_vector, embedding_model, embedding_dimension,
                        created_at::text as created_at, updated_at::text as updated_at,
-                       confidence_score, popularity_score, relation_count, mention_count, status
+                       confidence_score, popularity_score, relation_count, mention_count, status,
+                       valid_from::text, valid_until::text, superseded_by
                 FROM entities
                 WHERE entity_id LIKE $1 AND status = 'active'
                 ORDER BY created_at DESC

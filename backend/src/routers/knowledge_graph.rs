@@ -119,20 +119,34 @@ pub async fn create_relation(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<CreateRelationRequest>,
 ) -> JsonResult<CreateRelationResponse> {
-    KGRepository::get_entity_by_id(pool(), &tenant_ctx.tenant_id, &body.source_entity_id)
+    let prefix = tenant_ctx.tenant_id.prefix();
+
+    // Normalize entity IDs: add tenant prefix if not already present
+    let source_id = if body.source_entity_id.starts_with("t:") {
+        body.source_entity_id.clone()
+    } else {
+        format!("{}:{}", prefix, body.source_entity_id)
+    };
+    let target_id = if body.target_entity_id.starts_with("t:") {
+        body.target_entity_id.clone()
+    } else {
+        format!("{}:{}", prefix, body.target_entity_id)
+    };
+
+    KGRepository::get_entity_by_id(pool(), &tenant_ctx.tenant_id, &source_id)
         .await?
         .ok_or_else(|| {
             crate::AppError::NotFound(format!("Entity {} not found", body.source_entity_id))
         })?;
-    KGRepository::get_entity_by_id(pool(), &tenant_ctx.tenant_id, &body.target_entity_id)
+    KGRepository::get_entity_by_id(pool(), &tenant_ctx.tenant_id, &target_id)
         .await?
         .ok_or_else(|| {
             crate::AppError::NotFound(format!("Entity {} not found", body.target_entity_id))
         })?;
 
     let relation_id = KGRepository::create_relation(
-        &body.source_entity_id,
-        &body.target_entity_id,
+        &source_id,
+        &target_id,
         &body.relation_type,
         body.weight.unwrap_or(1.0) as f64,
         body.confidence.unwrap_or(1.0) as f64,
