@@ -11,14 +11,10 @@
 
 use std::collections::HashMap;
 
-use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider as OtelTracerProvider;
+use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{
-    runtime,
-    trace::TracerProvider as SdkTracerProvider,
-    Resource,
-};
+use opentelemetry_sdk::{runtime, trace::TracerProvider as SdkTracerProvider, Resource};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -59,8 +55,8 @@ pub fn init_tracing(log_cfg: &LogConfig, otel_cfg: &OtelConfig) -> TracingGuard 
     let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
 
     // ── env filter ──────────────────────────────────────────────────────────
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&log_cfg.filter_level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_cfg.filter_level));
 
     // ── OTLP provider (optional) ────────────────────────────────────────────
     let tracer_provider = if otel_cfg.enabled {
@@ -186,7 +182,10 @@ pub struct WorkflowSpanAttributes {
 impl WorkflowSpanAttributes {
     pub fn into_kv(self) -> Vec<(String, String)> {
         let mut kv = vec![
-            ("workflow.instance_id".to_string(), self.workflow_instance_id),
+            (
+                "workflow.instance_id".to_string(),
+                self.workflow_instance_id,
+            ),
             ("workflow.attempt_id".to_string(), self.attempt_id),
         ];
         if let Some(epoch) = self.epoch_id {

@@ -40,7 +40,5 @@ pub fn create_router() -> Router {
         )
         .on_response(DefaultOnResponse::new().level(Level::INFO));
 
-    crate::routers::root()
-        .layer(trace_layer)
-        .layer(cors)
+    crate::routers::root().layer(trace_layer).layer(cors)
 }
