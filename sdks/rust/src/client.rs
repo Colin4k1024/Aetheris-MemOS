@@ -1,8 +1,6 @@
 //! HTTP Client for Adaptive Memory System
 
-use reqwest::Client;
 use serde::{de::DeserializeOwned, Serialize};
-use std::sync::Arc;
 
 use crate::models::*;
 
@@ -18,7 +16,7 @@ pub enum Error {
 /// Adaptive Memory client
 pub struct Client {
     base_url: String,
-    client: Client,
+    http: reqwest::Client,
     api_key: Option<String>,
 }
 
@@ -27,7 +25,7 @@ impl Client {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
-            client: Client::new(),
+            http: reqwest::Client::new(),
             api_key: None,
         }
     }
@@ -51,7 +49,7 @@ impl Client {
         body: Option<B>,
     ) -> Result<T, Error> {
         let url = self.build_url(path);
-        let mut request = self.client.request(method, url);
+        let mut request = self.http.request(method, url);
 
         if let Some(ref key) = self.api_key {
             request = request.bearer_auth(key);
@@ -191,35 +189,33 @@ impl Client {
     }
 }
 
-/// Asynchronous client
+/// Asynchronous client (thin wrapper around Client for API compatibility)
 pub struct AsyncClient {
-    base_url: String,
-    client: Client,
+    inner: Client,
 }
 
 impl AsyncClient {
     /// Create a new async client
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
-            base_url: base_url.into(),
-            client: Client::new(base_url),
+            inner: Client::new(base_url),
         }
     }
 
     /// Set API key
     pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
-        self.client = self.client.with_api_key(api_key);
+        self.inner = self.inner.with_api_key(api_key);
         self
     }
 
     /// Store content in STM
     pub async fn store_stm(&self, req: StoreStmRequest) -> Result<StoreStmResponse, Error> {
-        self.client.store_stm(req).await
+        self.inner.store_stm(req).await
     }
 
     /// Store content in LTM
     pub async fn store_ltm(&self, req: StoreLtmRequest) -> Result<StoreLtmResponse, Error> {
-        self.client.store_ltm(req).await
+        self.inner.store_ltm(req).await
     }
 
     /// Search in LTM
@@ -229,12 +225,12 @@ impl AsyncClient {
         user_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<SearchResult>, Error> {
-        self.client.search_ltm(query, user_id, limit).await
+        self.inner.search_ltm(query, user_id, limit).await
     }
 
     /// Health check
     pub async fn health_check(&self) -> Result<serde_json::Value, Error> {
-        self.client.health_check().await
+        self.inner.health_check().await
     }
 }
 

@@ -329,6 +329,70 @@ npm install
 npm start
 ```
 
+## SDK Examples
+
+MemOS provides official SDKs for **Python**, **Python-LangChain**, and **Rust**. Below are live demos running against the docker-compose stack.
+
+### Knowledge Graph: Entity & Relation CRUD
+
+![Knowledge Graph Demo](examples/recordings/knowledge_graph_demo.gif)
+
+```bash
+python3 examples/knowledge_graph_demo.py
+```
+
+### Distributed Memory Lifecycle: STM → LTM → Hybrid Search
+
+![Distributed Memory Lifecycle](examples/recordings/distributed_memory_lifecycle.gif)
+
+```bash
+python3 examples/distributed_memory_lifecycle.py
+```
+
+### Multi-Agent Memory Pool Collaboration
+
+![Multi-Agent Memory Pool](examples/recordings/multi_agent_memory_pool.gif)
+
+```bash
+python3 examples/multi_agent_memory_pool.py
+```
+
+### Async Concurrent Operations
+
+![Async Memory Demo](examples/recordings/async_memory_demo.gif)
+
+```bash
+python3 examples/async_memory_demo.py
+```
+
+### Full-Stack Distributed Demo (STM + LTM + KG + MCP)
+
+![Full Stack Demo](examples/recordings/full_stack_distributed_demo.gif)
+
+```bash
+python3 examples/full_stack_distributed_demo.py
+```
+
+### Rust SDK: Basic Memory Operations
+
+![Rust Basic Memory](examples/recordings/rust_basic_memory.gif)
+
+```bash
+cd sdks/rust && cargo run --example basic_memory
+```
+
+### Rust SDK: MCP Protocol & Knowledge Graph
+
+![Rust MCP and KG](examples/recordings/rust_mcp_kg.gif)
+
+```bash
+cd sdks/rust && cargo run --example mcp_and_kg
+```
+
+> All examples require the docker-compose stack running (`docker compose up -d`).  
+> LTM/hybrid search features additionally require Ollama with `nomic-embed-text` model on the host.  
+> See [`sdks/README.md`](sdks/README.md) for full SDK documentation.
+
 ## API Documentation
 
 Interactive API docs are available at:

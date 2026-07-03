@@ -49,6 +49,10 @@ pub fn empty_ok() -> JsonResult<Empty> {
 async fn main() {
     crate::config::init();
     let config = crate::config::get();
+
+    // Initialize tracing subscriber (fmt + optional OTLP) before any tracing:: calls.
+    // The guard must be held for the process lifetime — dropping it flushes spans.
+    let _tracing_guard = otel::init_tracing(&config.log, &config.otel);
     crate::db::init(&config.db)
         .await
         .expect("Database initialization failed");
@@ -96,7 +100,6 @@ async fn main() {
         .expect("Failed to initialize Neo4j indexes");
     tracing::info!("Neo4j indexes and constraints initialized successfully");
 
-    let _guard = config.log.guard();
     tracing::info!("log level: {}", &config.log.filter_level);
 
     tracing::info!("Initializing memory transfer service");

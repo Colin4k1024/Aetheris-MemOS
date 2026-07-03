@@ -8,6 +8,8 @@ pub mod demo;
 pub mod distributed;
 
 use axum::Router;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 use crate::web::cors_layer;
 
@@ -23,8 +25,22 @@ use crate::web::cors_layer;
 /// ## Protected routes (auth required via httpOnly cookie or Bearer header)
 /// All other routes require a valid JWT. The auth middleware is applied
 /// in `protected::protected_router()`.
+///
+/// ## Observability layers (outermost → innermost)
+/// 1. `TraceLayer` — creates a per-request span with method/path/status/latency
+/// 2. CORS hoop
 pub fn create_router() -> Router {
     let cors = cors_layer();
 
-    crate::routers::root().layer(cors)
+    let trace_layer = TraceLayer::new_for_http()
+        .make_span_with(
+            DefaultMakeSpan::new()
+                .level(Level::INFO)
+                .include_headers(false),
+        )
+        .on_response(DefaultOnResponse::new().level(Level::INFO));
+
+    crate::routers::root()
+        .layer(trace_layer)
+        .layer(cors)
 }

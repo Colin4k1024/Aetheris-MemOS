@@ -1,77 +1,208 @@
 services:
-  # PostgreSQL 数据库 (支持 vector)
+  # ─────────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────────
+
+  # PostgreSQL with pgvector extension
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=memory
-      - POSTGRES_PASSWORD=memory
-      - POSTGRES_DB=memory
+      POSTGRES_USER: memory
+      POSTGRES_PASSWORD: memory
+      POSTGRES_DB: memory
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U memory -d memory"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # Qdrant 向量数据库
+  # Qdrant vector database (REST :6333, gRPC :6334)
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.9.4
+    restart: unless-stopped
     ports:
       - "6333:6333"
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' 2>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
-  # Neo4j 图数据库
+  # Neo4j graph database
   neo4j:
     image: neo4j:5
+    restart: unless-stopped
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt protocol
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
     environment:
-      - NEO4J_AUTH=neo4j/password
-      - NEO4J_PLUGINS=["apoc"]
+      NEO4J_AUTH: neo4j/password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_pagecache_size: 512M
+      NEO4J_server_memory_heap_max__size: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
 
-  # Backend (Rust/Axum)
+  # Redis — STM cache
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # Application
+  # ─────────────────────────────────────────────
+
+  # Backend — Rust / Axum API server
+  # SDK 对接入口: http://localhost:8008/api/
+  # OpenAPI 文档:  http://localhost:8008/scalar
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    restart: unless-stopped
     ports:
       - "8008:8008"
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
         condition: service_started
     environment:
-      - APP_CONFIG=docker.toml
+      APP_CONFIG: docker.toml
+      # Override secrets via env — takes precedence over docker.toml
+      APP_JWT_SECRET: ${JWT_SECRET:-change-me-in-production-32chars}
+      APP_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
     volumes:
       - backend_data:/app/data
+      - backend_logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/api/v1/memory/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
-  # Frontend (React + Nginx)
+  # Frontend — React / Nginx (proxies /api/ → backend)
   frontend:
     build:
       context: ./frontend/ant-design-pro-template
       dockerfile: Dockerfile
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────
+  # Observability
+  # ─────────────────────────────────────────────
+
+  # OpenTelemetry Collector — receives OTLP from backend, forwards to Jaeger
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.102.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./monitoring/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC (backend → collector)
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - jaeger
+
+  # Jaeger — distributed trace storage and UI
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    restart: unless-stopped
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317"          # OTLP gRPC (collector → jaeger, internal only)
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:16686/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # Prometheus — scrapes backend /metrics
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready | grep -q 'Ready' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # Grafana — dashboards for Prometheus metrics
+  grafana:
+    image: grafana/grafana:10.4.3
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      prometheus:
+        condition: service_healthy
 
 volumes:
   postgres_data:
   qdrant_data:
   neo4j_data:
   neo4j_logs:
+  redis_data:
   backend_data:
+  backend_logs:
+  prometheus_data:
+  grafana_data:

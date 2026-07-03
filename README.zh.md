@@ -270,6 +270,70 @@ npm start
 # 应用将在 http://localhost:8000 启动
 ```
 
+## SDK 示例演示
+
+MemOS 提供 **Python**、**Python-LangChain** 和 **Rust** 三套官方 SDK。以下为各 SDK 对接分布式记忆系统的实际运行录像。
+
+### 知识图谱：实体/关系 CRUD 与图遍历
+
+![Knowledge Graph Demo](examples/recordings/knowledge_graph_demo.gif)
+
+```bash
+python3 examples/knowledge_graph_demo.py
+```
+
+### 分布式记忆生命周期：STM → LTM 传输 → 混合搜索
+
+![Distributed Memory Lifecycle](examples/recordings/distributed_memory_lifecycle.gif)
+
+```bash
+python3 examples/distributed_memory_lifecycle.py
+```
+
+### 多 Agent 记忆池协作
+
+![Multi-Agent Memory Pool](examples/recordings/multi_agent_memory_pool.gif)
+
+```bash
+python3 examples/multi_agent_memory_pool.py
+```
+
+### 异步并发操作（AsyncMemoryClient）
+
+![Async Memory Demo](examples/recordings/async_memory_demo.gif)
+
+```bash
+python3 examples/async_memory_demo.py
+```
+
+### 全栈分布式演示（STM + LTM + KG + MCP）
+
+![Full Stack Demo](examples/recordings/full_stack_distributed_demo.gif)
+
+```bash
+python3 examples/full_stack_distributed_demo.py
+```
+
+### Rust SDK：基本记忆操作
+
+![Rust Basic Memory](examples/recordings/rust_basic_memory.gif)
+
+```bash
+cd sdks/rust && cargo run --example basic_memory
+```
+
+### Rust SDK：MCP 协议与知识图谱
+
+![Rust MCP and KG](examples/recordings/rust_mcp_kg.gif)
+
+```bash
+cd sdks/rust && cargo run --example mcp_and_kg
+```
+
+> 运行前提：docker-compose 全栈已启动（`docker compose up -d`）。  
+> LTM/混合搜索功能额外需要宿主机运行 Ollama 并加载 `nomic-embed-text` 模型。  
+> 完整 SDK 文档参见 [`sdks/README.md`](sdks/README.md)。
+
 ## API 使用示例
 
 ### 1. 自适应记忆选择

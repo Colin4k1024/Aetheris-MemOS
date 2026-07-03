@@ -21,7 +21,7 @@ rolling = "daily"
 [llm]
 # Ollama 配置
 base_url = "http://localhost:11434"
-model = "llama3"
+model = "llama3.2"
 timeout_seconds = 30
 
 [embedding]
@@ -65,3 +65,10 @@ decay_lambda = 0.01
 url = "redis://localhost:6379"
 pool_size = 10
 default_ttl_seconds = 3600
+
+[otel]
+# OpenTelemetry tracing — disabled locally by default
+# Enable by pointing to a local Jaeger: enabled = true, endpoint = "http://localhost:4317"
+enabled = false
+endpoint = "http://localhost:4317"
+service_name = "aetheris-memos-backend"

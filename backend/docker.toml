@@ -53,3 +53,15 @@ port = 7687
 username = "neo4j"
 password = "password"
 database = "neo4j"
+
+[redis]
+# Redis STM cache（Docker容器内）
+url = "redis://redis:6379"
+pool_size = 10
+default_ttl_seconds = 3600
+
+[otel]
+# OpenTelemetry — send traces to the OTel Collector in docker-compose
+enabled = true
+endpoint = "http://otel-collector:4317"
+service_name = "aetheris-memos-backend"

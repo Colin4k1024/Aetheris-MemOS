@@ -18,3 +18,11 @@ anyhow = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros"] }
+
+[[example]]
+name = "basic_memory"
+path = "examples/basic_memory.rs"
+
+[[example]]
+name = "mcp_and_kg"
+path = "examples/mcp_and_kg.rs"

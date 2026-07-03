@@ -179,6 +179,8 @@ pub struct ServerConfig {
     pub memory_evolution: MemoryEvolutionConfig,
     #[serde(default)]
     pub metrics: MetricsConfig,
+    #[serde(default)]
+    pub otel: OtelConfig,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -225,4 +227,36 @@ fn default_memory_transfer_config() -> MemoryTransferConfig {
         message_count_threshold: default_message_count_threshold(),
         session_time_threshold: default_session_time_threshold(),
     }
+}
+
+/// OpenTelemetry / distributed tracing configuration.
+#[derive(Deserialize, Clone, Debug)]
+pub struct OtelConfig {
+    /// Enable OTLP trace export. When false, only fmt logging is used.
+    #[serde(default)]
+    pub enabled: bool,
+    /// OTLP gRPC endpoint, e.g. "http://otel-collector:4317"
+    #[serde(default = "default_otel_endpoint")]
+    pub endpoint: String,
+    /// Service name reported in traces.
+    #[serde(default = "default_otel_service_name")]
+    pub service_name: String,
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: default_otel_endpoint(),
+            service_name: default_otel_service_name(),
+        }
+    }
+}
+
+fn default_otel_endpoint() -> String {
+    "http://localhost:4317".into()
+}
+
+fn default_otel_service_name() -> String {
+    "aetheris-memos-backend".into()
 }
