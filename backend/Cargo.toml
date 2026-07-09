@@ -17,6 +17,9 @@ anyhow = "1"
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["cookie"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-stream = "0.3"
 figment = { version = "0.10", features = ["env", "toml"] }
 jsonwebtoken = {version = "10", features = ["rust_crypto"]}
 rust-embed = "8"
@@ -63,6 +66,11 @@ prost = "0.13"
 axum-prometheus = "0.1"
 prometheus = "0.13"
 metrics = "0.21"
+
+# A2A Protocol support
+a2a = { package = "a2a-lf", git = "https://github.com/a2aproject/a2a-rs.git" }
+a2a-server = { package = "a2a-server-lf", git = "https://github.com/a2aproject/a2a-rs.git" }
+uuid = { version = "1", features = ["v4"] }
 
 # Redis support (enabled by redis-stm feature)
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], optional = true }

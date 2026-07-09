@@ -8,9 +8,10 @@
 [![Backend CI](https://github.com/Colin4k1024/adaptive-memory-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Colin4k1024/adaptive-memory-system/actions)
 [![Rust](https://img.shields.io/badge/Rust-1.89+-orange.svg)](https://www.rust-lang.org)
 [![Node](https://img.shields.io/badge/Node-20+-green.svg)](https://nodejs.org)
+[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue.svg)](https://a2a-protocol.org)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Colin4k1024/adaptive-memory-system)
 
-[Quick Start](#quick-start) · [Architecture](#architecture) · [API Docs](#api-documentation) · [Roadmap](#roadmap) · [中文文档](README.zh.md)
+[Quick Start](#quick-start) · [Architecture](#architecture) · [API Docs](#api-documentation) · [A2A Protocol](#a2a-protocol) · [Roadmap](#roadmap) · [中文文档](README.zh.md)
 
 </div>
 
@@ -69,6 +70,37 @@ AI agents need more than prompts and vector stores.
 | Agent decisions are hard to audit | Decision traces make retrieval and scheduling explainable |
 | Multi-agent systems duplicate knowledge | Tenant-aware cross-agent sharing enables safe reuse |
 | Embedding model changes can poison retrieval quality | Vector signature guards prevent cross-model collapse |
+
+## A2A Protocol
+
+MemOS supports the [Agent2Agent (A2A) Protocol](https://a2a-protocol.org), enabling seamless interoperability between AI agents.
+
+### Key Features
+
+- **Agent Discovery**: Agents can discover MemOS capabilities via the Agent Card at `/.well-known/agent-card.json`
+- **Standardized Communication**: JSON-RPC 2.0 and REST/HTTP+JSON protocol bindings
+- **Streaming Support**: Real-time updates via Server-Sent Events (SSE)
+- **5 Memory Skills**: memory_search, memory_store, memory_fusion, memory_status, knowledge_graph
+
+### Quick Example
+
+```bash
+# Discover MemOS capabilities
+curl http://localhost:8008/.well-known/agent-card.json
+
+# Search memory via A2A protocol
+curl -X POST http://localhost:8008/a2a/rest/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": {
+      "messageId": "msg-1",
+      "role": "ROLE_USER",
+      "parts": [{"text": "Search for memories about AI"}]
+    }
+  }'
+```
+
+For detailed A2A protocol documentation, see [A2A_PROTOCOL.md](A2A_PROTOCOL.md).
 
 ## Positioning
 

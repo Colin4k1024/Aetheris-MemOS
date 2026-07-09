@@ -149,6 +149,7 @@ a:hover{color:var(--primary-light)}
   <nav class="nav">
     <a href="#features">Features</a>
     <a href="#architecture">Architecture</a>
+    <a href="#a2a">A2A Protocol</a>
     <a href="#validation">Reports</a>
     <a href="./docs/">Docs</a>
     <a href="https://github.com/Colin4k1024/Aetheris-MemOS" target="_blank" rel="noopener">GitHub</a>
@@ -163,12 +164,15 @@ a:hover{color:var(--primary-light)}
   <h1>Memory OS for AI Agents</h1>
   <p>
     A multi-layer adaptive memory management system for AI Agent and LLM workloads.
-    Intelligent scheduling, decision tracing, LangChain SDK integration, and knowledge graph powered architecture.
+    Intelligent scheduling, decision tracing, LangChain SDK integration, knowledge graph powered architecture, and A2A protocol support for agent interoperability.
   </p>
   <div class="hero-actions">
     <a class="btn btn-primary" href="./docs/">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       Documentation
+    </a>
+    <a class="btn btn-outline" href="./docs/A2A_PROTOCOL.md">
+      A2A Protocol
     </a>
     <a class="btn btn-outline" href="./docs/#latest-test-reports">
       Latest Test Reports
@@ -245,6 +249,36 @@ a:hover{color:var(--primary-light)}
   </div>
 </section>
 
+<section class="section" id="a2a">
+  <h2 class="section-title">A2A Protocol Support</h2>
+  <p class="section-subtitle">Seamless agent interoperability via the Agent2Agent Protocol</p>
+  <div class="grid">
+    <div class="card">
+      <div class="card-icon">&#128270;</div>
+      <h3>Agent Discovery</h3>
+      <p>Other agents can discover MemOS capabilities via the standardized Agent Card at <code>/.well-known/agent-card.json</code></p>
+    </div>
+    <div class="card">
+      <div class="card-icon">&#128172;</div>
+      <h3>Standard Communication</h3>
+      <p>JSON-RPC 2.0 and REST/HTTP+JSON protocol bindings for maximum compatibility with existing agent frameworks.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">&#9889;</div>
+      <h3>Streaming Support</h3>
+      <p>Real-time updates via Server-Sent Events (SSE) for long-running memory operations and live status updates.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">&#129504;</div>
+      <h3>5 Memory Skills</h3>
+      <p>memory_search, memory_store, memory_fusion, memory_status, knowledge_graph - complete memory operations via A2A.</p>
+    </div>
+  </div>
+  <div style="text-align:center;margin-top:32px">
+    <a class="btn btn-primary" href="./docs/A2A_PROTOCOL.md">View A2A Documentation</a>
+  </div>
+</section>
+
 <section class="arch" id="architecture">
   <h2 class="section-title">System Architecture</h2>
   <p class="section-subtitle">9-layer adaptive memory pipeline — from client to persistence</p>
@@ -267,6 +301,7 @@ a:hover{color:var(--primary-light)}
         <span class="arch-chip chip-orange">HTTP/REST (Axum + TLS)</span>
         <span class="arch-chip chip-orange">gRPC</span>
         <span class="arch-chip chip-orange">WebSocket</span>
+        <span class="arch-chip chip-orange">A2A Protocol</span>
         <span class="arch-chip chip-orange">MCP (Sandbox + Signing)</span>
       </div>
     </div>
@@ -289,6 +324,7 @@ a:hover{color:var(--primary-light)}
         <span class="arch-chip chip-purple">/kg</span>
         <span class="arch-chip chip-purple">/mm</span>
         <span class="arch-chip chip-purple">/v1/agents</span>
+        <span class="arch-chip chip-purple">/a2a</span>
         <span class="arch-chip chip-purple">/v1/distributed</span>
         <span class="arch-chip chip-purple">/v1/planner</span>
         <span class="arch-chip chip-purple">/v1/security</span>

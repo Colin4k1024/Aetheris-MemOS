@@ -1,0 +1,108 @@
+use a2a::agent_card::{AgentCard, AgentProvider, AgentCapabilities, AgentSkill, AgentInterface};
+use a2a::types::{TRANSPORT_PROTOCOL_JSONRPC, TRANSPORT_PROTOCOL_HTTP_JSON};
+
+pub fn create_agent_card(base_url: &str) -> AgentCard {
+    AgentCard {
+        name: "Aetheris MemOS".to_string(),
+        description: "Adaptive Memory Management System for AI Agents. Provides multi-layer memory (STM/LTM/KG/MM), hybrid search, memory fusion, and self-healing capabilities.".to_string(),
+        version: "1.0.0".to_string(),
+        provider: Some(AgentProvider {
+            organization: "Aetheris".to_string(),
+            url: "https://github.com/Aetheris-MemOS".to_string(),
+        }),
+        capabilities: AgentCapabilities {
+            streaming: Some(true),
+            push_notifications: Some(false),
+            extensions: None,
+            extended_agent_card: None,
+        },
+        skills: vec![
+            AgentSkill {
+                id: "memory_search".to_string(),
+                name: "Memory Search".to_string(),
+                description: "Search across all memory layers (STM, LTM, KG, MM) with hybrid retrieval".to_string(),
+                tags: vec!["memory".to_string(), "search".to_string(), "hybrid".to_string()],
+                examples: Some(vec![
+                    "Search for memories about machine learning".to_string(),
+                    "Find recent conversations about project planning".to_string(),
+                ]),
+                input_modes: Some(vec!["text/plain".to_string(), "application/json".to_string()]),
+                output_modes: Some(vec!["application/json".to_string()]),
+                security_requirements: None,
+            },
+            AgentSkill {
+                id: "memory_store".to_string(),
+                name: "Memory Store".to_string(),
+                description: "Store information in STM or LTM memory layers".to_string(),
+                tags: vec!["memory".to_string(), "store".to_string(), "stm".to_string(), "ltm".to_string()],
+                examples: Some(vec![
+                    "Remember this conversation context".to_string(),
+                    "Store this fact in long-term memory".to_string(),
+                ]),
+                input_modes: Some(vec!["text/plain".to_string(), "application/json".to_string()]),
+                output_modes: Some(vec!["application/json".to_string()]),
+                security_requirements: None,
+            },
+            AgentSkill {
+                id: "memory_fusion".to_string(),
+                name: "Memory Fusion".to_string(),
+                description: "Query across all memory layers with unified fusion results".to_string(),
+                tags: vec!["memory".to_string(), "fusion".to_string(), "multi-layer".to_string()],
+                examples: Some(vec![
+                    "Search everything about this topic".to_string(),
+                    "Get comprehensive context from all memory layers".to_string(),
+                ]),
+                input_modes: Some(vec!["text/plain".to_string(), "application/json".to_string()]),
+                output_modes: Some(vec!["application/json".to_string()]),
+                security_requirements: None,
+            },
+            AgentSkill {
+                id: "memory_status".to_string(),
+                name: "Memory Status".to_string(),
+                description: "Get health status and statistics of memory system".to_string(),
+                tags: vec!["memory".to_string(), "status".to_string(), "health".to_string()],
+                examples: Some(vec![
+                    "Check memory system health".to_string(),
+                    "Get memory usage statistics".to_string(),
+                ]),
+                input_modes: Some(vec!["application/json".to_string()]),
+                output_modes: Some(vec!["application/json".to_string()]),
+                security_requirements: None,
+            },
+            AgentSkill {
+                id: "knowledge_graph".to_string(),
+                name: "Knowledge Graph".to_string(),
+                description: "Query and manage knowledge graph entities and relations".to_string(),
+                tags: vec!["knowledge".to_string(), "graph".to_string(), "entities".to_string()],
+                examples: Some(vec![
+                    "Find entities related to this concept".to_string(),
+                    "Get knowledge graph connections".to_string(),
+                ]),
+                input_modes: Some(vec!["text/plain".to_string(), "application/json".to_string()]),
+                output_modes: Some(vec!["application/json".to_string()]),
+                security_requirements: None,
+            },
+        ],
+        default_input_modes: vec!["text/plain".to_string(), "application/json".to_string()],
+        default_output_modes: vec!["application/json".to_string()],
+        supported_interfaces: vec![
+            AgentInterface {
+                url: format!("{}/a2a/jsonrpc", base_url),
+                protocol_binding: TRANSPORT_PROTOCOL_JSONRPC.to_string(),
+                protocol_version: "1.0.0".to_string(),
+                tenant: None,
+            },
+            AgentInterface {
+                url: format!("{}/a2a/rest", base_url),
+                protocol_binding: TRANSPORT_PROTOCOL_HTTP_JSON.to_string(),
+                protocol_version: "1.0.0".to_string(),
+                tenant: None,
+            },
+        ],
+        security_schemes: None,
+        security_requirements: None,
+        documentation_url: Some("https://github.com/Aetheris-MemOS".to_string()),
+        icon_url: None,
+        signatures: None,
+    }
+}

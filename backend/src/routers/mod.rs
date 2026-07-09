@@ -43,6 +43,8 @@ mod workflows;
 
 use std::sync::Arc;
 
+use crate::a2a::a2a_router;
+use crate::a2a::handler::A2AHandler;
 use crate::layers::procedural_layer::ProceduralMemoryLayer;
 use crate::{config, hoops, services::prometheus_exporter};
 
@@ -405,6 +407,11 @@ pub fn root() -> Router {
         )
         .route_layer(auth_layer);
 
+    // A2A Protocol support
+    let a2a_base_url = format!("http://{}", config::get().listen_addr.clone());
+    let a2a_handler = Arc::new(A2AHandler::new());
+    let a2a_routes = a2a_router(a2a_base_url, a2a_handler);
+
     let api_router = Router::new()
         .route("/login", post(auth::post_login))
         .route(
@@ -414,7 +421,8 @@ pub fn root() -> Router {
         .merge(protected_api_router)
         .merge(mcp::router())
         .merge(data_io::router())
-        .nest("/v1/tracing", tracing::router());
+        .nest("/v1/tracing", tracing::router())
+        .merge(a2a_routes);
 
     Router::new()
         .route("/", get(demo::hello))

@@ -6,6 +6,21 @@
 http://127.0.0.1:8008
 ```
 
+## A2A Protocol Endpoints
+
+MemOS supports the [Agent2Agent (A2A) Protocol](https://a2a-protocol.org) for agent interoperability.
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| GET | `/.well-known/agent-card.json` | Agent Card discovery |
+| POST | `/a2a/jsonrpc` | JSON-RPC 2.0 endpoint |
+| POST | `/a2a/rest/messages` | REST message endpoint |
+| POST | `/a2a/rest/messages/stream` | SSE streaming endpoint |
+| GET | `/a2a/rest/tasks/{task_id}` | Get task status |
+| GET | `/a2a/rest/tasks` | List tasks |
+
+For detailed A2A protocol documentation, see [A2A_PROTOCOL.md](A2A_PROTOCOL.md).
+
 ## Memory API
 
 ### Adaptive Memory Selection

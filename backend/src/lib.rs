@@ -4,6 +4,7 @@ use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
+pub mod a2a;
 pub mod agent;
 pub mod axum_routers;
 pub mod config;

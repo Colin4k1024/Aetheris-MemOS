@@ -6,6 +6,7 @@ use tokio::signal;
 use tracing::info;
 use utoipa::ToSchema;
 
+mod a2a;
 mod agent;
 mod axum_routers;
 mod config;
