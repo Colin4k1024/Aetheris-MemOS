@@ -405,12 +405,22 @@ pub fn root() -> Router {
         )
         .route_layer(auth_layer);
 
-    let api_router = Router::new()
+    // Login endpoints get their own stricter rate limit to blunt credential
+    // brute-forcing, independent of the memory-route limiter.
+    let login_rate_limit = middleware::from_fn_with_state(
+        hoops::rate_limit_state(10, 60),
+        hoops::rate_limit_middleware,
+    );
+    let login_routes = Router::new()
         .route("/login", post(auth::post_login))
         .route(
             "/login/account",
             post(auth::post_login_with_token).get(auth::get_login_with_token),
         )
+        .route_layer(login_rate_limit);
+
+    let api_router = Router::new()
+        .merge(login_routes)
         .merge(protected_api_router)
         .merge(mcp::router())
         // data import/export and time-travel tracing expose full memory contents

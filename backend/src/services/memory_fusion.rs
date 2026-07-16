@@ -173,18 +173,25 @@ impl MemoryFusionService {
     pub async fn get_status(tenant_id: &TenantId) -> Result<FusionStatusResponse, AppError> {
         let pool = pool();
 
-        // Query counts for each layer (all tenant-isolated)
-        let (stm_count, ltm_count, kg_count, mm_count) = tokio::join!(
+        // Query counts for each layer (all tenant-isolated). A layer is "healthy"
+        // when its count query actually succeeded — a failed query means the layer
+        // is unreachable, not that it legitimately holds zero entries.
+        let (stm_res, ltm_res, kg_res, mm_res) = tokio::join!(
             Self::count_stm(pool, tenant_id),
             Self::count_ltm(pool, tenant_id),
             Self::count_kg(pool, tenant_id),
-            Self::count_mm(pool),
+            Self::count_mm(pool, tenant_id),
         );
 
-        let stm_count = stm_count.unwrap_or(0);
-        let ltm_count = ltm_count.unwrap_or(0);
-        let kg_count = kg_count.unwrap_or(0);
-        let mm_count = mm_count.unwrap_or(0);
+        let stm_healthy = stm_res.is_ok();
+        let ltm_healthy = ltm_res.is_ok();
+        let kg_healthy = kg_res.is_ok();
+        let mm_healthy = mm_res.is_ok();
+
+        let stm_count = stm_res.unwrap_or(0);
+        let ltm_count = ltm_res.unwrap_or(0);
+        let kg_count = kg_res.unwrap_or(0);
+        let mm_count = mm_res.unwrap_or(0);
 
         let total_entries = stm_count + ltm_count + kg_count + mm_count;
 
@@ -194,10 +201,10 @@ impl MemoryFusionService {
                 ltm_count,
                 kg_count,
                 mm_count,
-                stm_healthy: stm_count >= 0,
-                ltm_healthy: ltm_count >= 0,
-                kg_healthy: kg_count >= 0,
-                mm_healthy: mm_count >= 0,
+                stm_healthy,
+                ltm_healthy,
+                kg_healthy,
+                mm_healthy,
             },
             total_entries,
         })
@@ -493,15 +500,20 @@ impl MemoryFusionService {
         Ok(row.0)
     }
 
-    async fn count_mm(pool: &sqlx::PgPool) -> Result<i64, AppError> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active'")
-                .fetch_one(pool)
-                .await
-                .map_err(|e| {
-                    error!("Failed to count MM: {}", e);
-                    AppError::Internal(format!("MM count failed: {}", e))
-                })?;
+    async fn count_mm(pool: &sqlx::PgPool, tenant_id: &TenantId) -> Result<i64, AppError> {
+        // MM stores the tenant id inside content_metadata JSON (not an id prefix),
+        // so scope the count by that field to avoid leaking other tenants' totals.
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active' \
+             AND COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $1",
+        )
+        .bind(tenant_id.as_str())
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to count MM: {}", e);
+            AppError::Internal(format!("MM count failed: {}", e))
+        })?;
 
         Ok(row.0)
     }

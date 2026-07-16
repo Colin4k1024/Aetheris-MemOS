@@ -39,6 +39,11 @@ impl RateLimitConfig {
     }
 }
 
+/// Hard cap on distinct rate-limit keys tracked at once. The key can come from a
+/// client-controlled header, so an attacker could otherwise rotate it to grow the
+/// map without bound; once we exceed this we drop keys whose hits have all expired.
+const MAX_TRACKED_KEYS: usize = 100_000;
+
 /// Rate limiter state
 pub struct RateLimiter {
     config: RateLimitConfig,
@@ -59,6 +64,17 @@ impl RateLimiter {
         let window = Duration::from_secs(self.config.window_seconds);
 
         let mut requests = self.requests.write().await;
+
+        // Bound memory: if the key space has blown up (e.g. a spoofed/rotated header
+        // key), evict every key whose hits have all aged out of the window so the map
+        // cannot grow without limit.
+        if requests.len() > MAX_TRACKED_KEYS {
+            requests.retain(|_, timestamps| {
+                timestamps.retain(|&ts| now.duration_since(ts) < window);
+                !timestamps.is_empty()
+            });
+        }
+
         let timestamps = requests.entry(key.to_string()).or_insert_with(Vec::new);
         timestamps.retain(|&ts| now.duration_since(ts) < window);
 

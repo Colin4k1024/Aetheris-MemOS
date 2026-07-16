@@ -107,7 +107,6 @@ async fn main() {
     crate::db::init_neo4j_indexes()
         .await
         .expect("Failed to initialize Neo4j indexes");
-    tracing::info!("Neo4j indexes and constraints initialized successfully");
 
     tracing::info!("log level: {}", &config.log.filter_level);
 

@@ -382,7 +382,14 @@ pub async fn init_neo4j(config: &Neo4jConfig) -> Result<Neo4jManagerHandle, AppE
 
 /// Initialize Neo4j indexes
 pub async fn init_neo4j_indexes() -> Result<(), AppError> {
-    // Index creation can be added here if needed
+    // No Neo4j indexes/constraints are defined yet. Kept as a no-op intentionally,
+    // but logged as a warning so the absence is visible instead of being implied as
+    // "initialized successfully" by the caller. KG graph nodes currently have no
+    // uniqueness constraints or property indexes.
+    tracing::warn!(
+        "Neo4j index/constraint initialization is not implemented (no-op); \
+         graph nodes have no uniqueness constraints or indexes yet"
+    );
     Ok(())
 }
 
