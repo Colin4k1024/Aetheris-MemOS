@@ -167,6 +167,9 @@ fn journal_file_path() -> PathBuf {
 static SCAN_VIOLATIONS: AtomicU64 = AtomicU64::new(0);
 static SCAN_CHECKED: AtomicU64 = AtomicU64::new(0);
 static SCANNER_RUNNING: AtomicBool = AtomicBool::new(false);
+/// Rolling scan cursor so each cycle covers a different window instead of
+/// rescanning the same first SAMPLE_BATCH rows forever.
+static SCAN_OFFSET: AtomicU64 = AtomicU64::new(0);
 
 /// How many LTM entries to sample per scan cycle.
 const SAMPLE_BATCH: i32 = 50;
@@ -198,14 +201,27 @@ async fn scanner_loop() {
 async fn run_scan_cycle() -> anyhow::Result<()> {
     use crate::db::ltm::LTMRepository;
 
-    // Fetch a random sample of LTM entries.
+    // Advance a rolling cursor each cycle so we eventually cover all entries instead
+    // of rescanning the same first SAMPLE_BATCH rows every time. (Currently scoped to
+    // the default tenant; multi-tenant coverage is a follow-up.)
+    let tenant = get_default_tenant();
+    let total = LTMRepository::count(pool(), &tenant)
+        .await
+        .unwrap_or(0)
+        .max(0) as u64;
+    let offset = if total == 0 {
+        0
+    } else {
+        (SCAN_OFFSET.fetch_add(SAMPLE_BATCH as u64, Ordering::Relaxed) % total) as i32
+    };
+
     let entries = LTMRepository::list_entries(
         pool(),
-        &get_default_tenant(),
+        &tenant,
         None,
         None,
         Some(SAMPLE_BATCH),
-        Some(0),
+        Some(offset),
     )
     .await?;
     let mut checked = 0u64;
