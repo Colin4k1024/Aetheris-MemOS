@@ -281,6 +281,9 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct knowledge_entries query (not via LTMRepository) — run inside a
+        // tenant-scoped tx so the DB-layer policy applies instead of fail-closing.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         // Search knowledge entries by content/title (semantic-like via ILIKE)
         let rows: Vec<(String, Option<String>, String, Option<f32>, String)> = sqlx::query_as(
             r#"
@@ -296,12 +299,13 @@ impl MemoryFusionService {
         .bind(&pattern)
         .bind(query)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to query LTM: {}", e);
             AppError::Internal(format!("LTM query failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -468,16 +472,19 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct knowledge_entries count — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1 AND status = 'active'",
         )
         .bind(&pattern)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count LTM: {}", e);
             AppError::Internal(format!("LTM count failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
