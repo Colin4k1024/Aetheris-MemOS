@@ -101,8 +101,9 @@ services:
         condition: service_started
     environment:
       APP_CONFIG: docker.toml
-      # Override secrets via env — takes precedence over docker.toml
-      APP_JWT_SECRET: ${JWT_SECRET:-change-me-in-production-32chars}
+      # Override secrets via env — takes precedence over docker.toml.
+      # Auth is ON by default; refuse to start without a real secret.
+      APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong 32+ char random value — see .env.example (openssl rand -hex 32)}
       APP_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
     volumes:
       - backend_data:/app/data
@@ -110,7 +111,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8008/api/v1/memory/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12

@@ -543,8 +543,11 @@ impl LTMRepository {
         Ok(entries)
     }
 
-    /// 获取条目的版本历史
-    pub async fn get_entry_history(entry_id: &str) -> Result<Vec<KnowledgeEntry>, AppError> {
+    /// 获取条目的版本历史（租户隔离）
+    pub async fn get_entry_history(
+        tenant_id: &TenantId,
+        entry_id: &str,
+    ) -> Result<Vec<KnowledgeEntry>, AppError> {
         let pool = pool();
 
         let entries = sqlx::query_as::<_, KnowledgeEntry>(
@@ -572,7 +575,22 @@ impl LTMRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        Ok(entries)
+        // 租户隔离：所有版本共享同一 source_id 前缀，仅返回属于该租户的版本
+        let prefix = tenant_id.prefix();
+        let had_rows = !entries.is_empty();
+        let scoped: Vec<KnowledgeEntry> = entries
+            .into_iter()
+            .filter(|e| e.source_id.starts_with(&prefix))
+            .collect();
+        if had_rows && scoped.is_empty() {
+            crate::services::multi_tenant::record_isolation_violation(
+                tenant_id.as_str(),
+                entry_id,
+                "ltm_history_cross_tenant_read",
+            );
+        }
+
+        Ok(scoped)
     }
 
     /// 更新条目时创建新版本（保留历史，租户隔离）
@@ -596,6 +614,13 @@ impl LTMRepository {
         // 计算内容哈希（SHA-256，Issue #58）
         let content_hash = crate::services::information_guard::compute_sha256(new_content);
 
+        // Deprecate the current entry and insert the new version atomically so a failed
+        // insert can't leave the old row pointing at a superseded_by id that never exists.
+        let mut tx = pool.begin().await.map_err(|e| {
+            error!("Failed to begin supersede_entry transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
         // 将当前条目标记为被替换
         sqlx::query(
             r#"
@@ -608,7 +633,7 @@ impl LTMRepository {
         )
         .bind(&new_entry_id)
         .bind(entry_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to supersede entry: {}", e);
@@ -638,10 +663,15 @@ impl LTMRepository {
         .bind(current.embedding_dimension)
         .bind(current.quality_score)
         .bind(current.version.unwrap_or(1) + 1)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to create new version: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit supersede_entry transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 

@@ -65,6 +65,7 @@ impl MultimodalMemoryService {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
         }

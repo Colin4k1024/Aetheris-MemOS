@@ -263,6 +263,13 @@ impl KGRepository {
             "{}".to_string()
         };
 
+        // Insert the relation and bump both entities' relation_count atomically so a
+        // partial failure can't leave the relation stored with mismatched counts.
+        let mut tx = pool.begin().await.map_err(|e| {
+            error!("Failed to begin create_relation transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
         sqlx::query(
             r#"
             INSERT INTO relations (
@@ -278,7 +285,7 @@ impl KGRepository {
         .bind(weight)
         .bind(confidence)
         .bind(properties_json)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to create relation: {}", e);
@@ -288,7 +295,7 @@ impl KGRepository {
         // 更新源实体和目标实体的关系计数
         sqlx::query("UPDATE entities SET relation_count = relation_count + 1 WHERE entity_id = $1")
             .bind(source_entity_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to update source entity relation count: {}", e);
@@ -297,12 +304,17 @@ impl KGRepository {
 
         sqlx::query("UPDATE entities SET relation_count = relation_count + 1 WHERE entity_id = $1")
             .bind(target_entity_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to update target entity relation count: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit create_relation transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         Ok(relation_id)
     }
@@ -583,8 +595,9 @@ impl KGRepository {
 
     // ============ Bi-temporal Tracking Methods ============
 
-    /// 获取特定时间点的实体（时间旅行查询）
+    /// 获取特定时间点的实体（时间旅行查询，租户隔离）
     pub async fn get_entity_at_time(
+        tenant_id: &TenantId,
         entity_id: &str,
         at_timestamp: &str,
     ) -> Result<Option<Entity>, AppError> {
@@ -614,11 +627,27 @@ impl KGRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
+        // 租户隔离：校验实体属于该租户
+        if let Some(ref e) = entity {
+            let prefix = tenant_id.prefix();
+            if !e.entity_id.starts_with(&prefix) {
+                crate::services::multi_tenant::record_isolation_violation(
+                    tenant_id.as_str(),
+                    entity_id,
+                    "kg_entity_at_time_cross_tenant_read",
+                );
+                return Ok(None);
+            }
+        }
+
         Ok(entity)
     }
 
-    /// 获取实体的版本历史
-    pub async fn get_entity_history(entity_id: &str) -> Result<Vec<Entity>, AppError> {
+    /// 获取实体的版本历史（租户隔离）
+    pub async fn get_entity_history(
+        tenant_id: &TenantId,
+        entity_id: &str,
+    ) -> Result<Vec<Entity>, AppError> {
         let pool = pool();
 
         let entities = sqlx::query_as::<_, Entity>(
@@ -643,7 +672,22 @@ impl KGRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        Ok(entities)
+        // 租户隔离：仅返回属于该租户的版本
+        let prefix = tenant_id.prefix();
+        let had_rows = !entities.is_empty();
+        let scoped: Vec<Entity> = entities
+            .into_iter()
+            .filter(|e| e.entity_id.starts_with(&prefix))
+            .collect();
+        if had_rows && scoped.is_empty() {
+            crate::services::multi_tenant::record_isolation_violation(
+                tenant_id.as_str(),
+                entity_id,
+                "kg_entity_history_cross_tenant_read",
+            );
+        }
+
+        Ok(scoped)
     }
 
     /// 更新实体时创建新版本（保留历史，租户隔离）
@@ -667,6 +711,13 @@ impl KGRepository {
         }
         let current = current.unwrap();
 
+        // Deprecate the current entity and insert the new version atomically so a failed
+        // insert can't leave the old row pointing at a superseded_by id that never exists.
+        let mut tx = pool.begin().await.map_err(|e| {
+            error!("Failed to begin supersede_entity transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
         // 将当前实体标记为被替换
         sqlx::query(
             r#"
@@ -679,7 +730,7 @@ impl KGRepository {
         )
         .bind(&new_entity_id)
         .bind(entity_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to supersede entity: {}", e);
@@ -710,10 +761,15 @@ impl KGRepository {
         .bind(current.popularity_score)
         .bind(current.relation_count)
         .bind(current.mention_count)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to create new entity version: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit supersede_entity transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 

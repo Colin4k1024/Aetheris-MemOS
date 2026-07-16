@@ -419,17 +419,20 @@ pub async fn search_ltm_at_time(
 
 /// 获取条目版本历史
 pub async fn get_ltm_history(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entry_id): Path<String>,
 ) -> JsonResult<Vec<crate::db::ltm::KnowledgeEntry>> {
     info!("Getting LTM history: entry_id={}", entry_id);
 
-    let history = crate::db::ltm::LTMRepository::get_entry_history(&entry_id).await?;
+    let history =
+        crate::db::ltm::LTMRepository::get_entry_history(&tenant_ctx.tenant_id, &entry_id).await?;
 
     json_ok(history)
 }
 
 /// 时间旅行查询 - KG Entity
 pub async fn get_kg_entity_at_time(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entity_id): Path<String>,
     Query(query): Query<TimeTravelQuery>,
 ) -> JsonResult<Option<crate::db::kg::Entity>> {
@@ -438,18 +441,25 @@ pub async fn get_kg_entity_at_time(
         entity_id, query.at
     );
 
-    let entity = crate::db::kg::KGRepository::get_entity_at_time(&entity_id, &query.at).await?;
+    let entity = crate::db::kg::KGRepository::get_entity_at_time(
+        &tenant_ctx.tenant_id,
+        &entity_id,
+        &query.at,
+    )
+    .await?;
 
     json_ok(entity)
 }
 
 /// 获取实体版本历史
 pub async fn get_kg_entity_history(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entity_id): Path<String>,
 ) -> JsonResult<Vec<crate::db::kg::Entity>> {
     info!("Getting KG entity history: entity_id={}", entity_id);
 
-    let history = crate::db::kg::KGRepository::get_entity_history(&entity_id).await?;
+    let history =
+        crate::db::kg::KGRepository::get_entity_history(&tenant_ctx.tenant_id, &entity_id).await?;
 
     json_ok(history)
 }

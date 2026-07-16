@@ -10,7 +10,11 @@ url = "postgres://memory:memory@postgres:5432/memory"
 [jwt]
 secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
 expiry = 3600
-disabled = true
+# Authentication is ON by default. Provide a strong secret via APP_JWT_SECRET
+# (compose passes it through). Only set `disabled = true` for a throwaway local
+# demo that binds loopback — never for a 0.0.0.0 deployment, since disabling auth
+# collapses every request into a single "anonymous" tenant.
+disabled = false
 
 [log]
 file_name = "app.log"
@@ -35,7 +39,9 @@ host = "qdrant"
 port = 6334
 collection_name = "long_term_memory"
 vector_dimension = 768
-distance_type = "Euclid"
+# Cosine matches the retrieval layer (higher score = more similar, in [0,1]).
+# NOTE: existing collections must be dropped & recreated for a metric change to apply.
+distance_type = "Cosine"
 
 [rerank]
 # Rerank 重排序配置（本机 Ollama）

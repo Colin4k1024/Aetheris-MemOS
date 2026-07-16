@@ -43,8 +43,6 @@ mod workflows;
 
 use std::sync::Arc;
 
-use crate::a2a::a2a_router;
-use crate::a2a::handler::A2AHandler;
 use crate::layers::procedural_layer::ProceduralMemoryLayer;
 use crate::{config, hoops, services::prometheus_exporter};
 
@@ -407,11 +405,6 @@ pub fn root() -> Router {
         )
         .route_layer(auth_layer);
 
-    // A2A Protocol support
-    let a2a_base_url = format!("http://{}", config::get().listen_addr.clone());
-    let a2a_handler = Arc::new(A2AHandler::new());
-    let a2a_routes = a2a_router(a2a_base_url, a2a_handler);
-
     let api_router = Router::new()
         .route("/login", post(auth::post_login))
         .route(
@@ -420,9 +413,21 @@ pub fn root() -> Router {
         )
         .merge(protected_api_router)
         .merge(mcp::router())
-        .merge(data_io::router())
-        .nest("/v1/tracing", tracing::router())
-        .merge(a2a_routes);
+        // data import/export and time-travel tracing expose full memory contents
+        // and workflow history — they must sit behind auth like the rest of /api.
+        .merge(data_io::router().route_layer(middleware::from_fn(hoops::jwt::auth_middleware)))
+        .nest(
+            "/v1/tracing",
+            tracing::router().route_layer(middleware::from_fn(hoops::jwt::auth_middleware)),
+        );
+
+    // A2A agent-interop protocol (opt-in: `--features a2a`; pulls the a2a-rs git deps).
+    #[cfg(feature = "a2a")]
+    let api_router = {
+        let a2a_base_url = format!("http://{}", config::get().listen_addr.clone());
+        let a2a_handler = Arc::new(crate::a2a::handler::A2AHandler::new());
+        api_router.merge(crate::a2a::a2a_router(a2a_base_url, a2a_handler))
+    };
 
     Router::new()
         .route("/", get(demo::hello))

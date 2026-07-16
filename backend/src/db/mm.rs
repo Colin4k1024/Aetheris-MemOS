@@ -204,7 +204,7 @@ impl MMRepository {
         Ok(entry)
     }
 
-    /// 更新多模态记忆条目
+    /// 更新多模态记忆条目（租户隔离）
     pub async fn update_entry(
         entry_id: &str,
         title: Option<&str>,
@@ -214,8 +214,10 @@ impl MMRepository {
         audio_embedding: Option<&str>,
         video_embedding: Option<&str>,
         unified_embedding: Option<&str>,
+        tenant_id: Option<&str>,
     ) -> Result<(), AppError> {
         let pool = pool();
+        let tenant_id = normalize_tenant_id(tenant_id);
 
         sqlx::query(
             r#"
@@ -228,6 +230,7 @@ impl MMRepository {
                 video_embedding = COALESCE($6, video_embedding),
                 unified_embedding = COALESCE($7, unified_embedding)
             WHERE entry_id = $8
+              AND ($9::text IS NULL OR COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $9)
             "#,
         )
         .bind(title)
@@ -238,6 +241,7 @@ impl MMRepository {
         .bind(video_embedding)
         .bind(unified_embedding)
         .bind(entry_id)
+        .bind(tenant_id)
         .execute(pool)
         .await
         .map_err(|e| {

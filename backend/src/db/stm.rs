@@ -225,6 +225,13 @@ impl STMRepository {
 
         let message_id = Ulid::new().to_string();
 
+        // Insert the message and bump the session context_length atomically: a failure
+        // between the two writes must not leave the message stored with a stale count.
+        let mut tx = pool.begin().await.map_err(|e| {
+            error!("Failed to begin add_message transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
         sqlx::query(
             r#"
             INSERT INTO session_messages (
@@ -238,7 +245,7 @@ impl STMRepository {
         .bind(content)
         .bind(token_count)
         .bind(importance_score)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to add message: {}", e);
@@ -256,10 +263,15 @@ impl STMRepository {
         )
         .bind(token_count.unwrap_or(0))
         .bind(session_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to update session context length: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit add_message transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
@@ -655,10 +667,17 @@ impl STMRepository {
             return Ok(false);
         }
 
+        // Delete messages and the session row atomically so a failure between the two
+        // can't leave orphaned messages behind a removed session.
+        let mut tx = pool.begin().await.map_err(|e| {
+            error!("Failed to begin delete_session transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
         // Delete messages first
         sqlx::query("DELETE FROM session_messages WHERE session_id = $1")
             .bind(session_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to delete session messages: {}", e);
@@ -668,12 +687,17 @@ impl STMRepository {
         // Delete session
         let result = sqlx::query("DELETE FROM context_sessions WHERE session_id = $1")
             .bind(session_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to delete session: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit delete_session transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
 
         info!("Deleted session: {} for tenant: {}", session_id, tenant_id);
         Ok(result.rows_affected() > 0)

@@ -6,6 +6,7 @@ use tokio::signal;
 use tracing::info;
 use utoipa::ToSchema;
 
+#[cfg(feature = "a2a")]
 mod a2a;
 mod agent;
 mod axum_routers;
@@ -50,6 +51,13 @@ pub fn empty_ok() -> JsonResult<Empty> {
 async fn main() {
     crate::config::init();
     let config = crate::config::get();
+
+    // Fail-fast if auth is enabled but the JWT secret is a placeholder/too weak.
+    // Skipped when jwt.disabled is set (explicit local/dev mode).
+    if let Err(e) = crate::config::validate_jwt_security(config) {
+        eprintln!("[startup] {e}");
+        std::process::exit(1);
+    }
 
     // Initialize tracing subscriber (fmt + optional OTLP) before any tracing:: calls.
     // The guard must be held for the process lifetime — dropping it flushes spans.
