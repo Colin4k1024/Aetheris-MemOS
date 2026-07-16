@@ -96,8 +96,8 @@
 | ADR-0004 **MCP 沙箱执行模型（双平面；Plane B 已确认入 P1）** | 已写 Proposed | P1 |
 | ADR-0005 **HA 基建选型（托管优先）** | 已写 Proposed | P1 |
 | ADR-0006 **企业集群协调（成熟原语，非自建共识）** | 已写 Proposed | P1/P2 |
-| ADR-00xx 多协议传输与跨协议鉴权 | 待写 | P2 |
-| ADR-00xx 自适应学习方法与 eval 方法论 | 待写 | P3 |
+| ADR-0007 多协议传输与跨协议鉴权 | 已写 Proposed | P2 |
+| ADR-0008 自适应学习方法与 eval 方法论 | 已写 Proposed | P3 |
 
 ---
 
