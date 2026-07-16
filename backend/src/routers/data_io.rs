@@ -128,9 +128,13 @@ async fn export_as_json(layer: &str, limit: i32) -> JsonResult<serde_json::Value
 
     match layer {
         "mm" | "all" => {
-            let response =
-                MMRepository::list_entries(None, Some(limit), Some(0), Some(default_tenant.as_str()))
-                    .await?;
+            let response = MMRepository::list_entries(
+                None,
+                Some(limit),
+                Some(0),
+                Some(default_tenant.as_str()),
+            )
+            .await?;
             data["mm"] = serde_json::json!({
                 "entries": response.entries,
                 "count": response.entries.len()
