@@ -173,18 +173,25 @@ impl MemoryFusionService {
     pub async fn get_status(tenant_id: &TenantId) -> Result<FusionStatusResponse, AppError> {
         let pool = pool();
 
-        // Query counts for each layer (all tenant-isolated)
-        let (stm_count, ltm_count, kg_count, mm_count) = tokio::join!(
+        // Query counts for each layer (all tenant-isolated). A layer is "healthy"
+        // when its count query actually succeeded — a failed query means the layer
+        // is unreachable, not that it legitimately holds zero entries.
+        let (stm_res, ltm_res, kg_res, mm_res) = tokio::join!(
             Self::count_stm(pool, tenant_id),
             Self::count_ltm(pool, tenant_id),
             Self::count_kg(pool, tenant_id),
-            Self::count_mm(pool),
+            Self::count_mm(pool, tenant_id),
         );
 
-        let stm_count = stm_count.unwrap_or(0);
-        let ltm_count = ltm_count.unwrap_or(0);
-        let kg_count = kg_count.unwrap_or(0);
-        let mm_count = mm_count.unwrap_or(0);
+        let stm_healthy = stm_res.is_ok();
+        let ltm_healthy = ltm_res.is_ok();
+        let kg_healthy = kg_res.is_ok();
+        let mm_healthy = mm_res.is_ok();
+
+        let stm_count = stm_res.unwrap_or(0);
+        let ltm_count = ltm_res.unwrap_or(0);
+        let kg_count = kg_res.unwrap_or(0);
+        let mm_count = mm_res.unwrap_or(0);
 
         let total_entries = stm_count + ltm_count + kg_count + mm_count;
 
@@ -194,10 +201,10 @@ impl MemoryFusionService {
                 ltm_count,
                 kg_count,
                 mm_count,
-                stm_healthy: stm_count >= 0,
-                ltm_healthy: ltm_count >= 0,
-                kg_healthy: kg_count >= 0,
-                mm_healthy: mm_count >= 0,
+                stm_healthy,
+                ltm_healthy,
+                kg_healthy,
+                mm_healthy,
             },
             total_entries,
         })
@@ -214,7 +221,9 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
-        // Search session messages by content (exact/prefix match)
+        // RLS: session_messages JOIN context_sessions — both tables are RLS-scoped,
+        // so run inside a tenant-scoped tx or the join fail-closes to zero rows.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let rows: Vec<(String, String, String)> = sqlx::query_as(
             r#"
             SELECT m.message_id, m.content, s.created_at::text
@@ -228,12 +237,13 @@ impl MemoryFusionService {
         .bind(&pattern)
         .bind(query)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to query STM: {}", e);
             AppError::Internal(format!("STM query failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -274,6 +284,9 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct knowledge_entries query (not via LTMRepository) — run inside a
+        // tenant-scoped tx so the DB-layer policy applies instead of fail-closing.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         // Search knowledge entries by content/title (semantic-like via ILIKE)
         let rows: Vec<(String, Option<String>, String, Option<f32>, String)> = sqlx::query_as(
             r#"
@@ -289,12 +302,13 @@ impl MemoryFusionService {
         .bind(&pattern)
         .bind(query)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to query LTM: {}", e);
             AppError::Internal(format!("LTM query failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -338,6 +352,8 @@ impl MemoryFusionService {
         let pattern = format!("{}%", prefix);
 
         // Search KG entities by name/description
+        // RLS: entities is RLS-protected — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let rows: Vec<(String, String, Option<String>, f32, String)> = sqlx::query_as(
             r#"
             SELECT entity_id, entity_name, description, confidence_score, created_at::text
@@ -352,12 +368,13 @@ impl MemoryFusionService {
         .bind(&pattern)
         .bind(query)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to query KG: {}", e);
             AppError::Internal(format!("KG query failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -392,6 +409,11 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: run inside a tenant-scoped tx so the physical tenant_id policy on
+        // multimodal_entries applies at the DB layer. The source_id LIKE prefix
+        // stays as the dev/superuser fallback (RLS is a NO-OP under a superuser).
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
+
         // Search MM entries by text content or title
         let rows: Vec<(String, Option<String>, Option<String>, Option<f32>, String)> =
             sqlx::query_as(
@@ -408,12 +430,13 @@ impl MemoryFusionService {
             .bind(&pattern)
             .bind(query)
             .bind(limit)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to query MM: {}", e);
                 AppError::Internal(format!("MM query failed: {}", e))
             })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -443,16 +466,19 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct context_sessions count — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM context_sessions WHERE user_id LIKE $1 AND status = 'active'",
         )
         .bind(&pattern)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count STM: {}", e);
             AppError::Internal(format!("STM count failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
@@ -461,16 +487,19 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct knowledge_entries count — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1 AND status = 'active'",
         )
         .bind(&pattern)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count LTM: {}", e);
             AppError::Internal(format!("LTM count failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
@@ -479,29 +508,40 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct entities count — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM entities WHERE entity_id LIKE $1 AND status = 'active'",
         )
         .bind(&pattern)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count KG: {}", e);
             AppError::Internal(format!("KG count failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
 
-    async fn count_mm(pool: &sqlx::PgPool) -> Result<i64, AppError> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active'")
-                .fetch_one(pool)
-                .await
-                .map_err(|e| {
-                    error!("Failed to count MM: {}", e);
-                    AppError::Internal(format!("MM count failed: {}", e))
-                })?;
+    async fn count_mm(pool: &sqlx::PgPool, tenant_id: &TenantId) -> Result<i64, AppError> {
+        // RLS: run inside a tenant-scoped tx so the physical tenant_id policy applies.
+        // The content_metadata JSON predicate stays as the dev/superuser fallback,
+        // since MM historically scoped by that field rather than an id prefix.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active' \
+             AND COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $1",
+        )
+        .bind(tenant_id.as_str())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            error!("Failed to count MM: {}", e);
+            AppError::Internal(format!("MM count failed: {}", e))
+        })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }

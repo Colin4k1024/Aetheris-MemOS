@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::FromRow;
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
+use crate::db::tenant_scope::begin_tenant_tx;
+use crate::tenant::TenantId;
 use crate::AppError;
 
 /// 多模态记忆仓库
@@ -19,6 +21,29 @@ fn normalize_tenant_id(tenant_id: Option<&str>) -> Option<&str> {
             Some(trimmed)
         }
     })
+}
+
+/// Open a tenant-scoped transaction (RLS keystone) when a tenant id is present.
+///
+/// MM's public methods take `Option<&str>`; a concrete tenant means "run every
+/// statement inside `begin_tenant_tx` so PostgreSQL RLS enforces isolation at the
+/// DB layer". `None` is the admin / cross-tenant path (e.g. `data_io` export):
+/// it runs on the plain pool with no GUC, so RLS fail-closes it to zero rows under
+/// a restricted role and only an owner/BYPASSRLS connection sees across tenants.
+///
+/// Returning `None` (rather than erroring) keeps the application-layer JSON
+/// (`content_metadata ->> 'tenant_id'`) filter as the effective guard in the stock
+/// dev image, which connects as a superuser where RLS is a NO-OP.
+async fn begin_optional_tenant_tx<'a>(
+    pool: &'a PgPool,
+    tenant_id: Option<&str>,
+) -> Result<Option<Transaction<'a, Postgres>>, AppError> {
+    match normalize_tenant_id(tenant_id) {
+        Some(tenant) => Ok(Some(
+            begin_tenant_tx(pool, &TenantId::from_string(tenant)).await?,
+        )),
+        None => Ok(None),
+    }
 }
 
 fn scope_prefixed_id(tenant_id: Option<&str>, value: &str, scope: Option<&str>) -> String {
@@ -136,17 +161,25 @@ impl MMRepository {
     ) -> Result<String, AppError> {
         let entry_id = Ulid::new().to_string();
         let pool = pool();
+        let tenant_id = normalize_tenant_id(tenant_id);
         let scoped_session_id =
             session_id.map(|value| scope_prefixed_id(tenant_id, value, Some("session")));
         let scoped_source_id = scope_prefixed_id(tenant_id, source_id, None);
         let content_metadata = merge_content_metadata(content_metadata, tenant_id)?;
 
-        sqlx::query(
+        // RLS: open a tenant-scoped transaction so the write is enforced at the DB
+        // layer (WITH CHECK on the physical tenant_id column) — not just via the
+        // content_metadata JSON tenant or the source_id prefix. `None` tenant runs on
+        // the plain pool (admin path); RLS fail-closes it to zero rows / a NOT NULL
+        // violation under a restricted role.
+        let mut maybe_tx = begin_optional_tenant_tx(pool, tenant_id).await?;
+
+        let query = sqlx::query(
             r#"
             INSERT INTO multimodal_entries (
                 entry_id, session_id, source_id, modality_type, content_metadata,
-                text_content, image_url, audio_url, video_url
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                text_content, image_url, audio_url, video_url, tenant_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(&entry_id)
@@ -158,12 +191,23 @@ impl MMRepository {
         .bind(image_url)
         .bind(audio_url)
         .bind(video_url)
-        .execute(pool)
-        .await
-        .map_err(|e| {
+        .bind(tenant_id);
+
+        let exec_result = match maybe_tx {
+            Some(ref mut tx) => query.execute(&mut **tx).await,
+            None => query.execute(pool).await,
+        };
+        exec_result.map_err(|e| {
             error!("Failed to create multimodal entry: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.map_err(|e| {
+                error!("Failed to commit create_entry transaction: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+        }
 
         info!("Created multimodal entry: entry_id={}", entry_id);
         Ok(entry_id)
@@ -176,15 +220,17 @@ impl MMRepository {
     ) -> Result<Option<MultimodalEntry>, AppError> {
         let pool = pool();
         let tenant_id = normalize_tenant_id(tenant_id);
+        let mut maybe_tx = begin_optional_tenant_tx(pool, tenant_id).await?;
 
-        let entry = sqlx::query_as::<_, MultimodalEntry>(
+        let query = sqlx::query_as::<_, MultimodalEntry>(
             r#"
             SELECT entry_id, session_id, source_id, modality_type, modality_count,
                    title, description, content_metadata, text_content, text_embedding,
                    image_url, image_embedding, image_features, audio_url, audio_embedding,
                    audio_transcript, audio_features, video_url, video_embedding,
                    video_transcript, video_features, cross_modal_alignment, unified_embedding,
-                   created_at, updated_at, quality_score, modality_consistency,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   quality_score, modality_consistency,
                    access_count, success_count, status
             FROM multimodal_entries
                         WHERE entry_id = $1
@@ -193,18 +239,25 @@ impl MMRepository {
             "#,
         )
         .bind(entry_id)
-                .bind(tenant_id)
-        .fetch_optional(pool)
-        .await
+        .bind(tenant_id);
+
+        let entry = match maybe_tx {
+            Some(ref mut tx) => query.fetch_optional(&mut **tx).await,
+            None => query.fetch_optional(pool).await,
+        }
         .map_err(|e| {
             error!("Failed to get multimodal entry: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.ok();
+        }
+
         Ok(entry)
     }
 
-    /// 更新多模态记忆条目
+    /// 更新多模态记忆条目（租户隔离）
     pub async fn update_entry(
         entry_id: &str,
         title: Option<&str>,
@@ -214,10 +267,15 @@ impl MMRepository {
         audio_embedding: Option<&str>,
         video_embedding: Option<&str>,
         unified_embedding: Option<&str>,
+        tenant_id: Option<&str>,
     ) -> Result<(), AppError> {
         let pool = pool();
+        let tenant_id = normalize_tenant_id(tenant_id);
+        let mut maybe_tx = begin_optional_tenant_tx(pool, tenant_id).await?;
 
-        sqlx::query(
+        // Double-write the physical tenant_id (COALESCE so we never overwrite an
+        // already-attributed value) to keep rows created before RLS consistent.
+        let query = sqlx::query(
             r#"
             UPDATE multimodal_entries
             SET title = COALESCE($1, title),
@@ -226,8 +284,10 @@ impl MMRepository {
                 image_embedding = COALESCE($4, image_embedding),
                 audio_embedding = COALESCE($5, audio_embedding),
                 video_embedding = COALESCE($6, video_embedding),
-                unified_embedding = COALESCE($7, unified_embedding)
+                unified_embedding = COALESCE($7, unified_embedding),
+                tenant_id = COALESCE(tenant_id, $9)
             WHERE entry_id = $8
+              AND ($9::text IS NULL OR COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $9)
             "#,
         )
         .bind(title)
@@ -238,12 +298,23 @@ impl MMRepository {
         .bind(video_embedding)
         .bind(unified_embedding)
         .bind(entry_id)
-        .execute(pool)
-        .await
-        .map_err(|e| {
+        .bind(tenant_id);
+
+        let exec_result = match maybe_tx {
+            Some(ref mut tx) => query.execute(&mut **tx).await,
+            None => query.execute(pool).await,
+        };
+        exec_result.map_err(|e| {
             error!("Failed to update multimodal entry: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.map_err(|e| {
+                error!("Failed to commit update_entry transaction: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+        }
 
         info!("Updated multimodal entry: entry_id={}", entry_id);
         Ok(())
@@ -256,31 +327,44 @@ impl MMRepository {
         tenant_id: Option<&str>,
     ) -> Result<Vec<MultimodalEntry>, AppError> {
         let pool = pool();
+        let tenant_id = normalize_tenant_id(tenant_id);
         let scoped_session_id = scope_prefixed_id(tenant_id, session_id, Some("session"));
+        let mut maybe_tx = begin_optional_tenant_tx(pool, tenant_id).await?;
 
-        let entries = sqlx::query_as::<_, MultimodalEntry>(
+        let query = sqlx::query_as::<_, MultimodalEntry>(
             r#"
             SELECT entry_id, session_id, source_id, modality_type, modality_count,
                    title, description, content_metadata, text_content, text_embedding,
                    image_url, image_embedding, image_features, audio_url, audio_embedding,
                    audio_transcript, audio_features, video_url, video_embedding,
                    video_transcript, video_features, cross_modal_alignment, unified_embedding,
-                   created_at, updated_at, quality_score, modality_consistency,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   quality_score, modality_consistency,
                    access_count, success_count, status
             FROM multimodal_entries
-            WHERE session_id = $1 AND status = 'active'
+            WHERE session_id = $1
+              AND status = 'active'
+              AND ($3::text IS NULL OR COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $3)
             ORDER BY created_at DESC
             LIMIT $2
             "#,
         )
         .bind(scoped_session_id)
         .bind(limit.unwrap_or(10))
-        .fetch_all(pool)
-        .await
+        .bind(tenant_id);
+
+        let entries = match maybe_tx {
+            Some(ref mut tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(pool).await,
+        }
         .map_err(|e| {
             error!("Failed to get multimodal entries by session: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.ok();
+        }
 
         info!(
             "Retrieved {} multimodal entries for session: session_id={}",
@@ -298,15 +382,17 @@ impl MMRepository {
     ) -> Result<Vec<MultimodalEntry>, AppError> {
         let pool = pool();
         let tenant_id = normalize_tenant_id(tenant_id);
+        let mut maybe_tx = begin_optional_tenant_tx(pool, tenant_id).await?;
 
-        let entries = sqlx::query_as::<_, MultimodalEntry>(
+        let query = sqlx::query_as::<_, MultimodalEntry>(
             r#"
             SELECT entry_id, session_id, source_id, modality_type, modality_count,
                    title, description, content_metadata, text_content, text_embedding,
                    image_url, image_embedding, image_features, audio_url, audio_embedding,
                    audio_transcript, audio_features, video_url, video_embedding,
                    video_transcript, video_features, cross_modal_alignment, unified_embedding,
-                   created_at, updated_at, quality_score, modality_consistency,
+                   created_at::text as created_at, updated_at::text as updated_at,
+                   quality_score, modality_consistency,
                    access_count, success_count, status
             FROM multimodal_entries
                         WHERE modality_type = $1
@@ -317,14 +403,21 @@ impl MMRepository {
             "#,
         )
         .bind(modality_type)
-                .bind(tenant_id)
-        .bind(limit.unwrap_or(10))
-        .fetch_all(pool)
-        .await
+        .bind(tenant_id)
+        .bind(limit.unwrap_or(10));
+
+        let entries = match maybe_tx {
+            Some(ref mut tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(pool).await,
+        }
         .map_err(|e| {
             error!("Failed to get multimodal entries by modality: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.ok();
+        }
 
         info!(
             "Retrieved {} multimodal entries for modality: modality_type={}",
@@ -366,13 +459,19 @@ impl MMRepository {
 
         let relation_id = Ulid::new().to_string();
         let pool = pool();
+        let tenant_id = normalize_tenant_id(tenant_id);
 
-        sqlx::query(
+        // RLS: run the insert inside the tenant tx (WITH CHECK on the physical
+        // tenant_id column) and double-write tenant_id derived from the (validated)
+        // entries' tenant.
+        let mut maybe_tx = begin_optional_tenant_tx(pool, tenant_id).await?;
+
+        let query = sqlx::query(
             r#"
             INSERT INTO modality_relations (
                 relation_id, source_entry_id, target_entry_id, relation_type,
-                relation_strength, relation_confidence, description
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                relation_strength, relation_confidence, description, tenant_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
         .bind(&relation_id)
@@ -382,12 +481,23 @@ impl MMRepository {
         .bind(relation_strength)
         .bind(relation_confidence)
         .bind(description)
-        .execute(pool)
-        .await
-        .map_err(|e| {
+        .bind(tenant_id);
+
+        let exec_result = match maybe_tx {
+            Some(ref mut tx) => query.execute(&mut **tx).await,
+            None => query.execute(pool).await,
+        };
+        exec_result.map_err(|e| {
             error!("Failed to create modality relation: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.map_err(|e| {
+                error!("Failed to commit create_relation transaction: {}", e);
+                AppError::Internal(format!("Database error: {}", e))
+            })?;
+        }
 
         info!("Created modality relation: relation_id={}", relation_id);
         Ok(relation_id)
@@ -404,11 +514,15 @@ impl MMRepository {
         }
 
         let pool = pool();
+        let normalized_tenant = normalize_tenant_id(tenant_id);
+        let mut maybe_tx = begin_optional_tenant_tx(pool, normalized_tenant).await?;
 
-        let relations = sqlx::query_as::<_, ModalityRelation>(
+        let query = sqlx::query_as::<_, ModalityRelation>(
             r#"
             SELECT relation_id, source_entry_id, target_entry_id, relation_type,
-                   relation_strength, relation_confidence, created_at, metadata, description
+                   relation_strength::float8 as relation_strength,
+                   relation_confidence::float8 as relation_confidence,
+                   created_at::text as created_at, metadata, description
             FROM modality_relations
             WHERE source_entry_id = $1 OR target_entry_id = $2
             ORDER BY relation_strength DESC, relation_confidence DESC
@@ -417,13 +531,20 @@ impl MMRepository {
         )
         .bind(entry_id)
         .bind(entry_id)
-        .bind(limit.unwrap_or(5))
-        .fetch_all(pool)
-        .await
+        .bind(limit.unwrap_or(5));
+
+        let relations = match maybe_tx {
+            Some(ref mut tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(pool).await,
+        }
         .map_err(|e| {
             error!("Failed to get modality relations: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.ok();
+        }
 
         let mut result = Vec::new();
         for relation in relations {
@@ -447,7 +568,14 @@ impl MMRepository {
         Ok(result)
     }
 
-    /// 获取多模态记忆条目总数
+    /// 获取多模态记忆条目总数（全局，跨租户）
+    ///
+    /// ⚠️ ADMIN/UNSCOPED EXCEPTION: this counts across all tenants and takes an
+    /// explicit pool rather than opening a tenant-scoped transaction. Once RLS is
+    /// enforced it only returns rows visible to the connection — zero under a
+    /// restricted app role, the true global total only under an owner/BYPASSRLS
+    /// connection. It has no production callers today; per-tenant counts must use
+    /// `list_entries` (or `memory_fusion::count_mm`) so RLS applies.
     pub async fn count(pool: &sqlx::PgPool) -> Result<i64, AppError> {
         let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM multimodal_entries")
             .fetch_one(pool)
@@ -472,8 +600,13 @@ impl MMRepository {
         let offset = offset.unwrap_or(0);
         let tenant_id = normalize_tenant_id(tenant_id);
 
+        // RLS: a single tenant-scoped tx spans both the page query and its COUNT so
+        // they see a consistent, tenant-isolated snapshot. `None` tenant is the admin
+        // path (plain pool), fail-closed under a restricted role.
+        let mut maybe_tx = begin_optional_tenant_tx(pool, tenant_id).await?;
+
         let (entries, total): (Vec<MultimodalEntry>, (i64,)) = if let Some(mt) = modality_type {
-            let entries = sqlx::query_as::<_, MultimodalEntry>(
+            let entries_query = sqlx::query_as::<_, MultimodalEntry>(
                 r#"
                 SELECT entry_id, session_id, source_id, modality_type, modality_count,
                        title, description, content_metadata, text_content, text_embedding,
@@ -492,30 +625,34 @@ impl MMRepository {
                 "#,
             )
             .bind(mt)
-                        .bind(tenant_id)
+            .bind(tenant_id)
             .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await
+            .bind(offset);
+            let entries = match maybe_tx {
+                Some(ref mut tx) => entries_query.fetch_all(&mut **tx).await,
+                None => entries_query.fetch_all(pool).await,
+            }
             .map_err(|e| {
                 error!("Failed to list multimodal entries: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-            let total = sqlx::query_as::<_, (i64,)>(
+            let count_query = sqlx::query_as::<_, (i64,)>(
                 "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active' AND modality_type = $1 AND ($2::text IS NULL OR COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $2)",
             )
             .bind(mt)
-            .bind(tenant_id)
-            .fetch_one(pool)
-            .await
+            .bind(tenant_id);
+            let total = match maybe_tx {
+                Some(ref mut tx) => count_query.fetch_one(&mut **tx).await,
+                None => count_query.fetch_one(pool).await,
+            }
             .map_err(|e| {
                 error!("Failed to count multimodal entries: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
             (entries, total)
         } else {
-            let entries = sqlx::query_as::<_, MultimodalEntry>(
+            let entries_query = sqlx::query_as::<_, MultimodalEntry>(
                 r#"
                 SELECT entry_id, session_id, source_id, modality_type, modality_count,
                        title, description, content_metadata, text_content, text_embedding,
@@ -532,28 +669,36 @@ impl MMRepository {
                                 LIMIT $2 OFFSET $3
                 "#,
             )
-                        .bind(tenant_id)
+            .bind(tenant_id)
             .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await
+            .bind(offset);
+            let entries = match maybe_tx {
+                Some(ref mut tx) => entries_query.fetch_all(&mut **tx).await,
+                None => entries_query.fetch_all(pool).await,
+            }
             .map_err(|e| {
                 error!("Failed to list multimodal entries: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
 
-            let total = sqlx::query_as::<_, (i64,)>(
+            let count_query = sqlx::query_as::<_, (i64,)>(
                 "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active' AND ($1::text IS NULL OR COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $1)",
             )
-            .bind(tenant_id)
-            .fetch_one(pool)
-            .await
+            .bind(tenant_id);
+            let total = match maybe_tx {
+                Some(ref mut tx) => count_query.fetch_one(&mut **tx).await,
+                None => count_query.fetch_one(pool).await,
+            }
             .map_err(|e| {
                 error!("Failed to count multimodal entries: {}", e);
                 AppError::Internal(format!("Database error: {}", e))
             })?;
             (entries, total)
         };
+
+        if let Some(tx) = maybe_tx {
+            tx.commit().await.ok();
+        }
 
         Ok(MultimodalEntryListResponse {
             entries,

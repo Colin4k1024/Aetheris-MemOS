@@ -72,25 +72,25 @@ pub struct StoredSignal {
 /// Uses a broadcast channel to allow multiple subscribers to receive
 /// signals for specific workflows.
 pub struct SignalingBus {
-    sender: Sender<WorkflowSignal>,
     /// Event store: parent_workflow_id -> Vec<StoredSignal>
     event_store: Arc<RwLock<HashMap<String, Vec<StoredSignal>>>>,
-    /// Subscription map: workflow_id -> Vec<Sender<WorkflowSignal>>
-    subscriptions: Arc<RwLock<HashMap<String, Vec<Sender<WorkflowSignal>>>>>,
+    /// Per-workflow broadcast channels, keyed by the workflow a signal targets
+    /// (`WorkflowSignal::workflow_id`). A subscriber only receives signals aimed
+    /// at its own workflow_id, never another workflow's.
+    subscriptions: Arc<RwLock<HashMap<String, Sender<WorkflowSignal>>>>,
 }
 
 impl SignalingBus {
     /// Create a new signaling bus.
     pub fn new() -> Self {
-        let (sender, _) = broadcast::channel(1024);
         Self {
-            sender,
             event_store: Arc::new(RwLock::new(HashMap::new())),
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    /// Publish a signal to the bus, storing it and broadcasting to subscribers.
+    /// Publish a signal to the bus, storing it and delivering it only to
+    /// subscribers of the workflow the signal targets.
     pub fn publish(&self, signal: WorkflowSignal, parent_workflow_id: &str) {
         let metadata = SignalMetadata {
             parent_workflow_id: parent_workflow_id.to_string(),
@@ -112,21 +112,22 @@ impl SignalingBus {
                 .push(stored);
         }
 
-        // Broadcast to all subscribers
-        let _ = self.sender.send(signal);
+        // Route only to subscribers of the targeted workflow (no cross-talk).
+        if let Some(target) = signal.workflow_id().map(|s| s.to_string()) {
+            let subs = self.subscriptions.read().unwrap();
+            if let Some(sender) = subs.get(&target) {
+                let _ = sender.send(signal);
+            }
+        }
     }
 
-    /// Subscribe to signals for a specific workflow.
-    /// Returns a receiver that will receive signals for the workflow.
+    /// Subscribe to signals targeting a specific workflow.
+    /// Returns a receiver that only yields signals whose `workflow_id` matches.
     pub fn subscribe(&self, workflow_id: &str) -> Receiver<WorkflowSignal> {
-        let rx = self.sender.subscribe();
-
         let mut subs = self.subscriptions.write().unwrap();
         subs.entry(workflow_id.to_string())
-            .or_insert_with(Vec::new)
-            .push(self.sender.clone());
-
-        rx
+            .or_insert_with(|| broadcast::channel(1024).0)
+            .subscribe()
     }
 
     /// Get all signals for a parent workflow.
@@ -170,30 +171,29 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_signal_publish_and_subscribe() {
+    async fn test_signal_routed_to_target_workflow() {
         let bus = SignalingBus::new();
 
-        // Subscribe to a workflow
-        let mut rx = bus.subscribe("workflow-1");
+        // Subscribe by the workflow the signal targets.
+        let mut rx = bus.subscribe("child-1");
 
-        // Publish a signal
         let signal = WorkflowSignal::SubagentSpawn {
             child_workflow_id: "child-1".to_string(),
         };
         bus.publish(signal.clone(), "workflow-1");
 
-        // Receive should get the signal
+        // The targeted subscriber receives it.
         let received = rx.recv().await.unwrap();
         assert!(matches!(received, WorkflowSignal::SubagentSpawn { .. }));
 
-        // Verify stored signals
+        // Stored under the publishing parent for querying.
         let signals = bus.get_parent_signals("workflow-1");
         assert_eq!(signals.len(), 1);
         assert_eq!(signals[0].1.parent_workflow_id, "workflow-1");
     }
 
     #[tokio::test]
-    async fn test_multiple_subscribers() {
+    async fn test_multiple_subscribers_same_workflow() {
         let bus = SignalingBus::new();
 
         let mut rx1 = bus.subscribe("workflow-1");
@@ -206,12 +206,30 @@ mod tests {
             "parent-1",
         );
 
-        // Both receivers should get the signal
+        // Both receivers on the same workflow get the signal.
         let received1 = rx1.recv().await.unwrap();
         let received2 = rx2.recv().await.unwrap();
 
         assert!(matches!(received1, WorkflowSignal::SubagentWake { .. }));
         assert!(matches!(received2, WorkflowSignal::SubagentWake { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_signal_not_delivered_to_other_workflow() {
+        let bus = SignalingBus::new();
+
+        let mut rx_a = bus.subscribe("workflow-A");
+        let _rx_b = bus.subscribe("workflow-B"); // keep B's channel alive
+
+        // Terminate targets workflow-B; workflow-A must not receive it.
+        bus.publish(
+            WorkflowSignal::SubagentTerminate {
+                workflow_id: "workflow-B".to_string(),
+            },
+            "parent-1",
+        );
+
+        assert!(rx_a.try_recv().is_err());
     }
 
     #[test]

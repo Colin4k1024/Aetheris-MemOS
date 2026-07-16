@@ -9,7 +9,13 @@ pub struct MultimodalMemoryService;
 
 impl MultimodalMemoryService {
     /// 存储多模态记忆
+    ///
+    /// `tenant_id` is threaded through to `MMRepository` so every read/write runs inside
+    /// a tenant-scoped transaction (RLS keystone). This service has no callers in `src/`
+    /// today; passing the tenant (rather than the previous hardcoded `None`) keeps it
+    /// RLS-safe rather than a latent cross-tenant fail-close if it is ever wired up.
     #[instrument]
+    #[allow(clippy::too_many_arguments)]
     pub async fn store_multimodal_memory(
         session_id: Option<&str>,
         source_id: &str,
@@ -19,6 +25,7 @@ impl MultimodalMemoryService {
         image_url: Option<&str>,
         audio_url: Option<&str>,
         video_url: Option<&str>,
+        tenant_id: Option<&str>,
     ) -> Result<String, crate::AppError> {
         info!(
             "Storing multimodal memory: modality_type={}, source_id={}",
@@ -35,7 +42,7 @@ impl MultimodalMemoryService {
             image_url,
             audio_url,
             video_url,
-            None,
+            tenant_id,
         )
         .await?;
 
@@ -65,6 +72,7 @@ impl MultimodalMemoryService {
                 None,
                 None,
                 None,
+                tenant_id,
             )
             .await?;
         }
@@ -80,10 +88,11 @@ impl MultimodalMemoryService {
     #[instrument]
     pub async fn get_multimodal_memory(
         entry_id: &str,
+        tenant_id: Option<&str>,
     ) -> Result<Option<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!("Getting multimodal memory: entry_id={}", entry_id);
 
-        let entry = MMRepository::get_entry_by_id(entry_id, None).await?;
+        let entry = MMRepository::get_entry_by_id(entry_id, tenant_id).await?;
 
         if let Some(e) = &entry {
             info!(
@@ -102,13 +111,14 @@ impl MultimodalMemoryService {
     pub async fn get_multimodal_memories_by_session(
         session_id: &str,
         limit: Option<i32>,
+        tenant_id: Option<&str>,
     ) -> Result<Vec<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!(
             "Getting multimodal memories by session: session_id={}",
             session_id
         );
 
-        let entries = MMRepository::get_entries_by_session(session_id, limit, None).await?;
+        let entries = MMRepository::get_entries_by_session(session_id, limit, tenant_id).await?;
 
         info!(
             "Retrieved {} multimodal memories for session: session_id={}",
@@ -123,13 +133,15 @@ impl MultimodalMemoryService {
     pub async fn get_multimodal_memories_by_modality(
         modality_type: &str,
         limit: Option<i32>,
+        tenant_id: Option<&str>,
     ) -> Result<Vec<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!(
             "Getting multimodal memories by modality: modality_type={}",
             modality_type
         );
 
-        let entries = MMRepository::get_entries_by_modality(modality_type, limit, None).await?;
+        let entries =
+            MMRepository::get_entries_by_modality(modality_type, limit, tenant_id).await?;
 
         info!(
             "Retrieved {} multimodal memories for modality: modality_type={}",
@@ -144,6 +156,7 @@ impl MultimodalMemoryService {
     pub async fn get_related_multimodal_memories(
         entry_id: &str,
         limit: Option<i32>,
+        tenant_id: Option<&str>,
     ) -> Result<
         Vec<(
             crate::db::mm::MultimodalEntry,
@@ -153,7 +166,7 @@ impl MultimodalMemoryService {
     > {
         info!("Getting related multimodal memories: entry_id={}", entry_id);
 
-        let related_entries = MMRepository::get_related_entries(entry_id, limit, None).await?;
+        let related_entries = MMRepository::get_related_entries(entry_id, limit, tenant_id).await?;
 
         info!(
             "Retrieved {} related multimodal memories: entry_id={}",
@@ -165,6 +178,7 @@ impl MultimodalMemoryService {
 
     /// 创建多模态记忆关联
     #[instrument]
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_multimodal_relation(
         source_entry_id: &str,
         target_entry_id: &str,
@@ -172,6 +186,7 @@ impl MultimodalMemoryService {
         relation_strength: f64,
         relation_confidence: f64,
         description: Option<&str>,
+        tenant_id: Option<&str>,
     ) -> Result<String, crate::AppError> {
         info!(
             "Creating multimodal relation: source={}, target={}, type={}",
@@ -185,7 +200,7 @@ impl MultimodalMemoryService {
             relation_strength,
             relation_confidence,
             description,
-            None,
+            tenant_id,
         )
         .await?;
 

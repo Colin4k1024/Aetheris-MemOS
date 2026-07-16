@@ -38,7 +38,10 @@ host = "localhost"
 port = 6334
 collection_name = "long_term_memory"
 vector_dimension = 768
-distance_type = "Euclid"
+# Cosine matches the retrieval layer (higher score = more similar, in [0,1]).
+# NOTE: changing this on an existing collection has no effect until the collection
+# is dropped and recreated — Qdrant fixes the distance metric at creation time.
+distance_type = "Cosine"
 
 [rerank]
 # Rerank 重排序配置

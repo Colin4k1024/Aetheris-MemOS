@@ -35,9 +35,7 @@ pub fn a2a_router(base_url: String, handler: Arc<A2AHandler>) -> Router {
         .with_state(state)
 }
 
-async fn get_agent_card(
-    State(state): State<A2AState>,
-) -> Json<Value> {
+async fn get_agent_card(State(state): State<A2AState>) -> Json<Value> {
     let card = create_agent_card(&state.base_url);
     Json(serde_json::to_value(card).unwrap_or_else(|_| json!({})))
 }
@@ -138,27 +136,22 @@ async fn handle_jsonrpc(
     }
 }
 
-async fn handle_send_message(
-    state: A2AState,
-    params: Option<Value>,
-) -> Result<Value, String> {
+async fn handle_send_message(state: A2AState, params: Option<Value>) -> Result<Value, String> {
     let params = params.ok_or("Missing parameters")?;
-    let request: a2a::types::SendMessageRequest = serde_json::from_value(params)
-        .map_err(|e| format!("Invalid request: {}", e))?;
-    
+    let request: a2a::types::SendMessageRequest =
+        serde_json::from_value(params).map_err(|e| format!("Invalid request: {}", e))?;
+
     let response = state.handler.handle_message(request).await?;
     serde_json::to_value(response).map_err(|e| format!("Serialization error: {}", e))
 }
 
-async fn handle_get_task_rpc(
-    _state: A2AState,
-    params: Option<Value>,
-) -> Result<Value, String> {
+async fn handle_get_task_rpc(_state: A2AState, params: Option<Value>) -> Result<Value, String> {
     let params = params.ok_or("Missing parameters")?;
-    let task_id = params.get("id")
+    let task_id = params
+        .get("id")
         .and_then(|v| v.as_str())
         .ok_or("Missing task ID")?;
-    
+
     Ok(json!({
         "id": task_id,
         "status": {
@@ -173,7 +166,9 @@ async fn handle_rest_message(
     Json(request): Json<a2a::types::SendMessageRequest>,
 ) -> Result<Json<Value>, StatusCode> {
     match state.handler.handle_message(request).await {
-        Ok(response) => Ok(Json(serde_json::to_value(response).unwrap_or_else(|_| json!({})))),
+        Ok(response) => Ok(Json(
+            serde_json::to_value(response).unwrap_or_else(|_| json!({})),
+        )),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
@@ -191,9 +186,7 @@ async fn handle_get_task(
     }))
 }
 
-async fn handle_list_tasks(
-    State(_state): State<A2AState>,
-) -> Json<Value> {
+async fn handle_list_tasks(State(_state): State<A2AState>) -> Json<Value> {
     Json(json!({
         "tasks": []
     }))
@@ -202,7 +195,9 @@ async fn handle_list_tasks(
 async fn handle_stream_message(
     State(state): State<A2AState>,
     Json(request): Json<a2a::types::SendMessageRequest>,
-) -> axum::response::Sse<impl futures::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+) -> axum::response::Sse<
+    impl futures::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+> {
     use axum::response::sse::Event;
     use futures::stream::StreamExt;
 

@@ -1,9 +1,12 @@
 /// 策略变异服务 — Issue #55
 ///
-/// 基于历史性能指标自动调整 WeightStrategy 超参数，
-/// 实现自适应进化（greedy hill-climbing + random perturbation 混合）。
+/// ⚠️ P0 状态：自动守护已在 main.rs 停用（DISABLED）。
+/// 本模块产出（`current_hyperparams` / `BEST_PARAMS`）当前**无任何消费方**——
+/// scheduler / predictor 均不读取；启发式 `estimate_candidate_score` 也非实测拟合。
+/// 保留为 P3「自适应核心」候选：届时需先让 scheduler 真正消费学习到的超参数，
+/// 再重新启用守护。手动 `run_mutation_cycle()` 可用于离线实验。
 ///
-/// 工作机制：
+/// 工作机制（设计意图，尚未接入决策链路）：
 /// 1. 从数据库读取近 N 窗口的性能指标（accuracy, coherence, response_time）
 /// 2. 计算当前权重配置的综合评分
 /// 3. 生成若干候选突变（小幅随机扰动 ± delta）

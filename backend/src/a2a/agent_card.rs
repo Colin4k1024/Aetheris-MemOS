@@ -1,5 +1,5 @@
-use a2a::agent_card::{AgentCard, AgentProvider, AgentCapabilities, AgentSkill, AgentInterface};
-use a2a::types::{TRANSPORT_PROTOCOL_JSONRPC, TRANSPORT_PROTOCOL_HTTP_JSON};
+use a2a::agent_card::{AgentCapabilities, AgentCard, AgentInterface, AgentProvider, AgentSkill};
+use a2a::types::{TRANSPORT_PROTOCOL_HTTP_JSON, TRANSPORT_PROTOCOL_JSONRPC};
 
 pub fn create_agent_card(base_url: &str) -> AgentCard {
     AgentCard {

@@ -1,4 +1,5 @@
 //! A2A Protocol Integration Tests
+#![cfg(feature = "a2a")]
 
 use axum::{
     body::{self, Body},
@@ -32,7 +33,9 @@ async fn test_agent_card_endpoint() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body_bytes = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let card: Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert_eq!(card["name"], "Aetheris MemOS");
@@ -75,7 +78,9 @@ async fn test_jsonrpc_send_message() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body_bytes = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let result: Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert_eq!(result["jsonrpc"], "2.0");
@@ -108,7 +113,9 @@ async fn test_jsonrpc_invalid_method() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body_bytes = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let result: Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert_eq!(result["jsonrpc"], "2.0");
@@ -146,7 +153,9 @@ async fn test_rest_send_message() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body_bytes = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let result: Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert!(result["task"].is_object() || result["message"].is_object());
@@ -168,7 +177,9 @@ async fn test_get_task() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body_bytes = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let result: Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert_eq!(result["id"], "test-task-123");
@@ -191,7 +202,9 @@ async fn test_list_tasks() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body_bytes = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let result: Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert!(result["tasks"].is_array());

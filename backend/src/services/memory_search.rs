@@ -457,6 +457,9 @@ impl MemorySearchService {
         // 实际应用中应该使用SQLite的全文搜索扩展（FTS5）
         let query_with_wildcards = format!("%{query}%");
 
+        // RLS: this path queries knowledge_entries directly (not via LTMRepository),
+        // so it must run inside a tenant-scoped tx or RLS would fail-close it.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(db_pool, tenant_id).await?;
         let rows = sqlx::query_as::<_, (String, f64)>(
             r#"
             SELECT entry_id,
@@ -479,12 +482,13 @@ impl MemorySearchService {
         .bind(&query_with_wildcards)
         .bind(&tenant_source_pattern)
         .bind(limit_i32)
-        .fetch_all(db_pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to perform keyword search: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         // 进一步优化：如果查询包含多个关键词，增加匹配多个关键词的条目的分数
         let keywords: Vec<&str> = query.split_whitespace().collect();

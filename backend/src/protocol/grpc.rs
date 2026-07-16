@@ -1,6 +1,10 @@
-//! gRPC Protocol Definition
+//! gRPC Protocol Definition — NOT IMPLEMENTED (pending P2).
 //!
-//! This module provides gRPC service definitions for the Memory Kernel.
+//! This module only holds hand-written Rust structs that mirror what a protobuf
+//! codegen *would* produce. There is no tonic server/client wired anywhere — all
+//! `Grpc*` types below have zero consumers (verified). Kept as a P2 starting point;
+//! do not treat as a working gRPC surface.
+#![allow(dead_code)]
 
 /// gRPC service definition for Memory Kernel.
 ///

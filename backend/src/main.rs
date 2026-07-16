@@ -6,6 +6,7 @@ use tokio::signal;
 use tracing::info;
 use utoipa::ToSchema;
 
+#[cfg(feature = "a2a")]
 mod a2a;
 mod agent;
 mod axum_routers;
@@ -51,6 +52,13 @@ async fn main() {
     crate::config::init();
     let config = crate::config::get();
 
+    // Fail-fast if auth is enabled but the JWT secret is a placeholder/too weak.
+    // Skipped when jwt.disabled is set (explicit local/dev mode).
+    if let Err(e) = crate::config::validate_jwt_security(config) {
+        eprintln!("[startup] {e}");
+        std::process::exit(1);
+    }
+
     // Initialize tracing subscriber (fmt + optional OTLP) before any tracing:: calls.
     // The guard must be held for the process lifetime — dropping it flushes spans.
     let _tracing_guard = otel::init_tracing(&config.log, &config.otel);
@@ -81,12 +89,23 @@ async fn main() {
     crate::services::information_guard::init_write_journal();
     crate::services::information_guard::init_integrity_scanner();
 
-    // Issue #55: start adaptive strategy mutation daemon
-    if crate::services::strategy_mutator::MutationConfig::default().auto_mutate {
-        crate::services::strategy_mutator::StrategyMutator::init_mutation_daemon(
-            crate::services::strategy_mutator::MutationConfig::default(),
-        );
+    // P1 governance: start the best-effort async audit writer (PostgreSQL only).
+    // Mirrors the is_sqlite() gating of the write_queue above.
+    if crate::db::is_postgres() {
+        crate::services::audit_writer::init_audit_writer();
     }
+
+    // Issue #55: adaptive strategy mutation daemon — DISABLED (P0 cleanup).
+    // The mutator runs a heuristic hill-climb but its output
+    // (strategy_mutator::current_hyperparams / BEST_PARAMS) is consumed by nothing —
+    // scheduler/predictor never read it — so running it only emits misleading
+    // "self-optimizing" logs. Re-enable in P3 once the scheduler actually consumes
+    // learned hyperparameters. Manual run_mutation_cycle() remains available.
+    // if crate::services::strategy_mutator::MutationConfig::default().auto_mutate {
+    //     crate::services::strategy_mutator::StrategyMutator::init_mutation_daemon(
+    //         crate::services::strategy_mutator::MutationConfig::default(),
+    //     );
+    // }
 
     // Issue #61: initialize distributed epoch manager and interrupt propagator
     crate::axum_routers::distributed::init_distributed();
@@ -99,7 +118,6 @@ async fn main() {
     crate::db::init_neo4j_indexes()
         .await
         .expect("Failed to initialize Neo4j indexes");
-    tracing::info!("Neo4j indexes and constraints initialized successfully");
 
     tracing::info!("log level: {}", &config.log.filter_level);
 

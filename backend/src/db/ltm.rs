@@ -4,6 +4,7 @@ use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
+use crate::db::tenant_scope::begin_tenant_tx;
 use crate::tenant::TenantId;
 use crate::AppError;
 
@@ -110,16 +111,20 @@ impl LTMRepository {
             AppError::Internal(format!("Failed to serialize embedding: {}", e))
         })?;
 
-        // 构建租户限定的source_id用于跨租户隔离
+        // 构建租户限定的source_id用于跨租户隔离（过渡期与物理 tenant_id 列双写）
         let tenant_source_id = format!("{}:{}", tenant_id.prefix(), source_id);
+
+        // RLS: open a tenant-scoped transaction so the write is enforced at the DB layer
+        // (WITH CHECK on the physical tenant_id column), not just via the source_id prefix.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
 
         sqlx::query(
             r#"
             INSERT INTO knowledge_entries (
                 entry_id, source_id, source_type, title, content, content_type, content_hash,
                 embedding_vector, embedding_model, embedding_dimension,
-                quality_score, status
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
+                quality_score, status, tenant_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12)
             "#,
         )
         .bind(&entry_id)
@@ -133,10 +138,16 @@ impl LTMRepository {
         .bind(embedding_model)
         .bind(embedding_dimension)
         .bind(quality_score)
-        .execute(pool)
+        .bind(tenant_id.as_str())
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to create knowledge entry: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit create_knowledge_entry transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
@@ -147,14 +158,22 @@ impl LTMRepository {
         Ok(entry_id)
     }
 
-    /// 更新条目
+    /// 更新条目（租户隔离）
+    ///
+    /// Runs inside a tenant-scoped transaction so RLS `USING` scopes the UPDATE to
+    /// the caller's tenant. Previously this had no tenant filter at all
+    /// (`WHERE entry_id` only) — a cross-tenant write risk. Currently no live
+    /// caller; the `tenant_id` parameter is added so any future caller cannot
+    /// reintroduce that bypass.
     pub async fn update_entry(
+        tenant_id: &TenantId,
         entry_id: &str,
         title: Option<&str>,
         content: Option<&str>,
         quality_score: Option<f64>,
     ) -> Result<(), AppError> {
         let pool = pool();
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
 
         sqlx::query(
             r#"
@@ -170,10 +189,15 @@ impl LTMRepository {
         .bind(content)
         .bind(quality_score)
         .bind(entry_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to update knowledge entry: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit update_entry transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
@@ -192,6 +216,7 @@ impl LTMRepository {
             return Ok(false);
         }
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let result = sqlx::query(
             r#"
             UPDATE knowledge_entries
@@ -201,10 +226,15 @@ impl LTMRepository {
             "#,
         )
         .bind(entry_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to soft-delete knowledge entry: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit soft_delete_entry transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
@@ -221,6 +251,7 @@ impl LTMRepository {
         tenant_id: &TenantId,
         entry_id: &str,
     ) -> Result<Option<KnowledgeEntry>, AppError> {
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entry = sqlx::query_as::<_, KnowledgeEntry>(
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
@@ -239,14 +270,15 @@ impl LTMRepository {
             "#,
         )
         .bind(entry_id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to get knowledge entry: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
-        // 验证条目属于该租户
+        // 验证条目属于该租户（过渡期：RLS 之外的应用层兜底）
         if let Some(ref e) = entry {
             let prefix = tenant_id.prefix();
             if !e.source_id.starts_with(&prefix) {
@@ -322,10 +354,12 @@ impl LTMRepository {
             .bind(limit)
         };
 
-        let entries = query.fetch_all(pool).await.map_err(|e| {
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
+        let entries = query.fetch_all(&mut *tx).await.map_err(|e| {
             error!("Failed to get entries by source: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(entries)
     }
@@ -347,6 +381,7 @@ impl LTMRepository {
         // Clone for second query since String doesn't implement Copy
         let tenant_source_pattern_clone = tenant_source_pattern.clone();
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entries: Vec<KnowledgeEntry> = sqlx::query_as(
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
@@ -368,7 +403,7 @@ impl LTMRepository {
         .bind(tenant_source_pattern)
         .bind(limit)
         .bind(offset)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to list knowledge entries: {}", e);
@@ -379,12 +414,13 @@ impl LTMRepository {
             "SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1 AND status = 'active'",
         )
         .bind(tenant_source_pattern_clone)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count knowledge entries: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(KnowledgeEntryListResponse {
             entries,
@@ -399,15 +435,17 @@ impl LTMRepository {
         let prefix = tenant_id.prefix();
         let tenant_pattern = format!("{}%", prefix);
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM knowledge_entries WHERE source_id LIKE $1")
                 .bind(tenant_pattern)
-                .fetch_one(pool)
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(|e| {
                     error!("Failed to count knowledge entries: {}", e);
                     AppError::Internal(format!("Database error: {}", e))
                 })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
@@ -447,6 +485,7 @@ impl LTMRepository {
         entry_id: &str,
         at_timestamp: &str,
     ) -> Result<Option<KnowledgeEntry>, AppError> {
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entry = sqlx::query_as::<_, KnowledgeEntry>(
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
@@ -467,14 +506,15 @@ impl LTMRepository {
         )
         .bind(entry_id)
         .bind(at_timestamp)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to get knowledge entry at time: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
-        // 验证条目属于该租户
+        // 验证条目属于该租户（过渡期：RLS 之外的应用层兜底）
         if let Some(ref e) = entry {
             let prefix = tenant_id.prefix();
             if !e.source_id.starts_with(&prefix) {
@@ -502,6 +542,7 @@ impl LTMRepository {
         let prefix = tenant_id.prefix();
         let tenant_pattern = format!("{}%", prefix);
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entries = sqlx::query_as::<_, KnowledgeEntry>(
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
@@ -533,20 +574,25 @@ impl LTMRepository {
         .bind(at_timestamp)
         .bind(query)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to search knowledge entries at time: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(entries)
     }
 
-    /// 获取条目的版本历史
-    pub async fn get_entry_history(entry_id: &str) -> Result<Vec<KnowledgeEntry>, AppError> {
+    /// 获取条目的版本历史（租户隔离）
+    pub async fn get_entry_history(
+        tenant_id: &TenantId,
+        entry_id: &str,
+    ) -> Result<Vec<KnowledgeEntry>, AppError> {
         let pool = pool();
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entries = sqlx::query_as::<_, KnowledgeEntry>(
             r#"
             SELECT entry_id, source_id, source_type, title, content, content_type, content_hash,
@@ -565,14 +611,31 @@ impl LTMRepository {
             "#,
         )
         .bind(entry_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to get entry history: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
-        Ok(entries)
+        // 租户隔离：所有版本共享同一 source_id 前缀，仅返回属于该租户的版本
+        // （过渡期：RLS 之外的应用层兜底）
+        let prefix = tenant_id.prefix();
+        let had_rows = !entries.is_empty();
+        let scoped: Vec<KnowledgeEntry> = entries
+            .into_iter()
+            .filter(|e| e.source_id.starts_with(&prefix))
+            .collect();
+        if had_rows && scoped.is_empty() {
+            crate::services::multi_tenant::record_isolation_violation(
+                tenant_id.as_str(),
+                entry_id,
+                "ltm_history_cross_tenant_read",
+            );
+        }
+
+        Ok(scoped)
     }
 
     /// 更新条目时创建新版本（保留历史，租户隔离）
@@ -596,6 +659,14 @@ impl LTMRepository {
         // 计算内容哈希（SHA-256，Issue #58）
         let content_hash = crate::services::information_guard::compute_sha256(new_content);
 
+        // Deprecate the current entry and insert the new version atomically so a failed
+        // insert can't leave the old row pointing at a superseded_by id that never exists.
+        // RLS: tenant-scoped tx so both statements are enforced at the DB layer.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await.map_err(|e| {
+            error!("Failed to begin supersede_entry transaction: {}", e);
+            e
+        })?;
+
         // 将当前条目标记为被替换
         sqlx::query(
             r#"
@@ -608,22 +679,22 @@ impl LTMRepository {
         )
         .bind(&new_entry_id)
         .bind(entry_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to supersede entry: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        // 创建新版本条目
+        // 创建新版本条目（双写物理 tenant_id 列）
         sqlx::query(
             r#"
             INSERT INTO knowledge_entries (
                 entry_id, source_id, source_type, title, content, content_type, content_hash,
                 embedding_vector, embedding_model, embedding_dimension,
                 quality_score, status, version,
-                valid_from, superseded_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12, CURRENT_TIMESTAMP, NULL)
+                valid_from, superseded_by, tenant_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12, CURRENT_TIMESTAMP, NULL, $13)
             "#,
         )
         .bind(&new_entry_id)
@@ -638,10 +709,16 @@ impl LTMRepository {
         .bind(current.embedding_dimension)
         .bind(current.quality_score)
         .bind(current.version.unwrap_or(1) + 1)
-        .execute(pool)
+        .bind(tenant_id.as_str())
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to create new version: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit supersede_entry transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 

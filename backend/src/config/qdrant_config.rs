@@ -31,5 +31,8 @@ fn default_vector_dimension() -> usize {
 }
 
 fn default_distance_type() -> String {
-    "Euclid".to_string()
+    // Cosine matches the retrieval layer's assumption that a higher score means more
+    // similar and that scores fall in [0, 1]. Euclid returns a distance (lower = better),
+    // which silently inverts threshold filtering and pollutes hybrid score fusion.
+    "Cosine".to_string()
 }

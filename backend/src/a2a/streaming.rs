@@ -14,8 +14,7 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use a2a::types::{
-    Message, Part, PartContent, Role, Task, TaskState, TaskStatus,
-    SendMessageRequest,
+    Message, Part, PartContent, Role, SendMessageRequest, Task, TaskState, TaskStatus,
 };
 
 use super::handler::A2AHandler;

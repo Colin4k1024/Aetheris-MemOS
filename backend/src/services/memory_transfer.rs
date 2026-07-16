@@ -175,8 +175,8 @@ impl MemoryTransferService {
             tenant_id
         );
 
-        // 动态获取所有活跃的用户和智能体
-        let user_ids = STMRepository::get_active_user_ids().await?;
+        // 动态获取该租户下所有活跃的用户和智能体
+        let user_ids = STMRepository::get_active_user_ids(pool(), tenant_id).await?;
 
         if user_ids.is_empty() {
             info!("No active sessions found");

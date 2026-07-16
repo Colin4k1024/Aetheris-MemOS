@@ -70,22 +70,43 @@ impl RerankService {
             query
         );
 
-        // 由于 Ollama 可能不直接支持 rerank API，我们使用 LLM 进行相关性评分
-        // 方案：为每个候选结果生成相关性评分
-        let mut rerank_results = Vec::with_capacity(candidates.len());
+        // Ollama has no native rerank API, so we score each candidate with the LLM.
+        // Score in bounded-concurrency batches (join_all per chunk) instead of one
+        // await at a time, so latency is ~ceil(N/CONCURRENCY) * single-call rather than
+        // N * single-call. Each future owns its inputs (reqwest::Client is a cheap Arc
+        // clone) so the batch futures are Send. Failures fall back to 0.5.
+        const RERANK_CONCURRENCY: usize = 8;
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let model = self.model.clone();
+        let query = query.to_string();
 
-        // 批量处理以提高效率（可以并行处理）
-        for (index, (content, _original_score)) in candidates.iter().enumerate() {
-            let score = self
-                .score_relevance(query, content)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!("Failed to score relevance for candidate {}: {}", index, e);
-                    // 如果评分失败，使用原始分数（归一化到 0-1）
-                    0.5
-                });
+        let indexed: Vec<(usize, String)> = candidates
+            .iter()
+            .enumerate()
+            .map(|(index, (content, _original_score))| (index, content.clone()))
+            .collect();
 
-            rerank_results.push(RerankResult { index, score });
+        let mut rerank_results: Vec<RerankResult> = Vec::with_capacity(indexed.len());
+        for chunk in indexed.chunks(RERANK_CONCURRENCY) {
+            let batch = chunk.iter().map(|(index, content)| {
+                let client = client.clone();
+                let base_url = base_url.clone();
+                let model = model.clone();
+                let query = query.clone();
+                let content = content.clone();
+                let index = *index;
+                async move {
+                    let score = Self::score_relevance(&client, &base_url, &model, &query, &content)
+                        .await
+                        .unwrap_or_else(|e| {
+                            warn!("Failed to score relevance for candidate {}: {}", index, e);
+                            0.5
+                        });
+                    RerankResult { index, score }
+                }
+            });
+            rerank_results.extend(futures::future::join_all(batch).await);
         }
 
         // 按分数降序排序
@@ -103,7 +124,13 @@ impl RerankService {
     }
 
     /// 使用 LLM 对单个文档进行相关性评分
-    async fn score_relevance(&self, query: &str, document: &str) -> Result<f32> {
+    async fn score_relevance(
+        client: &Client,
+        base_url: &str,
+        model: &str,
+        query: &str,
+        document: &str,
+    ) -> Result<f32> {
         let prompt = format!(
             r#"请评估以下文档与查询的相关性，返回一个 0 到 1 之间的分数（0 表示完全不相关，1 表示完全相关）。
 
@@ -115,10 +142,10 @@ impl RerankService {
             query, document
         );
 
-        let url = format!("{}/api/generate", self.base_url);
+        let url = format!("{}/api/generate", base_url);
 
         let request_body = json!({
-            "model": self.model,
+            "model": model,
             "prompt": prompt,
             "stream": false,
             "options": {
@@ -126,8 +153,7 @@ impl RerankService {
             }
         });
 
-        let response = self
-            .client
+        let response = client
             .post(&url)
             .json(&request_body)
             .send()
