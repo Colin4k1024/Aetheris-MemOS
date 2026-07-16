@@ -94,6 +94,21 @@ pub fn init() {
         }
     }
 
+    // Secret env vars take precedence over the config file. figment's prefixed env
+    // (`Env::prefixed("APP_")`) does not map single-underscore names into nested keys
+    // like `jwt.secret` / `neo4j.password`, so read them explicitly (mirrors
+    // DATABASE_URL above). This is what .env.example / docker-compose advertise.
+    if let Ok(secret) = std::env::var("APP_JWT_SECRET") {
+        if !secret.is_empty() {
+            config.jwt.secret = secret;
+        }
+    }
+    if let Ok(pw) = std::env::var("APP_NEO4J_PASSWORD") {
+        if !pw.is_empty() {
+            config.neo4j.password = pw;
+        }
+    }
+
     // Graceful fallback: if no database URL configured, use a local SQLite database
     if config.db.url.is_empty() {
         let storage = crate::config::StorageConfig::resolve_local_sqlite("adaptive_memory.db");
