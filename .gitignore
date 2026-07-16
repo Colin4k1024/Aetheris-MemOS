@@ -57,3 +57,4 @@ sdks/python/*.egg-info/
 sdks/python/__pycache__/
 sdks/python/.eggs/
 .gstack/
+docker-compose.override.yml
