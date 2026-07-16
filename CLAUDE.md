@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Adaptive Memory Management System for AI Agent & LLM workloads. Uses Rust (Axum) backend with React (Ant Design Pro) frontend.
+Memory Management System for AI Agent & LLM workloads, with an adaptive-scheduling roadmap (config selection is currently heuristic/static; learned adaptation is planned for P3). Uses Rust (Axum) backend with React (Ant Design Pro) frontend.
 
 ## Commands
 
@@ -38,9 +38,9 @@ This is a **monorepo** with two main components:
 - **routers/** — API endpoint handlers (memory, auth, user, knowledge_graph, memory_search, memory_storage, multimodal)
 - **axum_routers/** — Axum-compatible router adapters
 - **services/** — Core business logic
-  - `scheduler.rs` — Adaptive memory scheduler (selects optimal memory config)
+  - `scheduler.rs` — Memory scheduler (selects memory config via heuristic/static policy; learned adaptation planned for P3)
   - `analyzer.rs` — Task feature analysis (complexity, modality, reasoning depth)
-  - `predictor.rs` — Performance prediction model
+  - `predictor.rs` — Performance prediction (fixed-coefficient model; fit-from-telemetry planned for P3)
   - `monitor.rs` — Resource monitoring
   - `weight_adjuster.rs` — Dynamic weight adjustment
   - `weight_strategy.rs` — Pluggable weight strategies
@@ -108,13 +108,18 @@ This is a **monorepo** with two main components:
 - `src/services/memory/knowledgeGraphApi.ts` - KG APIs
 - `src/services/memory/multimodalApi.ts` - MM APIs
 
-### Distributed & Signaling Endpoints
+### Coordination & Signaling Endpoints
 
-| Method | Endpoint                          | Description              |
-| ------ | --------------------------------- | ------------------------ |
-| GET    | `/api/v1/distributed/nodes`       | List cluster nodes       |
-| GET    | `/api/v1/distributed/node/{id}`  | Get node status          |
-| POST   | `/api/v1/distributed/replicate`  | Trigger replication      |
+> In-process coordination only (single node). No self-built cluster — HA is delegated to managed infra.
+
+| Method | Endpoint                                      | Description                        |
+| ------ | --------------------------------------------- | ---------------------------------- |
+| GET    | `/api/v1/distributed/epoch/status`            | Epoch / active-context status      |
+| GET    | `/api/v1/distributed/pool/status`             | Sub-agent pool status              |
+| POST   | `/api/v1/distributed/pool/allocate`           | Allocate sub-agent slots           |
+| POST   | `/api/v1/distributed/pool/release`            | Release sub-agent slots            |
+| GET    | `/api/v1/distributed/signals/{workflow_id}`   | Get signals for a workflow         |
+| POST   | `/api/v1/distributed/signals/publish`         | Publish a workflow signal          |
 
 ### Tenant & Quota Endpoints
 
@@ -163,7 +168,7 @@ Use `AppError` from `backend/src/error.rs` for structured error responses with p
 
 ### Multi-Tenant Isolation
 
-All repository queries are scoped by `tenant_id`. Use `TenantContext` extractor to access tenant info in handlers. See `backend/src/tenant/isolation.rs`.
+Repository queries are scoped by `tenant_id` at the **application layer** today. Use the `TenantContext` extractor to access tenant info in handlers. See `backend/src/tenant/isolation.rs`. Schema-level enforcement (Postgres RLS + `tenant_id NOT NULL`) is planned for P1 — until then isolation depends on every query path passing the correct `tenant_id`.
 
 ### MCP Sandbox
 

@@ -49,6 +49,7 @@ pub fn empty_ok() -> JsonResult<Empty> {
 
 #[tokio::main]
 async fn main() {
+
     crate::config::init();
     let config = crate::config::get();
 
@@ -89,12 +90,17 @@ async fn main() {
     crate::services::information_guard::init_write_journal();
     crate::services::information_guard::init_integrity_scanner();
 
-    // Issue #55: start adaptive strategy mutation daemon
-    if crate::services::strategy_mutator::MutationConfig::default().auto_mutate {
-        crate::services::strategy_mutator::StrategyMutator::init_mutation_daemon(
-            crate::services::strategy_mutator::MutationConfig::default(),
-        );
-    }
+    // Issue #55: adaptive strategy mutation daemon — DISABLED (P0 cleanup).
+    // The mutator runs a heuristic hill-climb but its output
+    // (strategy_mutator::current_hyperparams / BEST_PARAMS) is consumed by nothing —
+    // scheduler/predictor never read it — so running it only emits misleading
+    // "self-optimizing" logs. Re-enable in P3 once the scheduler actually consumes
+    // learned hyperparameters. Manual run_mutation_cycle() remains available.
+    // if crate::services::strategy_mutator::MutationConfig::default().auto_mutate {
+    //     crate::services::strategy_mutator::StrategyMutator::init_mutation_daemon(
+    //         crate::services::strategy_mutator::MutationConfig::default(),
+    //     );
+    // }
 
     // Issue #61: initialize distributed epoch manager and interrupt propagator
     crate::axum_routers::distributed::init_distributed();

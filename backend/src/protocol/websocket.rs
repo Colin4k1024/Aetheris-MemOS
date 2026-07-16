@@ -1,6 +1,10 @@
-//! WebSocket Protocol
+//! WebSocket Protocol — NOT IMPLEMENTED (pending P2).
 //!
-//! This module provides WebSocket message types and connection management for real-time memory operations.
+//! Message types + an in-memory connection manager exist, but nothing is wired to
+//! an axum WebSocket route and `send_to_session` is a placeholder (returns true).
+//! All `Ws*` types have zero non-test consumers (verified). Kept as a P2 starting
+//! point; do not treat as a working real-time surface.
+#![allow(dead_code)]
 
 use crate::kernel::types::*;
 use serde::{Deserialize, Serialize};
