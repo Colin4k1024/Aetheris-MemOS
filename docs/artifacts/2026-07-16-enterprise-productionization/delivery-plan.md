@@ -93,10 +93,11 @@
 | ADR-0001 租户隔离基线 | 已有 | P1 |
 | ADR-0002 向量 outbox 与对账 | 已有 | P1 |
 | ADR-0003 存储运维就绪 gate | 已有 | P1 |
-| ADR-00xx **MCP 沙箱执行模型** | 待写 | P1 |
-| ADR-00xx **HA 基建选型（托管 vs 自管）** | 待写 | P1 |
-| ADR-00xx **多协议传输与跨协议鉴权** | 待写 | P2 |
-| ADR-00xx **自适应学习方法与 eval 方法论** | 待写 | P3 |
+| ADR-0004 **MCP 沙箱执行模型（双平面；Plane B 已确认入 P1）** | 已写 Proposed | P1 |
+| ADR-0005 **HA 基建选型（托管优先）** | 已写 Proposed | P1 |
+| ADR-0006 **企业集群协调（成熟原语，非自建共识）** | 已写 Proposed | P1/P2 |
+| ADR-00xx 多协议传输与跨协议鉴权 | 待写 | P2 |
+| ADR-00xx 自适应学习方法与 eval 方法论 | 待写 | P3 |
 
 ---
 
@@ -104,3 +105,17 @@
 
 - **分布式不自建**：不实现自研 Raft/复制/分片；HA 依赖托管/成熟基建。`distributed/` 假集群代码 P0 删除，实际在用的单进程 cancellation/pool/signaling 原语保留并**改名去除"distributed"误导**。
 - **顺序不可抢跑**：P1 可靠性+安全是企业售卖准入底线，先于 P2 协议、P3 自适应；仅 P3 的遥测地基允许在 P1 并行起步。
+
+---
+
+## 决策更新（2026-07-16 追加）
+
+用户在 P0/P1 设计评审中确认两项，据此调整范围：
+
+1. **R4 反转：`services/enterprise.rs` 假集群不删、改为做真**（见 `docs/adr/ADR-0006-enterprise-cluster-coordination.md`）。用**成熟协调原语**实现（PG advisory lock 选主 + 一致性哈希分片路由 + `cluster_nodes`/`memory_shards`/`tenant_licenses` 表 + 许可分级门控），**不自建 Raft**——与 ADR-0005「不自建」一致（应用层协调 ≠ 数据存储 HA）。新增工作流：
+   - **P1**：许可/套餐分级（`tenant_licenses` + 治理 hooks 门控）——与治理 hooks 接入同批。
+   - **P2**：多实例集群协调（选主/成员/分片路由 + 心跳/re-balance 守护），需真 PG + 多实例环境。
+   - 端点路径不变、语义改真；同步更新对外 API 文档（去"假集群"表述）。
+2. **MCP Plane B 确认入 P1**（见 `docs/adr/ADR-0004-mcp-sandbox-execution-model.md`）：产品会跑不可信/自带工具，故 P1 除 Plane A（第一方验签+授权+审计）外，**必须交付 Plane B（wasmtime 真沙箱执行）**——`execute_wasm` 从 mock 换真实例化 + capability host fn + fuel/epoch/StoreLimits 资源限制。
+
+> 说明：上述均为多周工作流，需真 PG/Qdrant/多实例/（Plane B）wasm 工具链，**离线会话内只能出设计（ADR）+ 计划**；落码与验证待基建/网络就绪。P0 阶段对 `services/enterprise.rs` **不再执行删除**（原 P0 R4 删除建议作废），保留至 P1/P2 原地做真。
