@@ -90,6 +90,12 @@ async fn main() {
     crate::services::information_guard::init_write_journal();
     crate::services::information_guard::init_integrity_scanner();
 
+    // P1 governance: start the best-effort async audit writer (PostgreSQL only).
+    // Mirrors the is_sqlite() gating of the write_queue above.
+    if crate::db::is_postgres() {
+        crate::services::audit_writer::init_audit_writer();
+    }
+
     // Issue #55: adaptive strategy mutation daemon — DISABLED (P0 cleanup).
     // The mutator runs a heuristic hill-climb but its output
     // (strategy_mutator::current_hyperparams / BEST_PARAMS) is consumed by nothing —

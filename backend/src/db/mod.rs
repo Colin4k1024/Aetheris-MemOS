@@ -22,6 +22,8 @@ impl std::error::Error for DbInitError {}
 
 pub mod adapters;
 pub mod agent;
+#[allow(dead_code)]
+pub mod audit;
 
 pub mod decision_trace;
 pub mod event_store;
