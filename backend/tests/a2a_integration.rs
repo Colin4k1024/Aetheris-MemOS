@@ -1,4 +1,5 @@
 //! A2A Protocol Integration Tests
+#![cfg(feature = "a2a")]
 
 use axum::{
     body::{self, Body},

@@ -38,6 +38,7 @@ pub mod neo4j;
 #[allow(dead_code)]
 pub mod performance;
 pub mod stm;
+pub mod tenant_scope;
 #[allow(dead_code)]
 pub mod weights;
 pub mod workflow_lifecycle;
