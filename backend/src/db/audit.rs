@@ -95,7 +95,10 @@ impl AuditEvent {
         match serde_json::to_string(value) {
             Ok(json) => self.metadata_json = json,
             Err(e) => {
-                error!("Failed to serialize audit metadata: {}; using empty object", e);
+                error!(
+                    "Failed to serialize audit metadata: {}; using empty object",
+                    e
+                );
                 self.metadata_json = "{}".to_string();
             }
         }

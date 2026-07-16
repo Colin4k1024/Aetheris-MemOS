@@ -49,7 +49,6 @@ pub fn empty_ok() -> JsonResult<Empty> {
 
 #[tokio::main]
 async fn main() {
-
     crate::config::init();
     let config = crate::config::get();
 

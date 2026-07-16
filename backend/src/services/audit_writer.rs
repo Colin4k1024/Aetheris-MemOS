@@ -93,9 +93,7 @@ pub fn dropped_count() -> u64 {
 
 /// Approximate number of in-flight (unconsumed) events, or `None` before init.
 pub fn queue_depth() -> Option<usize> {
-    AUDIT_QUEUE
-        .get()
-        .map(|tx| QUEUE_CAPACITY - tx.capacity())
+    AUDIT_QUEUE.get().map(|tx| QUEUE_CAPACITY - tx.capacity())
 }
 
 /// Background worker: drains the channel into time-windowed batches and flushes each.
