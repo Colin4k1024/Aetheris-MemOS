@@ -69,11 +69,11 @@ This is a **monorepo** with two main components:
 - **kernel/** — Approval nodes, fan nodes, trait definitions for the evidence graph
 - **layers/** — Memory layer abstractions (STM, LTM, KG, MM layers)
 - **policy/** — Cost model and scheduler policy
-- **protocol/** — Protocol implementations (gRPC, WebSocket, MCP)
-- **runtime/** — Runtime adapters (Anthropic, OpenAI), planner sandbox, subagent pool
+- **protocol/** — Protocol implementations (MCP over HTTP is real; gRPC and WebSocket are currently type-only stubs, not yet served — planned for P2)
+- **runtime/** — Runtime adapters (Anthropic, OpenAI), planner sandbox (dry-run simulator), subagent pool
 - **tenant/** — Multi-tenant context, isolation, and quota management
-- **distributed/** — Distributed systems (consensus, replication, sharding, lease coordination, signaling)
-- **mcp/** — MCP protocol (sandbox isolation, signing verification, proxy)
+- **distributed/** — In-process coordination primitives (epoch cancellation, interrupt propagation, lease, workflow signaling). NOT a distributed cluster — HA is delegated to managed infrastructure (see `docs/adr/ADR-0005-ha-infrastructure-selection.md`)
+- **mcp/** — MCP protocol (signing verification, proxy; sandbox execution is currently a mock, not real isolation — see `docs/adr/ADR-0004-mcp-sandbox-execution-model.md`)
 - **web/** — Web-specific handlers
 
 ### Frontend (`frontend/ant-design-pro-template/`)
@@ -167,7 +167,7 @@ All repository queries are scoped by `tenant_id`. Use `TenantContext` extractor 
 
 ### MCP Sandbox
 
-MCP tool calls run in isolated sandboxes with signing verification. See `backend/src/mcp/sandbox.rs` and `backend/src/mcp/signing.rs`.
+Tool *listing* is signature-verified (`backend/src/mcp/signing.rs`, HMAC-SHA256). **Tool execution is not yet sandboxed**: `backend/src/mcp/sandbox.rs` is currently a mock (returns input unchanged) and is not wired into the call path — `call_tool` runs the first-party memory tools natively under tenant isolation. Real WASM isolation, call-time signing, and capability authorization are planned; see `docs/adr/ADR-0004-mcp-sandbox-execution-model.md`.
 
 ## Environment Requirements
 
