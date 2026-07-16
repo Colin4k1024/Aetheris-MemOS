@@ -95,6 +95,12 @@ async fn main() {
         crate::services::audit_writer::init_audit_writer();
     }
 
+    // P1 governance: register the enterprise hooks (RBAC/quota/audit) singleton that
+    // hoops::governance::governance_middleware consumes. Not gated on is_postgres —
+    // governance is authorization and applies to every backend; audit events on a
+    // non-PG backend are dropped+counted by the writer, which is harmless.
+    hoops::init_enterprise_hooks(hoops::create_enterprise_hook_set());
+
     // Issue #55: adaptive strategy mutation daemon — DISABLED (P0 cleanup).
     // The mutator runs a heuristic hill-climb but its output
     // (strategy_mutator::current_hyperparams / BEST_PARAMS) is consumed by nothing —

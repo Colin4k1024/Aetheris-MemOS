@@ -1,6 +1,7 @@
 pub mod enterprise;
 pub mod enterprise_hooks_v2;
 pub mod enterprise_impl;
+pub mod governance;
 pub mod jwt;
 pub mod rate_limit;
 pub mod validation;
@@ -17,6 +18,7 @@ pub use enterprise_impl::{
     build_server_with_enterprise_hooks, create_enterprise_hook_set, AuthContext,
     GovernanceHookImpl, JwtAuthHookImpl, RbacHookImpl, TenantQuotaHookImpl,
 };
+pub use governance::{classify, governance_middleware};
 pub use rate_limit::{rate_limit_middleware, rate_limit_state};
 pub use validation::{
     contains_sql_injection, contains_xss, validate_content_length, validation_middleware,
@@ -26,4 +28,4 @@ mod cors;
 pub use cors::cors_hoop;
 
 // Re-export for convenience
-pub use enterprise::get_enterprise_hooks;
+pub use enterprise::{get_enterprise_hooks, init_enterprise_hooks, try_enterprise_hooks};

@@ -709,6 +709,46 @@ impl EnterpriseHookSet {
     pub fn get_usage(&self, tenant_id: &str) -> Option<UsageSnapshot> {
         self.governance.as_ref()?.get_usage(tenant_id)
     }
+
+    // ------------------------------------------------------------------
+    // Pre-hook dispatch (used by the request-chain governance middleware)
+    //
+    // Each delegates to the governance hook's matching pre-hook, or returns
+    // `Allow` when no governance hook is configured — so a partially wired
+    // (or unconfigured) hook set always fails open.
+    // ------------------------------------------------------------------
+
+    /// Pre-store decision (delegates to governance hook, `Allow` if none).
+    pub fn pre_store(&self, ctx: &HookContext) -> HookDecision {
+        self.governance
+            .as_ref()
+            .map(|h| h.pre_store(ctx))
+            .unwrap_or(HookDecision::Allow)
+    }
+
+    /// Pre-search decision (delegates to governance hook, `Allow` if none).
+    pub fn pre_search(&self, ctx: &HookContext) -> HookDecision {
+        self.governance
+            .as_ref()
+            .map(|h| h.pre_search(ctx))
+            .unwrap_or(HookDecision::Allow)
+    }
+
+    /// Pre-update decision (delegates to governance hook, `Allow` if none).
+    pub fn pre_update(&self, ctx: &HookContext) -> HookDecision {
+        self.governance
+            .as_ref()
+            .map(|h| h.pre_update(ctx))
+            .unwrap_or(HookDecision::Allow)
+    }
+
+    /// Pre-delete decision (delegates to governance hook, `Allow` if none).
+    pub fn pre_delete(&self, ctx: &HookContext) -> HookDecision {
+        self.governance
+            .as_ref()
+            .map(|h| h.pre_delete(ctx))
+            .unwrap_or(HookDecision::Allow)
+    }
 }
 
 /// Global enterprise hook set
@@ -722,6 +762,16 @@ pub fn init_enterprise_hooks(hooks: EnterpriseHookSet) {
 /// Get global enterprise hooks
 pub fn get_enterprise_hooks() -> &'static EnterpriseHookSet {
     ENTERPRISE_HOOKS.get_or_init(EnterpriseHookSet::new)
+}
+
+/// Get global enterprise hooks **only if already initialized** (no lazy init).
+///
+/// Unlike [`get_enterprise_hooks`], this never lazily initializes an empty set,
+/// so a middleware that calls it before [`init_enterprise_hooks`] observes
+/// `None` (→ fail open / `Allow`) and a later `init_enterprise_hooks` still
+/// succeeds. Use this on the request hot path.
+pub fn try_enterprise_hooks() -> Option<&'static EnterpriseHookSet> {
+    ENTERPRISE_HOOKS.get()
 }
 
 /// Server builder extension for enterprise hooks

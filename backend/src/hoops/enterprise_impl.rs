@@ -532,9 +532,40 @@ pub fn create_enterprise_hook_set() -> crate::hoops::enterprise::EnterpriseHookS
     let rbac_service = Arc::new(RbacService::new());
     let quota_manager = Arc::new(QuotaManager::new());
 
-    // Create audit callback
+    // Create audit callback: map the in-memory enterprise audit event onto the
+    // persisted `memory_audit_events` schema and enqueue it on the async, best-effort
+    // audit writer (non-blocking; drops + counts if the writer is not running, e.g. on
+    // a SQLite dev backend). A `tracing` side-channel is kept for local debugging.
     let audit_callback: Arc<dyn Fn(AuditEvent) + Send + Sync> = Arc::new(|event| {
-        tracing::info!("Audit event: {:?}", event);
+        tracing::debug!(?event, "governance audit event");
+
+        let result = match event.result {
+            AuditResult::Success => "success",
+            AuditResult::Failure => "failure",
+            AuditResult::Denied => "denied",
+        };
+        let action = event.action.clone();
+        let resource = event.resource.clone();
+        let metadata = serde_json::json!({
+            "source": "governance_hook",
+            "result": result,
+            "action": action,
+            "resource": resource,
+            "occurred_at": event.timestamp,
+            "extra": event.metadata,
+        });
+
+        let mut db_event =
+            crate::db::audit::AuditEvent::new(format!("governance.{action}"), "governance")
+                .tenant(event.tenant_id)
+                .with_metadata(&metadata);
+        if let Some(user_id) = event.user_id {
+            db_event = db_event.actor(user_id);
+        }
+        if !resource.is_empty() {
+            db_event = db_event.resource_id(resource);
+        }
+        crate::services::audit_writer::record_audit(db_event);
     });
 
     // Create auth hook

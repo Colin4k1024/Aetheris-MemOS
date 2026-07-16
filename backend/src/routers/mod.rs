@@ -56,6 +56,7 @@ pub fn root() -> Router {
     let rate_limit_state = hoops::rate_limit_state(100, 60);
     let memory_rate_limit =
         middleware::from_fn_with_state(rate_limit_state, hoops::rate_limit_middleware);
+    let governance_layer = middleware::from_fn(hoops::governance::governance_middleware);
 
     let user_routes = Router::new()
         .route("/users", get(user::list_users).post(user::create_user))
@@ -261,6 +262,7 @@ pub fn root() -> Router {
                 // Metrics routes
                 .route("/metrics", get(metrics::get_metrics)),
         )
+        .route_layer(governance_layer.clone())
         .route_layer(memory_rate_limit);
 
     let agent_routes = Router::new()
@@ -332,7 +334,8 @@ pub fn root() -> Router {
                     get(knowledge_graph::get_related_entities),
                 )
                 .route("/relations", post(knowledge_graph::create_relation))
-                .route("/search", post(knowledge_graph::search_by_entity)),
+                .route("/search", post(knowledge_graph::search_by_entity))
+                .route_layer(governance_layer.clone()),
         )
         .nest(
             "/mm",
@@ -344,7 +347,8 @@ pub fn root() -> Router {
                     "/modality/{modality_type}",
                     get(multimodal::get_by_modality),
                 )
-                .route("/list", get(multimodal::list_mm)),
+                .route("/list", get(multimodal::list_mm))
+                .route_layer(governance_layer.clone()),
         )
         .nest(
             "/tenants",
