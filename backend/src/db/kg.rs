@@ -5,6 +5,7 @@ use tracing::{error, info};
 use ulid::Ulid;
 
 use crate::db::pool;
+use crate::db::tenant_scope::begin_tenant_tx;
 use crate::tenant::{get_default_tenant, TenantId};
 use crate::AppError;
 
@@ -112,15 +113,20 @@ impl KGRepository {
 
         let embedding_dimension = embedding_vector.map(|v| v.len() as i32);
 
-        // 构建租户限定的entity_id用于跨租户隔离
+        // 构建租户限定的entity_id用于跨租户隔离（过渡期与物理 tenant_id 列双写）
         let tenant_entity_id = format!("{}:{}", tenant_id.prefix(), entity_id);
+
+        // RLS: open a tenant-scoped transaction so the write is enforced at the DB
+        // layer (WITH CHECK on the physical tenant_id column), not just via the
+        // entity_id prefix.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
 
         sqlx::query(
             r#"
             INSERT INTO entities (
                 entity_id, entity_name, entity_type, description, attributes, aliases,
-                embedding_vector, embedding_model, embedding_dimension, confidence_score
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                embedding_vector, embedding_model, embedding_dimension, confidence_score, tenant_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(tenant_entity_id)
@@ -133,10 +139,16 @@ impl KGRepository {
         .bind(embedding_model)
         .bind(embedding_dimension)
         .bind(confidence_score)
-        .execute(pool)
+        .bind(tenant_id.as_str())
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to create entity: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit create_entity transaction: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
@@ -190,10 +202,12 @@ impl KGRepository {
             .bind(tenant_entity_pattern)
         };
 
-        let entity = query.fetch_optional(pool).await.map_err(|e| {
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
+        let entity = query.fetch_optional(&mut *tx).await.map_err(|e| {
             error!("Failed to get entity by name: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(entity)
     }
@@ -206,6 +220,7 @@ impl KGRepository {
     ) -> Result<Option<Entity>, AppError> {
         let prefix = tenant_id.prefix();
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entity = sqlx::query_as::<_, Entity>(
             r#"
             SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
@@ -219,14 +234,15 @@ impl KGRepository {
             "#,
         )
         .bind(entity_id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to get entity by id: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
-        // 验证实体属于该租户
+        // 验证实体属于该租户（过渡期：RLS 之外的应用层兜底）
         if let Some(ref e) = entity {
             if !e.entity_id.starts_with(&prefix) {
                 crate::services::multi_tenant::record_isolation_violation(
@@ -241,8 +257,18 @@ impl KGRepository {
         Ok(entity)
     }
 
-    /// 创建关系
+    /// 创建关系（租户隔离）
+    ///
+    /// Previously took no `tenant_id` and used an unscoped transaction — a known
+    /// tenant gap: relations have no tenant prefix of their own. The caller now
+    /// passes the tenant explicitly so the write runs inside `begin_tenant_tx`
+    /// (RLS WITH CHECK on the physical `tenant_id` column) and the relation is
+    /// attributed to the same tenant as its endpoint entities. The
+    /// `relation_count` bumps on `entities` run in the same tenant-scoped tx, so
+    /// they too are RLS-enforced (a bump targeting another tenant's entity id
+    /// silently affects zero rows instead of leaking existence).
     pub async fn create_relation(
+        tenant_id: &TenantId,
         source_entity_id: &str,
         target_entity_id: &str,
         relation_type: &str,
@@ -265,17 +291,15 @@ impl KGRepository {
 
         // Insert the relation and bump both entities' relation_count atomically so a
         // partial failure can't leave the relation stored with mismatched counts.
-        let mut tx = pool.begin().await.map_err(|e| {
-            error!("Failed to begin create_relation transaction: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
-        })?;
+        // RLS: tenant-scoped tx so every statement is enforced at the DB layer.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
 
         sqlx::query(
             r#"
             INSERT INTO relations (
                 relation_id, source_entity_id, target_entity_id, relation_type,
-                weight, confidence, properties
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                weight, confidence, properties, tenant_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
         .bind(relation_id.clone())
@@ -285,6 +309,7 @@ impl KGRepository {
         .bind(weight)
         .bind(confidence)
         .bind(properties_json)
+        .bind(tenant_id.as_str())
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -333,9 +358,9 @@ impl KGRepository {
         let relation_query = if let Some(rt) = relation_type {
             sqlx::query_as::<_, Relation>(
                 r#"
-                SELECT relation_id, source_entity_id, target_entity_id, relation_type, relation_name, 
-                       r.description, properties, weight, confidence, 
-                       r.created_at, r.updated_at, usage_count, success_count, r.status
+                SELECT relation_id, source_entity_id, target_entity_id, relation_type, relation_name,
+                       r.description, properties, weight::float8, confidence::float8,
+                       r.created_at::text, r.updated_at::text, usage_count, success_count, r.status
                 FROM relations r
                 WHERE r.source_entity_id = $1 AND r.relation_type = $2 AND r.status = 'active'
                 ORDER BY r.weight DESC, r.confidence DESC
@@ -348,9 +373,9 @@ impl KGRepository {
         } else {
             sqlx::query_as::<_, Relation>(
                 r#"
-                SELECT relation_id, source_entity_id, target_entity_id, relation_type, relation_name, 
-                       r.description, properties, weight, confidence, 
-                       r.created_at, r.updated_at, usage_count, success_count, r.status
+                SELECT relation_id, source_entity_id, target_entity_id, relation_type, relation_name,
+                       r.description, properties, weight::float8, confidence::float8,
+                       r.created_at::text, r.updated_at::text, usage_count, success_count, r.status
                 FROM relations r
                 WHERE r.source_entity_id = $1 AND r.status = 'active'
                 ORDER BY r.weight DESC, r.confidence DESC
@@ -361,10 +386,12 @@ impl KGRepository {
             .bind(limit)
         };
 
-        let relations = relation_query.fetch_all(pool).await.map_err(|e| {
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
+        let relations = relation_query.fetch_all(&mut *tx).await.map_err(|e| {
             error!("Failed to get relations: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         let mut result = Vec::new();
         for relation in relations {
@@ -401,6 +428,10 @@ impl KGRepository {
 
         // 搜索与该实体相关的知识条目
         // 通过关系表找到相关的 source/target 实体，然后搜索知识条目
+        // RLS: this joins entities + relations + knowledge_entries, all RLS-protected;
+        // run inside a tenant-scoped tx so the GUC is set and every joined table
+        // resolves to this tenant's rows instead of fail-closing to zero.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let rows = sqlx::query_as::<_, Entity>(
             r#"
             SELECT DISTINCT e.entity_id, e.entity_name, e.entity_type, e.description,
@@ -422,12 +453,13 @@ impl KGRepository {
         .bind(entity_name)
         .bind(tenant_entity_pattern)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to search knowledge by entity: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(rows)
     }
@@ -452,6 +484,8 @@ impl KGRepository {
         let tenant_entity_pattern = format!("{}%", tenant_id.prefix());
 
         // 搜索包含该实体名称的知识条目
+        // RLS: subqueries hit entities + relations; run inside a tenant-scoped tx.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let rows = sqlx::query_as::<_, Entity>(
             r#"
             SELECT DISTINCT e.entity_id, e.entity_name, e.entity_type, e.description,
@@ -482,12 +516,13 @@ impl KGRepository {
         .bind(entity_name)
         .bind(tenant_entity_pattern)
         .bind(top_k)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to search entries by entity: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(rows)
     }
@@ -505,6 +540,9 @@ impl KGRepository {
         let prefix = tenant_id.prefix();
         let tenant_entity_pattern = format!("{}%", prefix);
 
+        // RLS: list + count both hit entities; run them in one tenant-scoped tx so
+        // the GUC is set for both and the count matches the visible rows.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let (entities, total): (Vec<Entity>, (i64,)) = if let Some(et) = entity_type {
             // Clone pattern for second query since String doesn't implement Copy
             let tenant_pattern_clone = tenant_entity_pattern.clone();
@@ -526,7 +564,7 @@ impl KGRepository {
             .bind(et)
             .bind(limit)
             .bind(offset)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to list entities: {}", e);
@@ -538,7 +576,7 @@ impl KGRepository {
             )
             .bind(tenant_pattern_clone)
             .bind(et)
-            .fetch_one(pool)
+            .fetch_one(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to count entities: {}", e);
@@ -565,7 +603,7 @@ impl KGRepository {
             .bind(tenant_entity_pattern)
             .bind(limit)
             .bind(offset)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to list entities: {}", e);
@@ -576,7 +614,7 @@ impl KGRepository {
                 "SELECT COUNT(*) FROM entities WHERE entity_id LIKE $1 AND status = 'active'",
             )
             .bind(tenant_pattern_clone)
-            .fetch_one(pool)
+            .fetch_one(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to count entities: {}", e);
@@ -584,6 +622,7 @@ impl KGRepository {
             })?;
             (entities, total)
         };
+        tx.commit().await.ok();
 
         Ok(EntityListResponse {
             entities,
@@ -603,6 +642,7 @@ impl KGRepository {
     ) -> Result<Option<Entity>, AppError> {
         let pool = pool();
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entity = sqlx::query_as::<_, Entity>(
             r#"
             SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
@@ -620,14 +660,15 @@ impl KGRepository {
         )
         .bind(entity_id)
         .bind(at_timestamp)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to get entity at time: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
-        // 租户隔离：校验实体属于该租户
+        // 租户隔离：校验实体属于该租户（过渡期：RLS 之外的应用层兜底）
         if let Some(ref e) = entity {
             let prefix = tenant_id.prefix();
             if !e.entity_id.starts_with(&prefix) {
@@ -650,6 +691,7 @@ impl KGRepository {
     ) -> Result<Vec<Entity>, AppError> {
         let pool = pool();
 
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
         let entities = sqlx::query_as::<_, Entity>(
             r#"
             SELECT entity_id, entity_name, entity_type, description, attributes, aliases,
@@ -665,14 +707,15 @@ impl KGRepository {
             "#,
         )
         .bind(entity_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to get entity history: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
+        tx.commit().await.ok();
 
-        // 租户隔离：仅返回属于该租户的版本
+        // 租户隔离：仅返回属于该租户的版本（过渡期：RLS 之外的应用层兜底）
         let prefix = tenant_id.prefix();
         let had_rows = !entities.is_empty();
         let scoped: Vec<Entity> = entities
@@ -713,9 +756,10 @@ impl KGRepository {
 
         // Deprecate the current entity and insert the new version atomically so a failed
         // insert can't leave the old row pointing at a superseded_by id that never exists.
-        let mut tx = pool.begin().await.map_err(|e| {
+        // RLS: tenant-scoped tx so both statements are enforced at the DB layer.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await.map_err(|e| {
             error!("Failed to begin supersede_entity transaction: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
+            e
         })?;
 
         // 将当前实体标记为被替换
@@ -737,15 +781,15 @@ impl KGRepository {
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        // 创建新版本实体
+        // 创建新版本实体（双写物理 tenant_id 列）
         sqlx::query(
             r#"
             INSERT INTO entities (
                 entity_id, entity_name, entity_type, description, attributes, aliases,
                 embedding_vector, embedding_model, embedding_dimension,
                 confidence_score, popularity_score, relation_count, mention_count,
-                status, version, valid_from
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', 1, CURRENT_TIMESTAMP)
+                status, version, valid_from, tenant_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', 1, CURRENT_TIMESTAMP, $14)
             "#,
         )
         .bind(&new_entity_id)
@@ -761,6 +805,7 @@ impl KGRepository {
         .bind(current.popularity_score)
         .bind(current.relation_count)
         .bind(current.mention_count)
+        .bind(tenant_id.as_str())
         .execute(&mut *tx)
         .await
         .map_err(|e| {

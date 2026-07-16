@@ -145,6 +145,7 @@ pub async fn create_relation(
         })?;
 
     let relation_id = KGRepository::create_relation(
+        &tenant_ctx.tenant_id,
         &source_id,
         &target_id,
         &body.relation_type,

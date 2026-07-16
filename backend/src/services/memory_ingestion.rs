@@ -204,7 +204,7 @@ pub(crate) async fn run_reflection_cycle_for_tenant(
     tenant_id: &TenantId,
     cfg: &IngestionConfig,
 ) -> anyhow::Result<()> {
-    let user_ids = match STMRepository::get_active_user_ids().await {
+    let user_ids = match STMRepository::get_active_user_ids(pool(), tenant_id).await {
         Ok(ids) => ids,
         Err(e) => {
             warn!("Failed to fetch active user IDs: {}", e);
@@ -298,6 +298,7 @@ pub(crate) async fn run_reflection_cycle_for_tenant(
                     // msgs are returned oldest-first; evict the first `excess` entries
                     let to_evict = &msgs[..excess];
                     if let Err(e) = evict_stm_messages(
+                        tenant_id,
                         &session.session_id,
                         to_evict.iter().map(|m| m.message_id.as_str()),
                     )
@@ -324,8 +325,16 @@ pub(crate) async fn run_reflection_cycle_for_tenant(
 }
 
 /// Delete a set of STM messages by ID (sliding-window eviction).
-/// Uses raw SQL so we don't need a separate repository method.
-async fn evict_stm_messages<'a, I>(session_id: &str, message_ids: I) -> anyhow::Result<usize>
+///
+/// RLS: session_messages is RLS-scoped, so the DELETE must run inside a
+/// tenant-scoped transaction or the policy fail-closes it to a 0-row no-op
+/// (silently defeating eviction). `tenant_id` is threaded from the reflection
+/// cycle, which already owns it.
+async fn evict_stm_messages<'a, I>(
+    tenant_id: &TenantId,
+    session_id: &str,
+    message_ids: I,
+) -> anyhow::Result<usize>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -334,14 +343,16 @@ where
     if ids.is_empty() {
         return Ok(0);
     }
+    let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
     let mut evicted = 0usize;
     for id in &ids {
         sqlx::query("DELETE FROM session_messages WHERE message_id = $1 AND session_id = $2")
             .bind(*id)
             .bind(session_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
         evicted += 1;
     }
+    tx.commit().await?;
     Ok(evicted)
 }

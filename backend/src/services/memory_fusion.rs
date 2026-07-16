@@ -221,7 +221,9 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
-        // Search session messages by content (exact/prefix match)
+        // RLS: session_messages JOIN context_sessions — both tables are RLS-scoped,
+        // so run inside a tenant-scoped tx or the join fail-closes to zero rows.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let rows: Vec<(String, String, String)> = sqlx::query_as(
             r#"
             SELECT m.message_id, m.content, s.created_at::text
@@ -235,12 +237,13 @@ impl MemoryFusionService {
         .bind(&pattern)
         .bind(query)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to query STM: {}", e);
             AppError::Internal(format!("STM query failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -349,6 +352,8 @@ impl MemoryFusionService {
         let pattern = format!("{}%", prefix);
 
         // Search KG entities by name/description
+        // RLS: entities is RLS-protected — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let rows: Vec<(String, String, Option<String>, f32, String)> = sqlx::query_as(
             r#"
             SELECT entity_id, entity_name, description, confidence_score, created_at::text
@@ -363,12 +368,13 @@ impl MemoryFusionService {
         .bind(&pattern)
         .bind(query)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to query KG: {}", e);
             AppError::Internal(format!("KG query failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -403,6 +409,11 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: run inside a tenant-scoped tx so the physical tenant_id policy on
+        // multimodal_entries applies at the DB layer. The source_id LIKE prefix
+        // stays as the dev/superuser fallback (RLS is a NO-OP under a superuser).
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
+
         // Search MM entries by text content or title
         let rows: Vec<(String, Option<String>, Option<String>, Option<f32>, String)> =
             sqlx::query_as(
@@ -419,12 +430,13 @@ impl MemoryFusionService {
             .bind(&pattern)
             .bind(query)
             .bind(limit)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|e| {
                 error!("Failed to query MM: {}", e);
                 AppError::Internal(format!("MM query failed: {}", e))
             })?;
+        tx.commit().await.ok();
 
         let entries: Vec<MemoryEntry> = rows
             .into_iter()
@@ -454,16 +466,19 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct context_sessions count — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM context_sessions WHERE user_id LIKE $1 AND status = 'active'",
         )
         .bind(&pattern)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count STM: {}", e);
             AppError::Internal(format!("STM count failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
@@ -493,34 +508,40 @@ impl MemoryFusionService {
         let prefix = tenant_id.prefix();
         let pattern = format!("{}%", prefix);
 
+        // RLS: direct entities count — run inside a tenant-scoped tx.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM entities WHERE entity_id LIKE $1 AND status = 'active'",
         )
         .bind(&pattern)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count KG: {}", e);
             AppError::Internal(format!("KG count failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
 
     async fn count_mm(pool: &sqlx::PgPool, tenant_id: &TenantId) -> Result<i64, AppError> {
-        // MM stores the tenant id inside content_metadata JSON (not an id prefix),
-        // so scope the count by that field to avoid leaking other tenants' totals.
+        // RLS: run inside a tenant-scoped tx so the physical tenant_id policy applies.
+        // The content_metadata JSON predicate stays as the dev/superuser fallback,
+        // since MM historically scoped by that field rather than an id prefix.
+        let mut tx = crate::db::tenant_scope::begin_tenant_tx(pool, tenant_id).await?;
         let row: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM multimodal_entries WHERE status = 'active' \
              AND COALESCE(NULLIF(content_metadata, ''), '{}')::jsonb ->> 'tenant_id' = $1",
         )
         .bind(tenant_id.as_str())
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             error!("Failed to count MM: {}", e);
             AppError::Internal(format!("MM count failed: {}", e))
         })?;
+        tx.commit().await.ok();
 
         Ok(row.0)
     }
