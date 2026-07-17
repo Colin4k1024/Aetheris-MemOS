@@ -111,18 +111,33 @@ pub fn rate_limit_state(max_requests: u32, window_seconds: u64) -> Arc<RateLimit
     )))
 }
 
+/// Rate limit middleware.
+///
+/// Client identity is derived from the trusted TCP connection (`ConnectInfo`) when
+/// available, falling back to `X-Forwarded-For` only for trusted proxy deployments.
+/// This prevents rate-limit bypass via XFF header spoofing.
 pub async fn rate_limit_middleware(
     State(limiter): State<Arc<RateLimiter>>,
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // Prefer the peer address from the trusted TCP connection. ConnectInfo is
+    // only populated when the router is started with
+    // `into_make_service_with_connect_info::<SocketAddr>()`.
     let client_ip = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip().to_string())
+        .unwrap_or_else(|| {
+            // XFF fallback: only trusted when behind a reverse proxy that
+            // sanitizes this header. Client-controllable otherwise.
+            req.headers()
+                .get("x-forwarded-for")
+                .and_then(|h| h.to_str().ok())
+                .and_then(|s| s.split(',').next())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        });
 
     if !limiter.check_and_record(&client_ip).await {
         return Ok((

@@ -21,6 +21,9 @@ pub struct MemoryFeedbackRow {
 }
 
 impl MemoryFeedbackRepository {
+    // W1.4: Application-layer tenant enforcement (no RLS on this table).
+    // Both create and list_by_memory scope by tenant_id to prevent cross-tenant
+    // leakage even though memory_feedback has no row-level security policy.
     pub async fn create(
         tenant_id: &TenantId,
         memory_id: &str,

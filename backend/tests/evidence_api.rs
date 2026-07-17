@@ -10,7 +10,7 @@ use backend::models::{
     TemporalScope,
 };
 use backend::services::evidence_graph::record_decision_trace_as_evidence;
-use backend::services::AdaptiveMemoryScheduler;
+use backend::services::{AdaptiveMemoryScheduler, PerformancePredictionModel};
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -103,7 +103,7 @@ fn sample_preferences() -> TaskPreferences {
 }
 
 async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTrace {
-    AdaptiveMemoryScheduler::new()
+    AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()))
         .adaptive_memory_selection_trace(
             &sample_task_context(task_id),
             &sample_constraints(),

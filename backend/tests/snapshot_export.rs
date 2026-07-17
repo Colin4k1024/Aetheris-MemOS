@@ -9,7 +9,7 @@ use backend::services::evidence_graph::{
     build_workflow_evidence_export, canonical_export_body_bytes,
     hash_workflow_evidence_export_body, list_workflow_evidence, record_decision_trace_as_evidence,
 };
-use backend::services::AdaptiveMemoryScheduler;
+use backend::services::{AdaptiveMemoryScheduler, PerformancePredictionModel};
 use chrono::{TimeZone, Utc};
 use serde_json::json;
 
@@ -89,7 +89,7 @@ fn sample_preferences() -> TaskPreferences {
 }
 
 async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTrace {
-    AdaptiveMemoryScheduler::new()
+    AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()))
         .adaptive_memory_selection_trace(
             &sample_task_context(task_id),
             &sample_constraints(),

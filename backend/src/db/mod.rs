@@ -41,6 +41,9 @@ pub mod neo4j;
 pub mod performance;
 pub mod stm;
 pub mod tenant_scope;
+pub mod vector_outbox;
+#[allow(dead_code)]
+pub mod vector_reconciliation;
 #[allow(dead_code)]
 pub mod weights;
 pub mod workflow_lifecycle;

@@ -275,7 +275,7 @@ pub(crate) async fn run_reflection_cycle_for_tenant(
                         Ok(entry_id) => {
                             info!(
                                 msg_id = %msg.message_id,
-                                entry_id = %entry_id,
+                                entry_id = %entry_id.entry_id,
                                 score,
                                 "Promoted STM message to LTM"
                             );

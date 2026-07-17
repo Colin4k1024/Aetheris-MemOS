@@ -552,3 +552,41 @@ struct CanonicalWorkflowEvidenceExport<'a> {
     nodes: &'a [WorkflowEvidenceNode],
     edges: &'a [WorkflowEvidenceEdge],
 }
+
+pub async fn scan_all_workflows_for_tampering() -> Result<usize, AppError> {
+    let workflow_ids = EvidenceGraphRepository::list_all_workflow_ids().await?;
+    let mut tampered = 0usize;
+
+    for workflow_id in &workflow_ids {
+        match list_workflow_evidence(workflow_id).await {
+            Ok(response) => {
+                if !response.verification.verified {
+                    tampered += 1;
+                    tracing::error!(
+                        workflow_id = %workflow_id,
+                        violations = ?response.verification.violations,
+                        "Evidence tampering detected"
+                    );
+                    crate::services::audit_writer::record_audit(
+                        crate::db::audit::AuditEvent::new(
+                            "evidence.tampering",
+                            "workflow_evidence",
+                        )
+                        .with_metadata(&serde_json::json!({
+                            "workflow_id": workflow_id,
+                            "violations": response.verification.violations,
+                            "verified_nodes": response.verification.verified_node_count,
+                            "expected_nodes": response.verification.expected_node_count,
+                        })),
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(workflow_id = %workflow_id, error = %e, "Failed to verify workflow evidence");
+            }
+        }
+    }
+
+    tracing::info!(scanned = workflow_ids.len(), tampered, "Evidence tamper scan complete");
+    Ok(tampered)
+}

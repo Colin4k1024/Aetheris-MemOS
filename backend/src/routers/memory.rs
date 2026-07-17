@@ -15,8 +15,11 @@ use crate::services::*;
 use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
-static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> =
-    Lazy::new(|| Arc::new(AdaptiveMemoryScheduler::new()));
+static SCHEDULER: Lazy<Arc<AdaptiveMemoryScheduler>> = Lazy::new(|| {
+    Arc::new(AdaptiveMemoryScheduler::new(Box::new(
+        PerformancePredictionModel::new(),
+    )))
+});
 
 static ANALYZER: Lazy<Arc<TaskCharacteristicAnalyzer>> =
     Lazy::new(|| Arc::new(TaskCharacteristicAnalyzer::new()));
@@ -72,10 +75,12 @@ pub struct SelectMemoryResponse {
 }
 
 pub async fn select_memory_config(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<SelectMemoryRequest>,
 ) -> JsonResult<SelectMemoryResponse> {
     let outcome = crate::services::memory_orchestrator::select_memory(
         SCHEDULER.as_ref(),
+        &tenant_ctx.tenant_id,
         &request.task_context,
         &request.resource_constraints,
         &request.preferences,
@@ -98,10 +103,12 @@ pub async fn select_memory_config(
 }
 
 pub async fn select_memory_config_trace(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<SelectMemoryRequest>,
 ) -> JsonResult<crate::services::scheduler::DecisionTrace> {
     let trace = crate::services::memory_orchestrator::select_memory_trace(
         SCHEDULER.as_ref(),
+        &tenant_ctx.tenant_id,
         &request.task_context,
         &request.resource_constraints,
         &request.preferences,
@@ -136,11 +143,16 @@ pub struct ListTracesResponse {
 }
 
 pub async fn get_decision_traces(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(q): Query<ListTracesQuery>,
 ) -> JsonResult<ListTracesResponse> {
     let rows =
-        crate::services::memory_orchestrator::list_decision_traces(q.task_id.as_deref(), q.limit)
-            .await?;
+        crate::services::memory_orchestrator::list_decision_traces(
+            &tenant_ctx.tenant_id,
+            q.task_id.as_deref(),
+            q.limit,
+        )
+        .await?;
     let traces = rows
         .into_iter()
         .map(|row| DecisionTraceItem {
@@ -168,11 +180,16 @@ pub struct ExplainResponse {
 }
 
 pub async fn explain_memory_selection(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(q): Query<ExplainQuery>,
 ) -> JsonResult<ExplainResponse> {
     let rows =
-        crate::services::memory_orchestrator::list_decision_traces(q.task_id.as_deref(), q.limit)
-            .await?;
+        crate::services::memory_orchestrator::list_decision_traces(
+            &tenant_ctx.tenant_id,
+            q.task_id.as_deref(),
+            q.limit,
+        )
+        .await?;
     let traces = rows
         .into_iter()
         .filter(|row| {

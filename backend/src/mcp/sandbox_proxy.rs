@@ -58,7 +58,7 @@ impl ToolExecutionLog {
 
 /// SandboxProxy provides a secure interface for tool execution.
 pub struct SandboxProxy {
-    sandbox: Arc<WasmSandbox<()>>,
+    sandbox: Arc<WasmSandbox>,
     /// Registered tools mapped by name.
     tools: HashMap<String, Box<dyn SandboxedTool>>,
 }
@@ -73,7 +73,7 @@ impl SandboxProxy {
     /// Creates a new SandboxProxy with an empty tool registry.
     pub fn new() -> Self {
         Self {
-            sandbox: Arc::new(WasmSandbox::new(()).expect("failed to create wasm sandbox")),
+            sandbox: Arc::new(WasmSandbox::new()),
             tools: HashMap::new(),
         }
     }

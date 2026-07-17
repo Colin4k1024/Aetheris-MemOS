@@ -19,7 +19,7 @@ redis-stm = ["dep:redis"]
 #   1) uncomment + pin the a2a/a2a-server deps in [dependencies] below,
 #   2) change this to: a2a = ["dep:a2a", "dep:a2a-server"],
 #   3) build with `--features a2a` (needs network for the first resolve).
-a2a = []
+a2a = ["dep:a2a", "dep:a2a-server"]
 
 [dependencies]
 anyhow = "1"
@@ -80,8 +80,8 @@ metrics = "0.21"
 # these unpinned git crates. Re-enable via the `a2a` feature (see [features] note):
 # pin a `rev` first (run online once: `cargo update -p a2a-lf -p a2a-server-lf`
 # then copy the commit from Cargo.lock), then uncomment:
-# a2a = { package = "a2a-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "<PIN_ME>", optional = true }
-# a2a-server = { package = "a2a-server-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "<PIN_ME>", optional = true }
+a2a = { package = "a2a-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "0b19af0e2805455c01f8f2b7fb52c5d5ec1bce95", optional = true }
+a2a-server = { package = "a2a-server-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "0b19af0e2805455c01f8f2b7fb52c5d5ec1bce95", optional = true }
 uuid = { version = "1", features = ["v4"] }
 
 # Redis support (enabled by redis-stm feature)

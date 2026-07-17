@@ -15,6 +15,23 @@ This page summarizes the newest validation evidence for Aetheris MemOS. It is op
 | Cross-session memory recall | Validated | Real 10-day developer journey demo recalls project facts across independent sessions |
 | Backend operation trace | Captured | STM writes, hybrid search, embedding generation, Qdrant search, and SQLite lookup logs |
 
+## Reliability Snapshot
+
+> Updated: 2026-07-17 (P1 grounding — PR-1 through PR-6 merged)
+
+| Area | Status | Evidence |
+|------|--------|----------|
+| Memory storage enterprise reliability review | Completed | [Memory Storage Reliability PRD](artifacts/2026-07-06-memory-storage-reliability/prd.md) and [Architecture Note](architecture/memory-storage-reliability.md) |
+| Tenant isolation hardening | Implemented | [ADR-0001](adr/ADR-0001-memory-storage-tenant-isolation.md) — schema-level RLS on LTM/STM/KG/MM tables; `tenant_scope` GUC executor; tenant-scoped search paths |
+| LTM/Qdrant consistency hardening | Implemented (outbox) | [ADR-0002](adr/ADR-0002-memory-vector-outbox-reconciliation.md) — DB+outbox single TX on PG; async worker with idempotent replay; reconciliation scanner still pending |
+| Governance middleware | Implemented (scaffold) | [Governance Plan](artifacts/2026-07-16-enterprise-productionization/p1-outbox-and-governance-plan.md) — `auth→rate_limit→governance→handler` chain; audit async writer; quota/RBAC hooks exist but not yet enforcing |
+| Operational readiness gate | Planned | [ADR-0003](adr/ADR-0003-memory-storage-operational-readiness.md) defines backup/restore, HA, alerting, and rollback evidence requirements |
+| Reliability test plan | Planned | [Memory Storage Reliability Test Plan](artifacts/2026-07-06-memory-storage-reliability/test-plan.md) lists required schema, negative, transaction, outbox, reconciliation, and drill tests |
+| Reliability execution team | Planned | [Team Execution Plan](artifacts/2026-07-06-memory-storage-reliability/team-execution-plan.md) consolidates tech-lead, architect, backend, QA, and DevOps execution responsibilities |
+| Reliability release readiness | Blocked | [Deployment Context](artifacts/2026-07-06-memory-storage-reliability/deployment-context.md), [Release Plan](artifacts/2026-07-06-memory-storage-reliability/release-plan.md), and [Launch Acceptance](artifacts/2026-07-06-memory-storage-reliability/launch-acceptance.md) define release gates and current blockers |
+
+Current reliability conclusion: P1 grounding has delivered schema-level tenant isolation (RLS), LTM→Qdrant durable outbox with async worker, and governance middleware scaffolding. Remaining blockers: quota/RBAC enforcement, reconciliation scanner, MCP signing/capability, backup/restore drills, and operational runbooks.
+
 ## Latest Highlights
 
 ### 1. Memory turns a stateless LangChain agent into a persistent assistant

@@ -93,6 +93,8 @@ async fn main() {
     // Mirrors the is_sqlite() gating of the write_queue above.
     if crate::db::is_postgres() {
         crate::services::audit_writer::init_audit_writer();
+        // ADR-0002: durable LTM↔Qdrant outbox consumer (PG only).
+        crate::services::outbox_worker::init_outbox_worker();
     }
 
     // P1 governance: register the enterprise hooks (RBAC/quota/audit) singleton that

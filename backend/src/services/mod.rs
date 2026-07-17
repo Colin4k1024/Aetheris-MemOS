@@ -1,6 +1,7 @@
 #[allow(dead_code)]
 pub mod agent;
 pub mod agent_identity;
+pub mod adaptive_telemetry;
 pub mod analyzer;
 pub mod approval_manager;
 #[allow(dead_code)]
@@ -18,6 +19,8 @@ pub mod context_snapshot;
 pub mod embedding;
 #[allow(dead_code)]
 pub mod enterprise;
+#[allow(dead_code)]
+pub mod eval_harness;
 pub mod evidence_graph;
 pub mod hardware_detector;
 #[allow(dead_code)]
@@ -48,6 +51,7 @@ pub mod monitor;
 pub mod multi_tenant;
 #[allow(dead_code)]
 pub mod multimodal_memory;
+pub mod outbox_worker;
 pub mod predictor;
 pub mod prometheus_exporter;
 pub mod prompt_injection_probe;
@@ -63,6 +67,8 @@ pub mod strategy_mutator;
 #[allow(dead_code)]
 pub mod usage_tracker;
 pub mod vector_guard;
+#[allow(dead_code)]
+pub mod vector_reconciliation;
 #[allow(dead_code)]
 pub mod weight_adjuster;
 pub mod weight_decay;

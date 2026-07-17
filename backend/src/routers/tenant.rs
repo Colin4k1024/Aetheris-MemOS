@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
 
-use crate::services::rbac::{RbacService, Role, UserRole};
+use crate::services::rbac::{get_rbac_service, Role, UserRole};
 use crate::tenant::{TenantContext, TenantId};
 use crate::{json_ok, JsonResult};
 
@@ -198,12 +198,6 @@ pub async fn reset_tenant_memory(Path(tenant_id): Path<String>) -> JsonResult<se
 
 // RBAC endpoints
 
-static RBAC_SERVICE: std::sync::OnceLock<RbacService> = std::sync::OnceLock::new();
-
-fn get_rbac() -> &'static RbacService {
-    RBAC_SERVICE.get_or_init(RbacService::new)
-}
-
 /// Assign role to user
 pub async fn assign_role(
     Path(tenant_id): Path<String>,
@@ -215,7 +209,7 @@ pub async fn assign_role(
         req.role, req.user_id, tenant_id
     );
 
-    let result = get_rbac()
+    let result = get_rbac_service()
         .assign_role(&tenant_id, &req.user_id, req.role, &req.assigned_by)
         .await?;
 
@@ -232,7 +226,7 @@ pub async fn get_user_role(
 ) -> JsonResult<Option<String>> {
     info!("Getting role for user {} in tenant {}", user_id, tenant_id);
 
-    let role = get_rbac().get_role(&tenant_id, &user_id).await;
+    let role = get_rbac_service().get_role(&tenant_id, &user_id).await;
 
     json_ok(role.map(|r| r.to_string()))
 }
@@ -241,7 +235,7 @@ pub async fn get_user_role(
 pub async fn list_roles(Path(tenant_id): Path<String>) -> JsonResult<RoleListResponse> {
     info!("Listing roles for tenant {}", tenant_id);
 
-    let roles = get_rbac().list_roles(&tenant_id).await;
+    let roles = get_rbac_service().list_roles(&tenant_id).await;
 
     json_ok(RoleListResponse {
         roles: roles

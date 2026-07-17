@@ -1,8 +1,8 @@
 use anyhow::Result;
 use qdrant_client::qdrant::{
     condition::ConditionOneOf, r#match::MatchValue, Condition, CreateCollection, Distance,
-    FieldCondition, Filter, Match, PointId, PointStruct, PointsIdsList, PointsSelector,
-    SearchPoints, SetPayloadPoints, VectorParams, Vectors, VectorsConfig,
+    FieldCondition, Filter, GetPoints, Match, PointId, PointStruct, PointsIdsList, PointsSelector,
+    ScrollPoints, SearchPoints, SetPayloadPoints, VectorParams, Vectors, VectorsConfig,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -449,6 +449,92 @@ impl QdrantClient {
         );
         Ok(count)
     }
+
+    /// Scroll all point IDs in the collection, returning the original entry IDs
+    /// (extracted from the `_original_id` payload, falling back to the numeric
+    /// Qdrant point ID as a string). Paginates via the scroll `next_page_offset`.
+    #[instrument(skip(self))]
+    pub async fn scroll_point_ids(&self) -> Result<Vec<String>> {
+        info!(
+            "Scrolling all point IDs in collection: {}",
+            self.collection_name
+        );
+
+        let page_limit: u32 = 256;
+        let mut all_ids = Vec::new();
+        let mut offset: Option<PointId> = None;
+
+        loop {
+            let scroll_req = ScrollPoints {
+                collection_name: self.collection_name.clone(),
+                filter: None,
+                offset,
+                limit: Some(page_limit),
+                with_payload: Some(true.into()),
+                with_vectors: Some(false.into()),
+                read_consistency: None,
+                shard_key_selector: None,
+                order_by: None,
+                timeout: None,
+            };
+
+            let response = self.client.scroll(scroll_req).await.map_err(|e| {
+                error!("Failed to scroll points: {}", e);
+                anyhow::anyhow!("Failed to scroll points: {}", e)
+            })?;
+
+            for point in &response.result {
+                all_ids.push(extract_original_id(&point.payload, &point.id));
+            }
+
+            match response.next_page_offset {
+                Some(next) => offset = Some(next),
+                None => break,
+            }
+        }
+
+        info!(
+            "Scrolled {} point IDs from collection {}",
+            all_ids.len(),
+            self.collection_name
+        );
+        Ok(all_ids)
+    }
+
+    /// Retrieve a single point's payload by its original entry ID.
+    /// Returns `None` if the point does not exist.
+    #[instrument(skip(self))]
+    pub async fn get_point_payload(&self, point_id: &str) -> Result<Option<Value>> {
+        info!("Fetching payload for point: {}", point_id);
+
+        use qdrant_client::qdrant::point_id::PointIdOptions;
+
+        let numeric_id = numeric_point_id(point_id);
+        let ids = vec![PointId {
+            point_id_options: Some(PointIdOptions::Num(numeric_id)),
+        }];
+
+        let get_req = GetPoints {
+            collection_name: self.collection_name.clone(),
+            ids,
+            with_payload: Some(true.into()),
+            with_vectors: Some(false.into()),
+            read_consistency: None,
+            shard_key_selector: None,
+            timeout: None,
+        };
+
+        let response = self.client.get_points(get_req).await.map_err(|e| {
+            error!("Failed to get point payload: {}", e);
+            anyhow::anyhow!("Failed to get point payload: {}", e)
+        })?;
+
+        Ok(response
+            .result
+            .into_iter()
+            .next()
+            .map(|p| qdrant_payload_to_json(&p.payload)))
+    }
 }
 
 /// 将 JSON Value 转换为 Qdrant Payload
@@ -556,6 +642,31 @@ fn numeric_point_id(id: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     id.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Extract the original entry ID from a Qdrant point, preferring the
+/// `_original_id` payload field and falling back to the numeric/uuid point ID.
+fn extract_original_id(
+    payload: &HashMap<String, qdrant_client::qdrant::Value>,
+    id: &Option<PointId>,
+) -> String {
+    if let Some(original_id_value) = payload.get("_original_id") {
+        if let Some(qdrant_client::qdrant::value::Kind::StringValue(s)) = &original_id_value.kind
+        {
+            return s.clone();
+        }
+    }
+    match id {
+        Some(PointId {
+            point_id_options:
+                Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)),
+        }) => uuid.clone(),
+        Some(PointId {
+            point_id_options:
+                Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(num)),
+        }) => num.to_string(),
+        _ => String::new(),
+    }
 }
 
 /// 全局 Qdrant 客户端实例

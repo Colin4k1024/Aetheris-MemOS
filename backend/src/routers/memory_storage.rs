@@ -58,6 +58,9 @@ pub struct StoreLTMRequest {
 pub struct StoreLTMResponse {
     #[serde(rename = "entryId")]
     pub entry_id: String,
+    /// `"pending"` when the vector index is delivered via outbox; `"ready"` when written synchronously.
+    #[serde(rename = "indexStatus")]
+    pub index_status: String,
 }
 
 /// 手动转移请求
@@ -154,7 +157,7 @@ pub async fn store_ltm(
         req.content.len()
     );
 
-    let entry_id = MemoryStorageService::store_ltm_for_tenant(
+    let result = MemoryStorageService::store_ltm_for_tenant(
         &tenant_ctx.tenant_id,
         &req.source_id,
         &req.source_type,
@@ -163,7 +166,10 @@ pub async fn store_ltm(
     )
     .await?;
 
-    json_ok(StoreLTMResponse { entry_id })
+    json_ok(StoreLTMResponse {
+        entry_id: result.entry_id,
+        index_status: result.index_status,
+    })
 }
 
 /// 手动触发 STM 到 LTM 转移

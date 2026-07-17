@@ -6,6 +6,7 @@ use crate::config::Neo4jConfig;
 use crate::AppError;
 use neo4rs::{query, Graph, Node, Relation, Row};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
@@ -368,6 +369,9 @@ impl Neo4jManager {
 /// Type alias for Neo4j manager wrapped in Arc and RwLock
 pub type Neo4jManagerHandle = Arc<RwLock<Option<Neo4jManager>>>;
 
+/// Global Neo4j manager handle, set by `init_neo4j` at startup.
+static NEO4J_HANDLE: OnceLock<Neo4jManagerHandle> = OnceLock::new();
+
 /// Create a new Neo4j manager handle
 pub fn create_neo4j_manager() -> Neo4jManagerHandle {
     Arc::new(RwLock::new(None))
@@ -377,19 +381,46 @@ pub fn create_neo4j_manager() -> Neo4jManagerHandle {
 pub async fn init_neo4j(config: &Neo4jConfig) -> Result<Neo4jManagerHandle, AppError> {
     let manager = Neo4jManager::new(config).await?;
     let handle: Neo4jManagerHandle = Arc::new(RwLock::new(Some(manager)));
+    let _ = NEO4J_HANDLE.set(handle.clone());
     Ok(handle)
 }
 
-/// Initialize Neo4j indexes
+/// Initialize Neo4j indexes (best-effort).
+///
+/// Attempts to create a uniqueness constraint on Entity nodes and property
+/// indexes on relations. Uses the global Neo4j manager handle set by `init_neo4j`.
+/// Failures are logged but never propagated — Neo4j is an optional enhancement.
 pub async fn init_neo4j_indexes() -> Result<(), AppError> {
-    // No Neo4j indexes/constraints are defined yet. Kept as a no-op intentionally,
-    // but logged as a warning so the absence is visible instead of being implied as
-    // "initialized successfully" by the caller. KG graph nodes currently have no
-    // uniqueness constraints or property indexes.
-    tracing::warn!(
-        "Neo4j index/constraint initialization is not implemented (no-op); \
-         graph nodes have no uniqueness constraints or indexes yet"
-    );
+    let handle = match NEO4J_HANDLE.get() {
+        Some(h) => h,
+        None => {
+            tracing::warn!("Neo4j manager not initialized, skipping index creation");
+            return Ok(());
+        }
+    };
+    let guard = handle.read().await;
+    let manager = match guard.as_ref() {
+        Some(m) => m,
+        None => {
+            tracing::warn!("Neo4j connection not available, skipping index creation");
+            return Ok(());
+        }
+    };
+
+    let queries = [
+        "CREATE CONSTRAINT entity_name_unique IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE",
+        "CREATE INDEX entity_type_index IF NOT EXISTS FOR (e:Entity) ON (e.entity_type)",
+        "CREATE INDEX relation_type_index IF NOT EXISTS FOR ()-[r:RELATES_TO]-() ON (r.relation_type)",
+    ];
+
+    for query in &queries {
+        match manager.execute(query).await {
+            Ok(_) => tracing::info!(query = %query, "Neo4j index/constraint created"),
+            Err(e) => tracing::error!(query = %query, error = %e, "Neo4j index/constraint creation failed"),
+        }
+    }
+
+    tracing::info!("Neo4j index initialization complete");
     Ok(())
 }
 

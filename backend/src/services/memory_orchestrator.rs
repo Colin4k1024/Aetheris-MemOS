@@ -5,7 +5,8 @@ use crate::db::{
 use crate::models::{ResourceConstraints, TaskContext, TaskPreferences};
 use crate::services::evidence_graph::record_decision_trace_as_evidence;
 use crate::services::scheduler::{DecisionTrace, MemorySelectionResult};
-use crate::services::AdaptiveMemoryScheduler;
+use crate::services::{AdaptiveMemoryScheduler, PerformancePredictionModel};
+use crate::tenant::TenantId;
 use crate::AppError;
 
 #[derive(Debug, Clone)]
@@ -41,6 +42,7 @@ pub struct PersistedTraceArtifacts {
 
 pub async fn select_memory(
     scheduler: &AdaptiveMemoryScheduler,
+    tenant_id: &TenantId,
     task_context: &TaskContext,
     resource_constraints: &ResourceConstraints,
     preferences: &TaskPreferences,
@@ -57,7 +59,7 @@ pub async fn select_memory(
         }
 
         if options.persist_trace && !options.dry_run {
-            persist_trace_record(&trace).await?;
+            persist_trace_record(tenant_id, &trace).await?;
         }
 
         let what_if_result = if let Some(ref w) = options.what_if_constraints {
@@ -89,7 +91,7 @@ pub async fn select_memory(
         let trace = scheduler
             .adaptive_memory_selection_trace(task_context, resource_constraints, preferences)
             .await?;
-        persist_trace_record(&trace).await?;
+        persist_trace_record(tenant_id, &trace).await?;
     }
 
     let what_if_result = if let Some(ref w) = options.what_if_constraints {
@@ -112,6 +114,7 @@ pub async fn select_memory(
 
 pub async fn select_memory_trace(
     scheduler: &AdaptiveMemoryScheduler,
+    tenant_id: &TenantId,
     task_context: &TaskContext,
     resource_constraints: &ResourceConstraints,
     preferences: &TaskPreferences,
@@ -121,19 +124,20 @@ pub async fn select_memory_trace(
         .adaptive_memory_selection_trace(task_context, resource_constraints, preferences)
         .await?;
     if persist_trace {
-        persist_trace_record(&trace).await?;
+        persist_trace_record(tenant_id, &trace).await?;
     }
     Ok(trace)
 }
 
 pub async fn list_decision_traces(
+    tenant_id: &TenantId,
     task_id: Option<&str>,
     limit: Option<i32>,
 ) -> Result<Vec<DecisionTraceEnvelope>, AppError> {
     let rows = if let Some(task_id) = task_id {
-        DecisionTraceRepository::get_by_task_id(task_id, limit).await?
+        DecisionTraceRepository::get_by_task_id(tenant_id, task_id, limit).await?
     } else {
-        DecisionTraceRepository::get_recent(limit, None, None).await?
+        DecisionTraceRepository::get_recent(tenant_id, limit, None, None).await?
     };
 
     let mut traces = Vec::with_capacity(rows.len());
@@ -150,10 +154,13 @@ pub async fn list_decision_traces(
     Ok(traces)
 }
 
-async fn persist_trace_record(trace: &DecisionTrace) -> Result<PersistedTraceArtifacts, AppError> {
+async fn persist_trace_record(
+    tenant_id: &TenantId,
+    trace: &DecisionTrace,
+) -> Result<PersistedTraceArtifacts, AppError> {
     let trace_json = serde_json::to_string(trace)
         .map_err(|e| AppError::Internal(format!("Failed to serialize trace: {}", e)))?;
-    let trace_id = DecisionTraceRepository::create(&trace.task_id, &trace_json).await?;
+    let trace_id = DecisionTraceRepository::create(tenant_id, &trace.task_id, &trace_json).await?;
     let evidence = record_decision_trace_as_evidence(trace).await?;
     Ok(PersistedTraceArtifacts {
         trace_id,
@@ -241,9 +248,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_select_memory_returns_error_when_what_if_fails() {
-        let scheduler = AdaptiveMemoryScheduler::new();
+        let scheduler = AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()));
+        let tenant_id = TenantId::from_string("test-tenant");
         let result = select_memory(
             &scheduler,
+            &tenant_id,
             &sample_task_context(),
             &base_constraints(),
             &default_preferences(),

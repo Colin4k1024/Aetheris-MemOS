@@ -15,9 +15,9 @@ pub mod zep;
 
 pub use builtin::BuiltinProvider;
 pub use config::ProviderConfig;
-pub use letta::LettaProvider;
 pub use mem0::Mem0Provider;
 pub use zep::ZepProvider;
+// W2.5: LettaProvider removed from public re-exports (reserved stub, not yet implemented)
 
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::provider::{MemoryProvider, ProviderType};
@@ -44,6 +44,6 @@ pub fn create_provider(config: &ProviderConfig) -> Box<dyn MemoryProvider> {
         ProviderType::Builtin => Box::new(BuiltinProvider::new()),
         ProviderType::Mem0 => Box::new(Mem0Provider::new(config.mem0.clone().unwrap_or_default())),
         ProviderType::Zep => Box::new(ZepProvider::new(config.zep.clone().unwrap_or_default())),
-        ProviderType::Letta => Box::new(LettaProvider::new()),
+        ProviderType::Letta => Box::new(letta::LettaProvider::new()),
     }
 }

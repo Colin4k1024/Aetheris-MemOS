@@ -9,7 +9,7 @@ use backend::services::evidence_graph::{
     list_workflow_evidence, record_decision_trace_as_evidence,
 };
 use backend::services::memory_orchestrator::{list_decision_traces, select_memory_trace};
-use backend::services::AdaptiveMemoryScheduler;
+use backend::services::{AdaptiveMemoryScheduler, PerformancePredictionModel};
 
 static DB_PATH: OnceLock<String> = OnceLock::new();
 static INIT_DB: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
@@ -95,7 +95,7 @@ fn sample_preferences() -> TaskPreferences {
 }
 
 async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTrace {
-    AdaptiveMemoryScheduler::new()
+    AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()))
         .adaptive_memory_selection_trace(
             &sample_task_context(task_id),
             &sample_constraints(),
@@ -188,7 +188,7 @@ async fn select_memory_trace_persist_trace_record_keeps_legacy_blob_and_workflow
         .unwrap();
     init_test_db().await;
 
-    let scheduler = AdaptiveMemoryScheduler::new();
+    let scheduler = AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()));
     let task_context = sample_task_context("workflow-evidence-live-path");
     let trace = select_memory_trace(
         &scheduler,

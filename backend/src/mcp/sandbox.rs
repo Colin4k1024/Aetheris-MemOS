@@ -1,12 +1,20 @@
-//! WebAssembly sandbox isolation for MCP tool execution.
+//! WebAssembly sandbox isolation for MCP tool execution (Plane B).
 //!
 //! Provides zero-trust execution environment for untrusted MCP tools using
 //! WebAssembly runtime (wasmtime) with capability-based security.
+//!
+//! The wasm module must export:
+//! - `memory` — WebAssembly memory instance
+//! - `alloc(size: i32) -> i32` — allocate `size` bytes, return pointer
+//! - `execute(ptr: i32, len: i32) -> i32` — execute with JSON input at `ptr:len`,
+//!   return pointer to null-terminated JSON output string
 
+use crate::AppError;
 use serde_json::Value as JsonValue;
 use std::collections::HashSet;
 use thiserror::Error;
-use tracing::warn;
+use tracing::{info, warn};
+use wasmtime::{Engine, Linker, Memory, Module, Store};
 
 /// Capability types that can be granted or denied to sandboxed tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -105,43 +113,35 @@ pub trait SandboxedTool: Send + Sync {
 }
 
 /// WasmSandbox wraps a wasmtime runtime for executing WebAssembly modules
-/// with capability-based isolation.
-pub struct WasmSandbox<T> {
-    _engine: wasmtime::Engine,
-    _store: wasmtime::Store<T>,
-    _linker: wasmtime::Linker<T>,
+/// with capability-based isolation and resource limits.
+pub struct WasmSandbox {
+    engine: Engine,
 }
 
-impl<T> WasmSandbox<T> {
-    /// Creates a new WasmSandbox with the given state.
-    pub fn new(state: T) -> Result<Self, SandboxError>
-    where
-        T: Send + Sync,
-    {
-        let engine = wasmtime::Engine::default();
-        let store = wasmtime::Store::new(&engine, state);
-        let linker = wasmtime::Linker::new(&engine);
+const MAX_FUEL: u64 = 10_000_000;
 
-        Ok(Self {
-            _engine: engine,
-            _store: store,
-            _linker: linker,
-        })
+impl Default for WasmSandbox {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WasmSandbox {
+    pub fn new() -> Self {
+        let mut config = wasmtime::Config::new();
+        config.consume_fuel(true);
+
+        let engine = Engine::new(&config).expect("failed to create wasmtime engine");
+
+        Self { engine }
     }
 
-    /// Executes a WebAssembly module with the given input and policy.
-    ///
-    /// Returns an error if the capability is denied or wasm execution fails.
     pub fn execute_wasm(
         &self,
         wasm_bytes: &[u8],
         input: JsonValue,
         policy: &CapabilityPolicy,
     ) -> Result<JsonValue, SandboxError> {
-        // For MVP, we validate the policy but don't fully instantiate a real wasm runtime.
-        // This is a mock implementation that validates the policy framework.
-
-        // Validate all required capabilities are permitted
         for capability in [
             Capability::NetworkAccess,
             Capability::FilesystemRead,
@@ -154,23 +154,97 @@ impl<T> WasmSandbox<T> {
             }
         }
 
-        // Mock: In a real implementation, this would:
-        // 1. Instantiate the wasm module with the linker
-        // 2. Call the wasm entry point with the JSON input
-        // 3. Return the wasm output as JSON
+        let module = Module::new(&self.engine, wasm_bytes).map_err(|e| {
+            warn!("invalid wasm module: {}", e);
+            SandboxError::InvalidModule(e.to_string())
+        })?;
 
-        // For MVP, we just return the input as output to demonstrate the framework works
-        Ok(input)
+        let mut store = Store::new(&self.engine, ());
+        store.set_fuel(MAX_FUEL).map_err(|e| {
+            SandboxError::RuntimeError(format!("failed to set fuel: {}", e))
+        })?;
+
+        let linker = Linker::new(&self.engine);
+        let instance = linker.instantiate(&mut store, &module).map_err(|e| {
+            warn!("wasm instantiation failed: {}", e);
+            SandboxError::WasmExecutionFailed(e.to_string())
+        })?;
+
+        let memory = instance
+            .get_memory(&mut store, "memory")
+            .ok_or_else(|| SandboxError::InvalidModule("wasm module must export 'memory'".into()))?;
+
+        let alloc = instance
+            .get_typed_func::<i32, i32>(&mut store, "alloc")
+            .map_err(|_| SandboxError::InvalidModule("wasm module must export 'alloc'".into()))?;
+
+        let execute = instance
+            .get_typed_func::<(i32, i32), i32>(&mut store, "execute")
+            .map_err(|_| SandboxError::InvalidModule("wasm module must export 'execute'".into()))?;
+
+        let input_json = serde_json::to_string(&input).map_err(|e| {
+            SandboxError::RuntimeError(format!("failed to serialize input: {}", e))
+        })?;
+        let input_bytes = input_json.as_bytes();
+
+        let input_ptr = alloc
+            .call(&mut store, input_bytes.len() as i32)
+            .map_err(|e| SandboxError::WasmExecutionFailed(format!("alloc failed: {}", e)))?;
+
+        memory
+            .write(&mut store, input_ptr as usize, input_bytes)
+            .map_err(|e| SandboxError::WasmExecutionFailed(format!("memory write failed: {}", e)))?;
+
+        let output_ptr = execute
+            .call(&mut store, (input_ptr, input_bytes.len() as i32))
+            .map_err(|e| {
+                let msg = e.to_string();
+                if msg.contains("fuel") {
+                    SandboxError::RuntimeError(format!("resource limit exceeded: {}", msg))
+                } else {
+                    SandboxError::WasmExecutionFailed(msg)
+                }
+            })?;
+
+        let output_json = read_cstr_from_memory(&memory, &store, output_ptr as usize).map_err(|e| {
+            SandboxError::WasmExecutionFailed(format!("failed to read output: {}", e))
+        })?;
+
+        let output: JsonValue = serde_json::from_str(&output_json).map_err(|e| {
+            SandboxError::RuntimeError(format!("invalid output JSON: {}", e))
+        })?;
+
+        info!("wasm sandbox execution completed successfully");
+        Ok(output)
     }
 }
 
-impl<T> Default for WasmSandbox<T>
-where
-    T: Default + Send + Sync,
-{
-    fn default() -> Self {
-        Self::new(T::default()).expect("failed to create default WasmSandbox")
+/// Reads a null-terminated C string from wasm memory at the given pointer.
+fn read_cstr_from_memory(
+    memory: &Memory,
+    store: &Store<()>,
+    ptr: usize,
+) -> Result<String, SandboxError> {
+    let mut bytes = Vec::new();
+    let mut offset = 0;
+    loop {
+        let mut buf = [0u8; 1];
+        memory
+            .read(store, ptr + offset, &mut buf)
+            .map_err(|e| SandboxError::WasmExecutionFailed(format!("memory read: {}", e)))?;
+        if buf[0] == 0 {
+            break;
+        }
+        bytes.push(buf[0]);
+        offset += 1;
+        if offset > 1024 * 1024 {
+            return Err(SandboxError::RuntimeError(
+                "output string exceeds 1 MiB limit".into(),
+            ));
+        }
     }
+    String::from_utf8(bytes)
+        .map_err(|e| SandboxError::RuntimeError(format!("invalid UTF-8 in output: {}", e)))
 }
 
 #[cfg(test)]

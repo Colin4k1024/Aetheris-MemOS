@@ -13,11 +13,14 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+use crate::hoops::governance::governance_middleware;
 use crate::hoops::jwt::auth_middleware;
+use crate::mcp::capability;
 use crate::mcp::signing::{
-    verify_component, verify_unsigned, ComponentSignature, TrustedKeyBundle,
+    verify_component, verify_unsigned, ComponentSignature, SigningError, TrustedKeyBundle,
 };
 
+use crate::db::audit::AuditEvent;
 use crate::db::kg::KGRepository;
 use crate::db::ltm::LTMRepository;
 use crate::db::mm::MMRepository;
@@ -29,6 +32,7 @@ use crate::protocol::mcp::{
     ToolsListResponse, TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST, TOOL_MEMORY_RECALL,
     TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
 };
+use crate::services::audit_writer;
 use crate::services::{memory_search::MemorySearchService, memory_storage::MemoryStorageService};
 use crate::tenant::{RequestTenantContext, TenantId};
 use crate::{json_ok, AppError, JsonResult};
@@ -137,11 +141,14 @@ pub fn router() -> Router {
     let state = McpState::default();
 
     // Protected routes (require authentication)
+    // Layer order: auth (outer, last) → governance (inner, first) → handler.
+    // Request flow: auth authenticates first, then governance runs pre-hooks.
     let protected_router = Router::new()
         .route("/tools", get(list_tools))
         .route("/tools/call", post(call_tool))
         .route("/resources", get(list_resources))
         .route("/resources/read", post(read_resource))
+        .route_layer(middleware::from_fn(governance_middleware))
         .layer(middleware::from_fn(auth_middleware));
 
     Router::new()
@@ -223,10 +230,88 @@ pub struct ToolCallParams {
 
 /// Call MCP tool
 async fn call_tool(
+    State(state): State<McpState>,
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(params): Json<ToolCallParams>,
 ) -> JsonResult<ToolCallResponse> {
     info!("MCP tool call: {}", params.name);
+
+    // --- Step a: Verify tool call signature (D-01, D-03) ---
+    // Re-verify the signature at invocation time using MCP_TOOL_SIGNATURES (same
+    // source as list_tools). Unsigned tools are rejected via verify_unsigned.
+    let signatures_json = std::env::var("MCP_TOOL_SIGNATURES").unwrap_or_default();
+    let signatures: Vec<ComponentSignature> =
+        serde_json::from_str(&signatures_json).unwrap_or_default();
+    let key_bundle = &state.component_registry.key_bundle;
+
+    let signing_result = match signatures.iter().find(|s| s.component_id == params.name) {
+        Some(sig) => {
+            let tool = get_memory_tools()
+                .into_iter()
+                .find(|t| t.name == params.name);
+            match tool {
+                Some(tool) => match serde_json::to_vec(&tool) {
+                    Ok(artifact) => verify_component(&params.name, &artifact, sig, key_bundle),
+                    Err(e) => Err(SigningError::VerificationFailed(
+                        params.name.clone(),
+                        e.to_string(),
+                    )),
+                },
+                None => verify_unsigned(&params.name),
+            }
+        }
+        None => verify_unsigned(&params.name),
+    };
+
+    if let Err(signing_err) = signing_result {
+        warn!(
+            component_id = %params.name,
+            error = %signing_err,
+            "MCP tool call rejected: signing verification failed"
+        );
+        audit_writer::record_audit(
+            AuditEvent::new("mcp.call_tool", "mcp_tool")
+                .tenant(tenant_ctx.tenant_id.as_str())
+                .with_metadata(&serde_json::json!({
+                    "tool": params.name,
+                    "outcome": "denied",
+                    "reason": "signing_verification_failed",
+                })),
+        );
+        return Err(AppError::Forbidden(
+            "Tool not authorized: signing verification failed".to_string(),
+        ));
+    }
+
+    // --- Step b: Capability authorization (deny-by-default) ---
+    // Plane A trusted first-party path: grant [Read, Write, Delete].
+    // authorize() rejects unknown tools regardless of granted capabilities.
+    let granted = [
+        capability::MemoryCapability::Read,
+        capability::MemoryCapability::Write,
+        capability::MemoryCapability::Delete,
+    ];
+    if let Err(authz_err) = capability::authorize(&granted, &params.name) {
+        warn!(
+            component_id = %params.name,
+            error = %authz_err,
+            "MCP tool call rejected: capability authorization failed"
+        );
+        audit_writer::record_audit(
+            AuditEvent::new("mcp.call_tool", "mcp_tool")
+                .tenant(tenant_ctx.tenant_id.as_str())
+                .with_metadata(&serde_json::json!({
+                    "tool": params.name,
+                    "outcome": "denied",
+                    "reason": "capability_unauthorized",
+                    "error": authz_err.to_string(),
+                })),
+        );
+        return Err(AppError::Forbidden(format!(
+            "Tool not authorized: {}",
+            authz_err
+        )));
+    }
 
     let result = match params.name.as_str() {
         TOOL_MEMORY_WRITE => handle_memory_write(&tenant_ctx.tenant_id, params.arguments).await,
@@ -235,6 +320,16 @@ async fn call_tool(
         TOOL_MEMORY_FORGET => handle_memory_forget(&tenant_ctx.tenant_id, params.arguments).await,
         TOOL_MEMORY_LIST => handle_memory_list(&tenant_ctx.tenant_id, params.arguments).await,
         _ => {
+            // Unreachable: capability::authorize rejects unknown tools deny-by-default.
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "outcome": "denied",
+                        "reason": "unknown_tool",
+                    })),
+            );
             return Err(AppError::BadRequest(format!(
                 "Unknown tool: {}",
                 params.name
@@ -243,12 +338,31 @@ async fn call_tool(
     };
 
     match result {
-        Ok(response) => json_ok(ToolCallResponse {
-            content: response,
-            is_error: Some(false),
-        }),
+        Ok(response) => {
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "outcome": "success",
+                    })),
+            );
+            json_ok(ToolCallResponse {
+                content: response,
+                is_error: Some(false),
+            })
+        }
         Err(e) => {
             error!("MCP tool error: {}", e);
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "outcome": "error",
+                        "error": e.to_string(),
+                    })),
+            );
             Err(AppError::Internal(e.to_string()))
         }
     }
@@ -303,7 +417,7 @@ async fn handle_memory_write(
         }
         "ltm" => {
             let source_id = format!("mcp_{}", ulid::Ulid::new());
-            let entry_id = MemoryStorageService::store_ltm_for_tenant(
+            let result = MemoryStorageService::store_ltm_for_tenant(
                 tenant_id,
                 &source_id,
                 "user_input",
@@ -316,7 +430,8 @@ async fn handle_memory_write(
                 serde_json::json!({
                     "success": true,
                     "layer": "ltm",
-                    "entryId": entry_id
+                    "entryId": result.entry_id,
+                    "indexStatus": result.index_status
                 })
                 .to_string(),
             )])

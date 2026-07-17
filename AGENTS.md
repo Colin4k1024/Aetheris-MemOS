@@ -51,6 +51,8 @@ This is a **monorepo** with two main components:
   - `memory_transfer.rs` — Memory transfer (STM → LTM)
   - `qdrant.rs` — Qdrant vector database client
   - `rerank.rs` — Reranking service
+  - `audit_writer.rs` — Async audit event writer (mpsc → batch INSERT)
+  - `outbox_worker.rs` — Vector outbox worker (claim → Qdrant → mark)
 - **db/** — Database repositories
   - `memory.rs` — Memory configuration
   - `performance.rs` — Performance metrics
@@ -61,9 +63,16 @@ This is a **monorepo** with two main components:
   - `mm.rs` — Multimodal memory
   - `neo4j.rs` — Neo4j graph database
   - `decision_trace.rs` — Decision trace
+  - `audit.rs` — Audit event store (memory_audit_events)
+  - `vector_outbox.rs` — LTM→Qdrant outbox (claim/mark/reclaim)
+  - `tenant_scope.rs` — Per-request tenant GUC executor
 - **models/** — Data models (memory, task, performance, resource)
 - **config/** — Configuration modules
-- **hoops/** — Middleware (CORS, JWT auth)
+- **hoops/** — Middleware (CORS, JWT auth, rate limiting, governance)
+  - `governance.rs` — Governance middleware (classify→pre-hook→RBAC/quota/audit)
+  - `enterprise.rs` — Enterprise hook set (RBAC, quota, audit callbacks)
+  - `enterprise_impl.rs` — Enterprise hook implementations
+  - `enterprise_hooks_v2.rs` — V2 hook system (quota, RBAC, audit)
 
 ### Frontend (`frontend/ant-design-pro-template/`)
 

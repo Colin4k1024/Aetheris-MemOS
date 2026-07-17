@@ -12,7 +12,7 @@ use crate::hoops::enterprise::{
     AuditEvent, AuditResult, AuthHook, GovernanceHook, HookContext, HookDecision, HookError,
     HookResult, LicenseTier, QuotaResult, RbacHook, Resource, ServerBuilder, UsageSnapshot,
 };
-use crate::services::rbac::{Permission, RbacService, Role};
+use crate::services::rbac::{get_rbac_service, Permission, RbacService, Role};
 use crate::tenant::context::QuotaResource;
 use crate::tenant::quota::{QuotaManager, ResourceQuota};
 
@@ -300,6 +300,11 @@ impl TenantQuotaHookImpl {
         }
     }
 
+    /// Access the underlying quota manager (e.g. for usage increments in post-hooks).
+    pub fn quota_manager(&self) -> &Arc<QuotaManager> {
+        &self.quota_manager
+    }
+
     /// Check quota - public method
     pub fn check_quota(&self, tenant_id: &str, resource: Resource) -> QuotaResult {
         // Map enterprise Resource to QuotaResource
@@ -473,6 +478,22 @@ impl GovernanceHook for GovernanceHookImpl {
                 quota_result.current, quota_result.limit
             ));
         }
+
+        if let Some(user_id) = &ctx.user_id {
+            if !self
+                .rbac
+                .check_permission(&ctx.tenant_id, user_id, &ctx.resource, "write")
+            {
+                self.record_audit(AuditEvent::new(
+                    ctx.tenant_id.clone(),
+                    "pre_store".to_string(),
+                    "rbac_denied".to_string(),
+                    AuditResult::Denied,
+                ));
+                return HookDecision::Deny("Insufficient role permissions".to_string());
+            }
+        }
+
         HookDecision::Allow
     }
 
@@ -488,6 +509,22 @@ impl GovernanceHook for GovernanceHookImpl {
             ));
             return HookDecision::Deny("Search quota exceeded".to_string());
         }
+
+        if let Some(user_id) = &ctx.user_id {
+            if !self
+                .rbac
+                .check_permission(&ctx.tenant_id, user_id, &ctx.resource, "read")
+            {
+                self.record_audit(AuditEvent::new(
+                    ctx.tenant_id.clone(),
+                    "pre_search".to_string(),
+                    "rbac_denied".to_string(),
+                    AuditResult::Denied,
+                ));
+                return HookDecision::Deny("Insufficient role permissions".to_string());
+            }
+        }
+
         HookDecision::Allow
     }
 
@@ -501,7 +538,13 @@ impl GovernanceHook for GovernanceHookImpl {
     }
 
     fn post_store(&self, ctx: &HookContext, result: &HookResult) {
-        if !result.success {
+        if result.success {
+            let quota_manager = self.quota.quota_manager();
+            if let Some(mut quota) = quota_manager.get_quota(&ctx.tenant_id) {
+                quota.used.memory_entries += 1;
+                quota_manager.set_quota(&ctx.tenant_id, quota);
+            }
+        } else {
             self.record_audit(AuditEvent::new(
                 ctx.tenant_id.clone(),
                 "post_store_failure".to_string(),
@@ -529,7 +572,7 @@ impl GovernanceHook for GovernanceHookImpl {
 
 /// Create a complete enterprise hook set with all enterprise features
 pub fn create_enterprise_hook_set() -> crate::hoops::enterprise::EnterpriseHookSet {
-    let rbac_service = Arc::new(RbacService::new());
+    let rbac_service = get_rbac_service();
     let quota_manager = Arc::new(QuotaManager::new());
 
     // Create audit callback: map the in-memory enterprise audit event onto the

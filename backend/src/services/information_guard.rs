@@ -31,7 +31,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use crate::db::pool;
-use crate::tenant::get_default_tenant;
+use crate::tenant::{get_default_tenant, TenantId};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -198,14 +198,24 @@ async fn scanner_loop() {
     }
 }
 
-async fn run_scan_cycle() -> anyhow::Result<()> {
+// W1.5: Multi-tenant integrity scan — enumerates all active tenants
+/// Default tenant first (backward compat with single-tenant deployments), then
+/// registered tenant IDs from the multi-tenant registry, deduplicated.
+fn get_all_active_tenant_ids() -> Vec<String> {
+    let mut ids = vec![get_default_tenant().as_str().to_string()];
+    for tenant_id in crate::services::multi_tenant::list_tenants() {
+        if !ids.contains(&tenant_id) {
+            ids.push(tenant_id);
+        }
+    }
+    ids
+}
+
+/// Scan a window of LTM entries for one tenant. Returns `(checked, violations)`.
+async fn scan_tenant(tenant: &TenantId) -> anyhow::Result<(u64, u64)> {
     use crate::db::ltm::LTMRepository;
 
-    // Advance a rolling cursor each cycle so we eventually cover all entries instead
-    // of rescanning the same first SAMPLE_BATCH rows every time. (Currently scoped to
-    // the default tenant; multi-tenant coverage is a follow-up.)
-    let tenant = get_default_tenant();
-    let total = LTMRepository::count(pool(), &tenant)
+    let total = LTMRepository::count(pool(), tenant)
         .await
         .unwrap_or(0)
         .max(0) as u64;
@@ -217,7 +227,7 @@ async fn run_scan_cycle() -> anyhow::Result<()> {
 
     let entries = LTMRepository::list_entries(
         pool(),
-        &tenant,
+        tenant,
         None,
         None,
         Some(SAMPLE_BATCH),
@@ -251,17 +261,57 @@ async fn run_scan_cycle() -> anyhow::Result<()> {
         }
     }
 
-    SCAN_CHECKED.fetch_add(checked, Ordering::Relaxed);
-    SCAN_VIOLATIONS.fetch_add(violations, Ordering::Relaxed);
+    info!(
+        tenant = %tenant.as_str(),
+        checked = checked,
+        violations = violations,
+        "Integrity scan for tenant complete"
+    );
 
-    if violations > 0 {
+    Ok((checked, violations))
+}
+
+async fn run_scan_cycle() -> anyhow::Result<()> {
+    // W1.5: Multi-tenant integrity scan — enumerates all active tenants.
+    let tenant_ids = get_all_active_tenant_ids();
+
+    let mut total_checked = 0u64;
+    let mut total_violations = 0u64;
+
+    for tenant_id in &tenant_ids {
+        let tenant = TenantId::from_string(tenant_id.clone());
+        info!(tenant = %tenant.as_str(), "Starting integrity scan for tenant");
+        match scan_tenant(&tenant).await {
+            Ok((checked, violations)) => {
+                total_checked += checked;
+                total_violations += violations;
+            }
+            Err(e) => {
+                error!(
+                    tenant = %tenant.as_str(),
+                    error = %e,
+                    "Integrity scan failed for tenant"
+                );
+            }
+        }
+    }
+
+    SCAN_CHECKED.fetch_add(total_checked, Ordering::Relaxed);
+    SCAN_VIOLATIONS.fetch_add(total_violations, Ordering::Relaxed);
+
+    if total_violations > 0 {
         error!(
-            violations = violations,
-            checked = checked,
+            tenants_scanned = tenant_ids.len(),
+            violations = total_violations,
+            checked = total_checked,
             "Integrity scan complete — violations detected!"
         );
     } else {
-        info!(checked = checked, "Integrity scan complete — no violations");
+        info!(
+            tenants_scanned = tenant_ids.len(),
+            checked = total_checked,
+            "Integrity scan complete — no violations"
+        );
     }
 
     Ok(())

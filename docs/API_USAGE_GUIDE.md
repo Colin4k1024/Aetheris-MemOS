@@ -770,11 +770,17 @@ Authorization: Bearer <your-access-token>
   "success": true,
   "data": {
     "entry_id": "string",
-    "timestamp": "2024-01-01T00:00:00Z"
+    "timestamp": "2024-01-01T00:00:00Z",
+    "indexStatus": "ready|pending"
   },
   "message": "长期记忆存储成功"
 }
 ```
+
+> **indexStatus 说明**：PostgreSQL 环境下，LTM 写入采用 outbox 模式——DB 事务提交后向量索引由后台 worker 异步投递至 Qdrant。
+> - `"ready"`：向量已同步写入 Qdrant（SQLite 开发模式）
+> - `"pending"`：向量索引中，稍后可通过向量搜索检索到（PostgreSQL 生产模式）
+> - 写入后立即调用向量搜索可能查不到刚写入的内容（最终一致性窗口），建议前端根据 `indexStatus` 给予用户提示。
 
 ### 8.4 批量存储长期记忆
 
@@ -1949,6 +1955,26 @@ layer: ltm
 | 1005   | 429        | 请求频率过高   |
 | 1006   | 500        | 内部服务器错误 |
 | 1007   | 503        | 服务不可用     |
+
+### 18.1 治理相关错误（P1 新增）
+
+治理中间件 (`auth → rate_limit → governance → handler`) 在以下场景返回 403：
+
+| 场景 | HTTP状态码 | 响应内容 |
+|------|-----------|----------|
+| 配额超限 | 403 | `{"error": "Forbidden", "reason": "Quota exceeded: ..."}` |
+| RBAC 角色无权限 | 403 | `{"error": "Forbidden", "reason": "Insufficient role permissions"}` |
+| 操作被治理策略拒绝 | 403 | `{"error": "Forbidden", "reason": "Operation denied by governance policy"}` |
+
+> **注意**：当前治理 hooks 为 fail-open 模式（未初始化 hooks / 无租户上下文 → 放行），配额 usage 尚未实际计数。以上 403 需在治理策略配置并启用后生效。
+
+### 18.2 MCP 相关错误
+
+| 场景 | HTTP状态码 | 响应内容 |
+|------|-----------|----------|
+| 工具签名验证失败 | 400/403 | `{"error": "Invalid tool signature"}` |
+| 能力授权不足 | 403 | `{"error": "Capability not authorized for tool: <tool_name>"}` |
+| MCP 工具调用被治理拒绝 | 403 | `{"error": "Forbidden", "reason": "MCP operation denied"}` |
 
 ## 12. 使用示例
 

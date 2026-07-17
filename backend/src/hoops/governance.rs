@@ -43,6 +43,7 @@ use crate::AppError;
 /// | POST `…/v1/memory/storage/…`                    | Store     |
 /// | POST `…/kg/entities`, `…/kg/relations`          | Store     |
 /// | POST `…/mm/store`                               | Store     |
+/// | POST `…/forget`                                 | Delete    |
 /// | GET  `…/kg/…`, `…/mm/…` (reads)                 | Search    |
 /// | PUT / PATCH `*`                                 | Update    |
 /// | DELETE `*`                                      | Delete    |
@@ -63,6 +64,11 @@ pub fn classify(method: &Method, path: &str) -> Option<Operation> {
             || path.ends_with("/mm/store"))
     {
         return Some(Operation::Store);
+    }
+
+    // POST …/forget → Delete (explicit memory deletion route, before generic fallback).
+    if method == "POST" && path.contains("/forget") {
+        return Some(Operation::Delete);
     }
 
     // KG / MM reads → Search (per plan: GET /kg/*, /mm/* run pre_search).
@@ -90,6 +96,19 @@ fn decision_outcome(decision: HookDecision) -> Result<(), AppError> {
 
 /// Governance middleware — see the module docs for the request-chain position.
 pub async fn governance_middleware(req: Request, next: Next) -> Result<Response, AppError> {
+    // Fail-open by default: if the enterprise hooks are not initialized, no tenant
+    // context is present, or the path is not a governed memory operation, the request
+    // proceeds untouched (best-effort governance).
+    //
+    // When GOVERNANCE_FAIL_CLOSED=true, the middleware switches to fail-closed mode:
+    // a missing enterprise hook set or missing tenant context is treated as a security
+    // incident and rejected with 403 Forbidden, rather than silently letting the request
+    // through. This is the recommended posture for production deployments where an
+    // unhooked or unauthenticated request must never reach a handler.
+    let fail_closed = std::env::var("GOVERNANCE_FAIL_CLOSED")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
     // Full path (with the /api prefix and mount prefixes), independent of nesting.
     // `OriginalUri` is inserted by the outermost router before any prefix stripping;
     // fall back to the (possibly stripped) live URI only if it is missing.
@@ -105,14 +124,27 @@ pub async fn governance_middleware(req: Request, next: Next) -> Result<Response,
         return Ok(next.run(req).await);
     };
 
-    // Enterprise hooks not initialized (e.g. non-PG / feature off) → fail open.
+    // Enterprise hooks not initialized (e.g. non-PG / feature off) → fail open
+    // unless GOVERNANCE_FAIL_CLOSED=true.
     let Some(hooks) = try_enterprise_hooks() else {
+        if fail_closed {
+            return Err(AppError::Forbidden(
+                "governance fail-closed: enterprise hooks not initialized".to_string(),
+            ));
+        }
         return Ok(next.run(req).await);
     };
 
     // Tenant context is injected by auth_middleware. Its absence means governance is
-    // running ahead of auth (misconfiguration) — fail open rather than 500.
+    // running ahead of auth (misconfiguration) — fail open unless
+    // GOVERNANCE_FAIL_CLOSED=true.
     let Some(tenant_ctx) = req.extensions().get::<RequestTenantContext>().cloned() else {
+        if fail_closed {
+            return Err(AppError::Forbidden(
+                "governance fail-closed: tenant context missing (auth misconfiguration)"
+                    .to_string(),
+            ));
+        }
         return Ok(next.run(req).await);
     };
 
@@ -215,6 +247,16 @@ mod tests {
     }
 
     #[test]
+    fn classifies_forget_as_delete() {
+        assert_eq!(
+            classify(&Method::POST, "/api/v1/memory/forget"),
+            Some(Operation::Delete)
+        );
+        // Other methods on /forget are not governed (POST is the canonical delete verb).
+        assert_eq!(classify(&Method::GET, "/api/v1/memory/forget"), None);
+    }
+
+    #[test]
     fn classifies_mutations_by_method() {
         assert_eq!(
             classify(&Method::PUT, "/api/v1/memory/configs/abc"),
@@ -237,7 +279,11 @@ mod tests {
             classify(&Method::POST, "/api/v1/memory/adaptive/select"),
             None
         );
-        assert_eq!(classify(&Method::POST, "/api/v1/memory/forget"), None);
+        // POST /forget is a memory deletion, governed as Delete.
+        assert_eq!(
+            classify(&Method::POST, "/api/v1/memory/forget"),
+            Some(Operation::Delete)
+        );
         // Memory reads that are not search endpoints.
         assert_eq!(classify(&Method::GET, "/api/v1/memory/traces"), None);
         assert_eq!(classify(&Method::GET, "/api/v1/memory/health"), None);

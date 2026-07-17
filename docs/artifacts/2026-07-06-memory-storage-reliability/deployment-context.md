@@ -156,17 +156,22 @@
 - read-after-write fallback：按 ID 回源 PostgreSQL 读取。
 - Qdrant worker 故障时，PostgreSQL fact 不丢失。
 
-## 当前阻塞项
+## 当前阻塞项（更新于 2026-07-17）
 
-- `tenant_id` schema、RLS、outbox、reconciliation 尚未实现。
+- ~~`tenant_id` schema、RLS、outbox、reconciliation 尚未实现。~~ **部分完成**：
+  - ✅ Schema-level RLS 已交付（LTM/STM/KG/MM 四层，PR-3）
+  - ✅ `tenant_scope` 执行器已交付（`begin_tenant_tx` + GUC，PR-1）
+  - ✅ LTM→Qdrant outbox 已交付（DB+outbox 单事务 + async worker，PR-4/PR-5）
+  - ❌ Reconciliation scanner 尚未实现（missing/orphan/tenant_mismatch/content_hash_mismatch 修复）
 - PostgreSQL 自建 HA / restore drill 尚未完成。
 - Qdrant cluster / rebuild drill 尚未完成。
 - Neo4j 必选恢复演练尚未完成。
 - 50 并发基线验证尚未完成。
 - 企业审计日志保留周期和敏感字段脱敏规则仍待确认。
+- ⚠️ 部署角色安全：默认 `memory` 角色可能为 superuser → RLS 成为 NO-OP。生产必须使用非 BYPASSRLS 应用角色（见 [P1 deployment-context](../2026-07-16-enterprise-productionization/deployment-context.md)）。
 
 ## 放行结论
 
-当前 deployment context 结论：**not-ready / blocked**。
+当前 deployment context 结论：**P1 地基建有进展，但尚未达到生产就绪**。
 
-本文件已记录用户确认的关键部署决策，但尚缺代码实现、部署拓扑细化和演练证据，不能作为生产放行依据。
+已交付：schema RLS + outbox + 治理 middleware scaffold。仍需完成：reconciliation scanner、DB 备份/恢复演练、非 BYPASSRLS 部署角色、50 并发验证、审计保留策略。

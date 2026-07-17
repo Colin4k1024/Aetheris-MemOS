@@ -15,6 +15,10 @@ services:
       POSTGRES_DB: memory
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # P1: Create non-BYPASSRLS application role for RLS enforcement.
+      # The default `memory` user is superuser → RLS policies are NO-OP.
+      # Use `aetheris_app` for application connections to enforce RLS.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U memory -d memory"]
       interval: 5s

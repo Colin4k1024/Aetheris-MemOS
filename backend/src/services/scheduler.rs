@@ -6,16 +6,16 @@ use tracing::{debug, error, info, instrument, warn};
 
 pub struct AdaptiveMemoryScheduler {
     analyzer: TaskCharacteristicAnalyzer,
-    predictor: PerformancePredictionModel,
+    predictor: Box<dyn Predictor>,
     monitor: ResourceMonitor,
     weight_adjuster: DynamicWeightAdjuster,
 }
 
 impl AdaptiveMemoryScheduler {
-    pub fn new() -> Self {
+    pub fn new(predictor: Box<dyn Predictor>) -> Self {
         Self {
             analyzer: TaskCharacteristicAnalyzer::new(),
-            predictor: PerformancePredictionModel::new(),
+            predictor,
             monitor: ResourceMonitor::new(),
             weight_adjuster: DynamicWeightAdjuster::new(),
         }
@@ -713,7 +713,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_scheduler_creation() {
-        let _scheduler = AdaptiveMemoryScheduler::new();
+        let _scheduler =
+            AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()));
         assert!(true);
     }
 

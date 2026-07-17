@@ -118,3 +118,35 @@ For the SDK demo after starting the backend:
 ```bash
 PYTHONPATH=sdks/python python examples/agent_memory_demo.py
 ```
+
+## Enterprise Reliability Review Follow-up
+
+The MVP checklist above tracks whether Aetheris MemOS is usable as an agent memory substrate. It does **not** mean the memory storage layer already satisfies enterprise-grade high reliability requirements.
+
+A 2026-07-06 reliability review found that the current implementation still needs additional remediation before it can be treated as production-grade enterprise memory storage. The follow-up work is tracked in:
+
+- [Memory Storage Reliability PRD](artifacts/2026-07-06-memory-storage-reliability/prd.md)
+- [Memory Storage Reliability Architecture](architecture/memory-storage-reliability.md)
+- [Memory Storage Reliability Delivery Plan](artifacts/2026-07-06-memory-storage-reliability/delivery-plan.md)
+- [Memory Storage Reliability Test Plan](artifacts/2026-07-06-memory-storage-reliability/test-plan.md)
+- [Memory Storage Reliability Team Execution Plan](artifacts/2026-07-06-memory-storage-reliability/team-execution-plan.md)
+- [Memory Storage Reliability Deployment Context](artifacts/2026-07-06-memory-storage-reliability/deployment-context.md)
+- [Memory Storage Reliability Release Plan](artifacts/2026-07-06-memory-storage-reliability/release-plan.md)
+- [Memory Storage Reliability Launch Acceptance](artifacts/2026-07-06-memory-storage-reliability/launch-acceptance.md)
+- [Tenant Production Path Inventory](artifacts/2026-07-06-memory-storage-reliability/tenant-production-path-inventory.md)
+- [RLS Context Strategy](artifacts/2026-07-06-memory-storage-reliability/rls-context-strategy.md)
+- [Transaction Boundaries](artifacts/2026-07-06-memory-storage-reliability/transaction-boundaries.md)
+- [ADR-0001: Memory Storage Tenant Isolation Baseline](adr/ADR-0001-memory-storage-tenant-isolation.md)
+- [ADR-0002: Memory Vector Outbox And Reconciliation](adr/ADR-0002-memory-vector-outbox-reconciliation.md)
+- [ADR-0003: Memory Storage Operational Readiness Gate](adr/ADR-0003-memory-storage-operational-readiness.md)
+
+Enterprise reliability P0 risks status (updated 2026-07-17):
+
+- ~~Schema-level tenant isolation is incomplete; current isolation still relies heavily on `t:{tenant}` prefixes and application-layer conventions.~~ **Fixed.** Four-layer RLS migration complete (PR-3): LTM/STM/KG/MM tables enforce schema-level isolation via `current_setting('aetheris.tenant_id')`.
+- ~~LTM and Qdrant need durable outbox, idempotent replay, and reconciliation instead of relying on synchronous dual-write compensation.~~ **Fixed (outbox + worker).** `store_ltm_for_tenant` now uses DB+outbox single TX on PG; async worker delivers to Qdrant with idempotent replay. Reconciliation scanner still pending for self-healing repair.
+- Some update, history, time-travel, and relation paths still need explicit request tenant enforcement.
+- STM and KG multi-step writes need transaction boundaries to avoid partial writes.
+- PostgreSQL, Qdrant, and Neo4j need backup/restore, HA, alerting, release rollback, and operational drill evidence before enterprise production release.
+- Governance middleware is wired (PR-6) but operates fail-open; quota usage not incremented; RBAC not enforced in pre-hooks.
+
+Current enterprise reliability status: **P1 grounding in progress / outbox + RLS + governance scaffold delivered / not production-reliable yet**.

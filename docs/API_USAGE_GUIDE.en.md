@@ -770,11 +770,17 @@ Authorization: Bearer <your-access-token>
   "success": true,
   "data": {
     "entry_id": "string",
-    "timestamp": "2024-01-01T00:00:00Z"
+    "timestamp": "2024-01-01T00:00:00Z",
+    "indexStatus": "ready|pending"
   },
   "message": "Long-term memory stored successfully"
 }
 ```
+
+> **indexStatus**: On PostgreSQL, LTM writes use an outbox pattern — the DB transaction commits with an outbox event, and the vector index is delivered to Qdrant asynchronously by a background worker.
+> - `"ready"`: Vector has been synchronously written to Qdrant (SQLite dev mode)
+> - `"pending"`: Vector is being indexed; will be searchable shortly (PostgreSQL production mode)
+> - Calling vector search immediately after write may not return the entry (eventual consistency window). Frontends should display a hint based on `indexStatus`.
 
 ### 8.4 Batch Store Long-Term Memory
 
@@ -1216,6 +1222,26 @@ Authorization: Bearer <your-access-token>
 | 1005       | 429         | Rate limit exceeded        |
 | 1006       | 500         | Internal server error      |
 | 1007       | 503         | Service unavailable        |
+
+### 18.1 Governance Errors (P1)
+
+The governance middleware (`auth → rate_limit → governance → handler`) returns 403 in these scenarios:
+
+| Scenario | HTTP Status | Response |
+|----------|-------------|----------|
+| Quota exceeded | 403 | `{"error": "Forbidden", "reason": "Quota exceeded: ..."}` |
+| RBAC role insufficient | 403 | `{"error": "Forbidden", "reason": "Insufficient role permissions"}` |
+| Operation denied by governance policy | 403 | `{"error": "Forbidden", "reason": "Operation denied by governance policy"}` |
+
+> **Note**: Governance hooks currently operate in fail-open mode (uninitialized hooks / missing tenant context → allow). Quota usage is not yet incremented. The 403 responses above require governance policy configuration and enablement.
+
+### 18.2 MCP Errors
+
+| Scenario | HTTP Status | Response |
+|----------|-------------|----------|
+| Tool signature verification failed | 400/403 | `{"error": "Invalid tool signature"}` |
+| Capability not authorized | 403 | `{"error": "Capability not authorized for tool: <tool_name>"}` |
+| MCP tool call denied by governance | 403 | `{"error": "Forbidden", "reason": "MCP operation denied"}` |
 
 ## 12. Usage Examples
 

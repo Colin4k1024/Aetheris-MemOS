@@ -6,7 +6,7 @@ use backend::models::{
     TemporalScope,
 };
 use backend::services::evidence_graph::{record_decision_trace_as_evidence, verify_chain};
-use backend::services::AdaptiveMemoryScheduler;
+use backend::services::{AdaptiveMemoryScheduler, PerformancePredictionModel};
 use serde_json::json;
 
 static DB_PATH: OnceLock<String> = OnceLock::new();
@@ -78,7 +78,7 @@ fn sample_preferences() -> TaskPreferences {
 }
 
 async fn sample_trace(task_id: &str) -> backend::services::scheduler::DecisionTrace {
-    AdaptiveMemoryScheduler::new()
+    AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()))
         .adaptive_memory_selection_trace(
             &sample_task_context(task_id),
             &sample_constraints(),

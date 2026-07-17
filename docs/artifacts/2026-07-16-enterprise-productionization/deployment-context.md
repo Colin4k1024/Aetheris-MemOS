@@ -65,6 +65,54 @@
 - **本地**：`--reset` 删卷重来；数据非持久重要（dev）。
 - **生产 HA/备份/恢复**：见 ADR-0005（托管基建：PG DBaaS Multi-AZ+PITR、Qdrant Cloud、Neo4j Aura）与 ADR-0003（运维就绪 gate）。本文档只覆盖 P1 开发/集成环境；生产上线前须补 `release-plan` + `launch-acceptance` + 恢复演练证据。
 
+## 数据库角色与 RLS 安全（P1 新增）
+
+P1 已交付四层记忆表（LTM/STM/KG/MM）的 schema-level RLS。**RLS 的有效性取决于连接数据库的角色**：
+
+- **应用角色（推荐）**：`aetheris_app` — 非 superuser、非 BYPASSRLS，RLS 策略强制生效。跨租户查询被 DB 层拒绝。
+- **运维角色**：`aetheris_admin` — superuser / BYPASSRLS，用于迁移、备份、恢复。**仅在运维窗口使用**。
+- **默认 `memory` 角色**：docker-compose 默认角色可能为 superuser → RLS 成为 NO-OP。**生产部署必须替换为受限应用角色**。
+
+### 角色创建（参考）
+
+```sql
+-- 应用角色（RLS 生效）
+CREATE ROLE aetheris_app WITH LOGIN PASSWORD '<secure-password>';
+GRANT CONNECT ON DATABASE memory TO aetheris_app;
+GRANT USAGE ON SCHEMA public TO aetheris_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO aetheris_app;
+-- 明确不授予 BYPASSRLS / SUPERUSER
+
+-- 运维角色（仅运维窗口使用）
+CREATE ROLE aetheris_admin WITH LOGIN PASSWORD '<secure-password>' SUPERUSER;
+```
+
+### 渗透验证
+
+```bash
+# 验证 RLS 生效：受限角色跨租户查询应返回 0 行
+PGPASSWORD=... psql -U aetheris_app -d memory -c "
+  SET aetheris.tenant_id = 'tenant-A';
+  SELECT COUNT(*) FROM knowledge_entries WHERE tenant_id = 'tenant-B';
+"
+# 预期：0（RLS 策略拒绝，非应用层过滤）
+```
+
+## 备份与恢复演练（ADR-0003 要求）
+
+生产发布前需完成以下演练并记录证据：
+
+| 演练项 | 工具 | 验收标准 |
+|--------|------|----------|
+| PostgreSQL 全量备份 | `pg_dump` / DBaaS 自动备份 | 备份文件可恢复至新实例 |
+| PostgreSQL PITR 恢复 | DBaaS PITR / WAL 归档 | 恢复到指定时间点，数据一致 |
+| Qdrant 快照恢复 | Qdrant snapshot API | 快照恢复后向量搜索召回一致 |
+| Neo4j 备份恢复 | `neo4j-admin dump/load` | 图数据完整恢复 |
+| 跨区域恢复 | 托管基建跨区域复制 | 故障切换后服务可用 |
+| 回滚演练 | 蓝绿/金丝雀部署 | 回滚后数据一致、无请求丢失 |
+
+> **当前状态**：以上演练均未执行。P1 地基阶段完成后，需在 staging 环境逐一验证并记录证据至 `launch-acceptance.md`。
+
 ---
 
 ## 沙箱内当前状态（诚实标注）

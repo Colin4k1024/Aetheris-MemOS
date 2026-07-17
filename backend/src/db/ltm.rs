@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use tracing::{error, info};
 use ulid::Ulid;
 
@@ -102,21 +102,61 @@ impl LTMRepository {
         let entry_id = entry_id.unwrap_or_else(|| Ulid::new().to_string());
         let pool = pool();
 
-        // 计算内容哈希（使用 SHA-256 确保可移植性和完整性验证，Issue #58）
-        let content_hash = crate::services::information_guard::compute_sha256(content);
+        // RLS: open a tenant-scoped transaction so the write is enforced at the DB layer
+        // (WITH CHECK on the physical tenant_id column), not just via the source_id prefix.
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
+        let entry_id = Self::insert_knowledge_entry_tx(
+            &mut tx,
+            Some(entry_id),
+            tenant_id,
+            source_id,
+            source_type,
+            title,
+            content,
+            content_type,
+            embedding_vector,
+            embedding_model,
+            embedding_dimension,
+            quality_score,
+        )
+        .await?;
 
-        // 将向量转换为 JSON 字符串
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit create_knowledge_entry transaction: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+
+        info!(
+            "Created new knowledge entry: {} for tenant: {}",
+            entry_id, tenant_id
+        );
+        Ok(entry_id)
+    }
+
+    /// Insert a knowledge entry on an open tenant-scoped transaction (does not commit).
+    ///
+    /// Used by the LTM outbox write path so the fact row and outbox event share one TX.
+    pub async fn insert_knowledge_entry_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        entry_id: Option<String>,
+        tenant_id: &TenantId,
+        source_id: &str,
+        source_type: &str,
+        title: Option<&str>,
+        content: &str,
+        content_type: &str,
+        embedding_vector: &[f32],
+        embedding_model: &str,
+        embedding_dimension: i32,
+        quality_score: Option<f64>,
+    ) -> Result<String, AppError> {
+        let entry_id = entry_id.unwrap_or_else(|| Ulid::new().to_string());
+        let content_hash = crate::services::information_guard::compute_sha256(content);
         let embedding_json = serde_json::to_string(embedding_vector).map_err(|e| {
             error!("Failed to serialize embedding vector: {}", e);
             AppError::Internal(format!("Failed to serialize embedding: {}", e))
         })?;
-
-        // 构建租户限定的source_id用于跨租户隔离（过渡期与物理 tenant_id 列双写）
         let tenant_source_id = format!("{}:{}", tenant_id.prefix(), source_id);
-
-        // RLS: open a tenant-scoped transaction so the write is enforced at the DB layer
-        // (WITH CHECK on the physical tenant_id column), not just via the source_id prefix.
-        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
 
         sqlx::query(
             r#"
@@ -139,22 +179,13 @@ impl LTMRepository {
         .bind(embedding_dimension)
         .bind(quality_score)
         .bind(tenant_id.as_str())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| {
             error!("Failed to create knowledge entry: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })?;
 
-        tx.commit().await.map_err(|e| {
-            error!("Failed to commit create_knowledge_entry transaction: {}", e);
-            AppError::Internal(format!("Database error: {}", e))
-        })?;
-
-        info!(
-            "Created new knowledge entry: {} for tenant: {}",
-            entry_id, tenant_id
-        );
         Ok(entry_id)
     }
 

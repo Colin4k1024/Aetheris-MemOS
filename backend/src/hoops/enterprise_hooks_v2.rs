@@ -200,6 +200,11 @@ impl BillingHook for BillingHookImpl {
 use serde::{Deserialize, Serialize};
 
 /// Audit log entry (immutable)
+//
+// DEPRECATED: v2 in-memory audit is retained for dev/backward-compat only.
+// Production audit uses audit_writer (memory_audit_events). New code should
+// emit via `crate::services::audit_writer::record_audit` instead of the
+// in-memory `AuditHookImpl`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditLogEntry {
     /// Unique entry ID
@@ -286,6 +291,11 @@ pub trait AuditHook: Send + Sync {
 }
 
 /// In-memory audit hook implementation
+//
+// DEPRECATED: v2 in-memory audit is retained for dev/backward-compat only.
+// Production audit uses audit_writer (memory_audit_events). The in-memory
+// store is kept so legacy callers/tests that depend on `query`/`export`
+// continue to work, but `log` now dual-writes to the persistent path.
 pub struct AuditHookImpl {
     /// Audit logs (append-only for immutability)
     logs: Arc<std::sync::RwLock<Vec<AuditLogEntry>>>,
@@ -308,6 +318,33 @@ impl AuditHookImpl {
 
 impl AuditHook for AuditHookImpl {
     fn log(&self, entry: AuditLogEntry) {
+        // Dual-write: persist to memory_audit_events via audit_writer (best-effort,
+        // non-blocking enqueue) so production audit has a single source of truth.
+        // The in-memory push below remains for dev/backward-compat with the
+        // `query`/`export` surface.
+        let mut audit_event = crate::db::audit::AuditEvent::new(
+            entry.action.clone(),
+            entry.resource.clone(),
+        )
+        .tenant(entry.tenant_id.clone())
+        .with_metadata(&serde_json::json!({
+            "entry_id": entry.entry_id,
+            "result": format!("{:?}", entry.result),
+            "timestamp": entry.timestamp,
+            "request_id": entry.request_id,
+            "ip_address": entry.ip_address,
+            "metadata": entry.metadata,
+        }));
+
+        if let Some(ref user_id) = entry.user_id {
+            audit_event = audit_event.actor(user_id.clone());
+        }
+        if let Some(ref request_id) = entry.request_id {
+            audit_event = audit_event.correlation_id(request_id.clone());
+        }
+
+        crate::services::audit_writer::record_audit(audit_event);
+
         if let Ok(mut logs) = self.logs.write() {
             // Append new entry (immutable - never modify existing)
             logs.push(entry);

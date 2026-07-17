@@ -1,6 +1,22 @@
 use crate::models::*;
 use crate::services::agent::{MemoryAgent, PredictorDecision};
 
+// W3.3: Pluggable predictor trait. The scheduler is generic over this so
+// alternative implementations (e.g. online-fitted models) can be injected.
+pub trait Predictor: Send + Sync {
+    fn predict_memory_performance(
+        &self,
+        memory_config: &crate::models::MemoryConfig,
+    ) -> (
+        crate::models::PerformancePrediction,
+        f64,
+        f64,
+        crate::models::PerformanceBreakdown,
+    );
+}
+
+// W3.2: Uses heuristic baseline constants. Confidence score is None until
+// online fitting from telemetry data is implemented.
 pub struct PerformancePredictionModel {
     performance_baselines: PerformanceBaselines,
     marginal_decay_factors: MarginalDecayFactors,
@@ -85,13 +101,27 @@ impl PerformancePredictionModel {
             coherence_gain: coherence,
             resource_cost,
             cost_benefit_ratio,
-            confidence_score: Some(0.88),
+            confidence_score: None,
         };
 
         // 计算性能分解
         let breakdown = self.calculate_performance_breakdown(memory_config);
 
         (prediction, synergy_factor, decay_factor, breakdown)
+    }
+}
+
+impl Predictor for PerformancePredictionModel {
+    fn predict_memory_performance(
+        &self,
+        memory_config: &crate::models::MemoryConfig,
+    ) -> (
+        crate::models::PerformancePrediction,
+        f64,
+        f64,
+        crate::models::PerformanceBreakdown,
+    ) {
+        PerformancePredictionModel::predict_memory_performance(self, memory_config)
     }
 }
 
@@ -260,4 +290,11 @@ mod tests {
         let synergy = predictor.calculate_synergy_factor(&memory_config);
         assert!(synergy >= 1.0);
     }
+}
+
+/// W3.2: Interface for online learning from telemetry samples.
+/// Not yet implemented — currently uses heuristic constants.
+pub trait TrainablePredictor {
+    fn update_from_sample(&mut self, sample: &crate::services::adaptive_telemetry::PerformanceSample);
+    fn fit_from_samples(&mut self, samples: &[crate::services::adaptive_telemetry::PerformanceSample]);
 }

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use tracing::{error, info, instrument, warn};
 
+use crate::db::tenant_scope::begin_tenant_tx;
+use crate::db::vector_outbox::{self, OutboxOperation};
 use crate::db::{ltm::LTMRepository, pool, stm::STMRepository};
 use crate::services::{
     embedding::get_embedding_service, llm::get_llm_service, qdrant::get_qdrant_client,
@@ -10,6 +12,16 @@ use crate::AppError;
 
 /// 记忆存储服务
 pub struct MemoryStorageService;
+
+/// Result of an LTM store (fact row committed; vector may still be pending).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct StoreLtmResult {
+    pub entry_id: String,
+    /// `"ready"` when Qdrant was written synchronously (SQLite/legacy);
+    /// `"pending"` when delivery is via the durable outbox (PostgreSQL).
+    #[serde(rename = "indexStatus")]
+    pub index_status: String,
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct QdrantTenantBackfillReport {
@@ -101,7 +113,7 @@ impl MemoryStorageService {
         Ok((session_id, message_id))
     }
 
-    /// 存储长期记忆（调用 LLM 总结 + 向量化 + 存储到 Qdrant）
+    /// 存储长期记忆（调用 LLM 总结 + 向量化 + 存储）
     #[instrument]
     pub async fn store_ltm(
         source_id: &str,
@@ -109,17 +121,22 @@ impl MemoryStorageService {
         content: &str,
         title: Option<&str>,
     ) -> Result<String, AppError> {
-        Self::store_ltm_for_tenant(
+        Ok(Self::store_ltm_for_tenant(
             &get_default_tenant(),
             source_id,
             source_type,
             content,
             title,
         )
-        .await
+        .await?
+        .entry_id)
     }
 
-    /// 存储长期记忆（租户隔离）
+    /// 存储长期记忆（租户隔离）。
+    ///
+    /// On PostgreSQL: DB fact + outbox event in one transaction; Qdrant is filled
+    /// asynchronously by the outbox worker (`indexStatus: pending`).
+    /// On SQLite / non-PG: legacy synchronous dual-write (`indexStatus: ready`).
     #[instrument]
     pub async fn store_ltm_for_tenant(
         tenant_id: &TenantId,
@@ -127,7 +144,7 @@ impl MemoryStorageService {
         source_type: &str,
         content: &str,
         title: Option<&str>,
-    ) -> Result<String, AppError> {
+    ) -> Result<StoreLtmResult, AppError> {
         // 验证和规范化 source_type
         // 数据库约束只允许：'document', 'api', 'database', 'web', 'user_input'
         let normalized_source_type = match source_type {
@@ -156,7 +173,7 @@ impl MemoryStorageService {
             content.len()
         );
 
-        // 1. 调用 LLM 进行总结和结构化提取
+        // 1. 调用 LLM 进行总结和结构化提取（事务外）
         let llm_service = get_llm_service()
             .map_err(|e| AppError::Internal(format!("Failed to get LLM service: {}", e)))?;
 
@@ -174,7 +191,7 @@ impl MemoryStorageService {
             extraction.relations.len()
         );
 
-        // 2. 生成向量嵌入
+        // 2. 生成向量嵌入（事务外）
         let embedding_service = get_embedding_service()
             .map_err(|e| AppError::Internal(format!("Failed to get embedding service: {}", e)))?;
 
@@ -188,11 +205,9 @@ impl MemoryStorageService {
 
         info!("Embedding generated: dimension={}", embedding.len());
 
-        // 3. 存储到 Qdrant
-        let qdrant_client = get_qdrant_client()
-            .map_err(|e| AppError::Internal(format!("Failed to get Qdrant client: {}", e)))?;
-
         let entry_id = ulid::Ulid::new().to_string();
+        let content_hash =
+            crate::services::information_guard::compute_sha256(&extraction.summary);
         let metadata = serde_json::json!({
             "tenantId": tenant_id.as_str(),
             "title": title,
@@ -200,80 +215,142 @@ impl MemoryStorageService {
             "entities": extraction.entities.clone(),
             "relations": extraction.relations.clone(),
             "key_facts": extraction.key_facts.clone(),
+            "contentHash": content_hash,
+            "entryId": entry_id,
         });
+        let quality_score = Some(0.8);
 
-        // 克隆向量用于 Qdrant
-        let embedding_for_qdrant = embedding.clone();
-        qdrant_client
-            .insert_vectors(
-                vec![embedding_for_qdrant],
-                vec![entry_id.clone()],
-                vec![metadata],
+        let index_status = if crate::db::is_postgres() {
+            // 3. PostgreSQL: single TX — knowledge_entries + vector outbox (no Qdrant on hot path)
+            let outbox_payload = serde_json::json!({
+                "vector": embedding,
+                "metadata": metadata,
+                "content_hash": content_hash,
+            });
+            let payload_json = serde_json::to_string(&outbox_payload).map_err(|e| {
+                AppError::Internal(format!("Failed to serialize outbox payload: {e}"))
+            })?;
+            let payload_hash =
+                crate::services::information_guard::compute_sha256(&payload_json);
+            let idempotency_key =
+                vector_outbox::upsert_idempotency_key(&entry_id, &payload_hash);
+
+            let mut tx = begin_tenant_tx(pool(), tenant_id).await?;
+            LTMRepository::insert_knowledge_entry_tx(
+                &mut tx,
+                Some(entry_id.clone()),
+                tenant_id,
+                source_id,
+                normalized_source_type,
+                title,
+                &extraction.summary,
+                "text",
+                &embedding,
+                embedding_service.model(),
+                embedding_service.dimension() as i32,
+                quality_score,
             )
-            .await
-            .map_err(|e| {
-                error!("Failed to insert vector to Qdrant: {}", e);
-                AppError::Internal(format!("Failed to insert vector: {}", e))
+            .await?;
+
+            vector_outbox::insert_event_tx(
+                &mut tx,
+                tenant_id.as_str(),
+                &entry_id,
+                OutboxOperation::Upsert,
+                &payload_json,
+                &payload_hash,
+                &idempotency_key,
+            )
+            .await?;
+
+            tx.commit().await.map_err(|e| {
+                error!("Failed to commit LTM+outbox transaction: {}", e);
+                AppError::Internal(format!("Database error: {e}"))
             })?;
 
-        // 4. 存储到关系数据库（使用相同的 entry_id）
-        let quality_score = Some(0.8); // 可以根据实际情况计算质量分数
-        if let Err(db_err) = LTMRepository::create_knowledge_entry_with_id(
-            Some(entry_id.clone()),
-            tenant_id,
-            source_id,
-            normalized_source_type,
-            title,
-            &extraction.summary,
-            "text",
-            &embedding,
-            embedding_service.model(),
-            embedding_service.dimension() as i32,
-            quality_score,
-        )
-        .await
-        {
-            error!(
-                "Failed to persist LTM metadata after vector insert, rolling back Qdrant point: entry_id={}, error={}",
-                entry_id, db_err
+            info!(
+                entry_id = %entry_id,
+                "LTM fact + outbox committed (index pending)"
             );
+            "pending".to_string()
+        } else {
+            // 3. Legacy path: Qdrant first then DB (SQLite / non-PG dev)
+            let qdrant_client = get_qdrant_client()
+                .map_err(|e| AppError::Internal(format!("Failed to get Qdrant client: {}", e)))?;
 
-            if let Err(rollback_err) = qdrant_client.delete_vectors(vec![entry_id.clone()]).await {
+            qdrant_client
+                .insert_vectors(
+                    vec![embedding.clone()],
+                    vec![entry_id.clone()],
+                    vec![metadata],
+                )
+                .await
+                .map_err(|e| {
+                    error!("Failed to insert vector to Qdrant: {}", e);
+                    AppError::Internal(format!("Failed to insert vector: {}", e))
+                })?;
+
+            if let Err(db_err) = LTMRepository::create_knowledge_entry_with_id(
+                Some(entry_id.clone()),
+                tenant_id,
+                source_id,
+                normalized_source_type,
+                title,
+                &extraction.summary,
+                "text",
+                &embedding,
+                embedding_service.model(),
+                embedding_service.dimension() as i32,
+                quality_score,
+            )
+            .await
+            {
                 error!(
-                    "Rollback failed for Qdrant point: entry_id={}, rollback_error={}",
-                    entry_id, rollback_err
+                    "Failed to persist LTM metadata after vector insert, rolling back Qdrant point: entry_id={}, error={}",
+                    entry_id, db_err
                 );
-                return Err(AppError::Internal(format!(
-                    "Failed to persist LTM metadata and rollback vector insert: db_error={}, rollback_error={}",
-                    db_err, rollback_err
-                )));
+
+                if let Err(rollback_err) =
+                    qdrant_client.delete_vectors(vec![entry_id.clone()]).await
+                {
+                    error!(
+                        "Rollback failed for Qdrant point: entry_id={}, rollback_error={}",
+                        entry_id, rollback_err
+                    );
+                    return Err(AppError::Internal(format!(
+                        "Failed to persist LTM metadata and rollback vector insert: db_error={}, rollback_error={}",
+                        db_err, rollback_err
+                    )));
+                }
+
+                warn!(
+                    "Rolled back Qdrant point after metadata persist failure: entry_id={}",
+                    entry_id
+                );
+                return Err(db_err);
             }
 
-            warn!(
-                "Rolled back Qdrant point after metadata persist failure: entry_id={}",
-                entry_id
-            );
-            return Err(db_err);
-        }
+            info!("LTM stored successfully (sync dual-write): entry_id={}", entry_id);
+            "ready".to_string()
+        };
 
-        info!("LTM stored successfully: entry_id={}", entry_id);
-
-        // Issue #58: record the successful write in the write journal. The journal
-        // append is blocking file I/O, so move it off the async executor instead of
-        // stalling the LTM write hot path.
+        // Issue #58: write journal off the hot path
         let write_record = crate::services::information_guard::WriteRecord {
             timestamp: chrono::Utc::now().to_rfc3339(),
             operation: "create".to_string(),
             entry_id: entry_id.clone(),
             source_id: source_id.to_string(),
-            content_hash: crate::services::information_guard::compute_sha256(&extraction.summary),
+            content_hash,
             status: "ok".to_string(),
         };
         tokio::task::spawn_blocking(move || {
             crate::services::information_guard::record_write(&write_record);
         });
 
-        Ok(entry_id)
+        Ok(StoreLtmResult {
+            entry_id,
+            index_status,
+        })
     }
 
     /// 自动将 STM 转移到 LTM（当达到阈值时）
@@ -320,7 +397,7 @@ impl MemoryStorageService {
             .join("\n\n");
 
         // 存储为长期记忆
-        let entry_id = Self::store_ltm_for_tenant(
+        let result = Self::store_ltm_for_tenant(
             tenant_id,
             session_id,
             "session",
@@ -329,8 +406,11 @@ impl MemoryStorageService {
         )
         .await?;
 
-        info!("STM to LTM transfer completed: entry_id={}", entry_id);
-        Ok(vec![entry_id])
+        info!(
+            "STM to LTM transfer completed: entry_id={}, index_status={}",
+            result.entry_id, result.index_status
+        );
+        Ok(vec![result.entry_id])
     }
 
     /// 批量存储长期记忆
@@ -361,7 +441,7 @@ impl MemoryStorageService {
             )
             .await
             {
-                Ok(entry_id) => entry_ids.push(entry_id),
+                Ok(result) => entry_ids.push(result.entry_id),
                 Err(e) => {
                     error!(
                         "Failed to store LTM entry: source_id={}, error={}",

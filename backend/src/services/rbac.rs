@@ -4,9 +4,31 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
 use tracing::info;
+
+/// Global RBAC service singleton.
+///
+/// Shared across the enterprise hook set and the tenant router so that role
+/// assignments made through the API are visible to governance pre-hooks.
+static RBAC_SERVICE: OnceLock<Arc<RbacService>> = OnceLock::new();
+
+/// Initialize the global RBAC service. Optional — the service auto-initializes
+/// on first access via [`get_rbac_service`]. Calling this before first access
+/// seeds the singleton with a fresh instance and returns whether it was set.
+pub fn init_rbac_service() -> bool {
+    RBAC_SERVICE.set(Arc::new(RbacService::new())).is_ok()
+}
+
+/// Get the global RBAC service instance. The underlying [`RbacService`] is
+/// shared across all callers, so role mutations made through one handle are
+/// immediately visible to all other handles.
+pub fn get_rbac_service() -> Arc<RbacService> {
+    RBAC_SERVICE
+        .get_or_init(|| Arc::new(RbacService::new()))
+        .clone()
+}
 
 /// Roles in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
