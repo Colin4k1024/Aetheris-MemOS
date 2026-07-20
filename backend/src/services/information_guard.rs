@@ -225,15 +225,9 @@ async fn scan_tenant(tenant: &TenantId) -> anyhow::Result<(u64, u64)> {
         (SCAN_OFFSET.fetch_add(SAMPLE_BATCH as u64, Ordering::Relaxed) % total) as i32
     };
 
-    let entries = LTMRepository::list_entries(
-        pool(),
-        tenant,
-        None,
-        None,
-        Some(SAMPLE_BATCH),
-        Some(offset),
-    )
-    .await?;
+    let entries =
+        LTMRepository::list_entries(pool(), tenant, None, None, Some(SAMPLE_BATCH), Some(offset))
+            .await?;
     let mut checked = 0u64;
     let mut violations = 0u64;
 

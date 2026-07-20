@@ -16,7 +16,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{MemoryType, Modality, ReasoningDepth, ResourceConstraints, TaskContext, TaskType, TemporalScope};
+use crate::models::{
+    MemoryType, Modality, ReasoningDepth, ResourceConstraints, TaskContext, TaskType, TemporalScope,
+};
 
 /// A single evaluation test case.
 ///
@@ -127,10 +129,8 @@ impl EvalSuite {
         }
         let passed = self.results.iter().filter(|r| r.passed).count();
         let failed = total - passed;
-        let sum_efficiency: f64 =
-            self.results.iter().map(|r| r.actual_efficiency).sum();
-        let sum_coherence: f64 =
-            self.results.iter().map(|r| r.actual_coherence).sum();
+        let sum_efficiency: f64 = self.results.iter().map(|r| r.actual_efficiency).sum();
+        let sum_coherence: f64 = self.results.iter().map(|r| r.actual_coherence).sum();
         let avg_efficiency = sum_efficiency / total as f64;
         let avg_coherence = sum_coherence / total as f64;
         EvalSummary {
@@ -286,7 +286,11 @@ mod tests {
         suite.run();
         assert_eq!(suite.results.len(), 3);
         for result in &suite.results {
-            assert!(result.passed, "case {} should pass in scaffold", result.test_name);
+            assert!(
+                result.passed,
+                "case {} should pass in scaffold",
+                result.test_name
+            );
         }
     }
 
@@ -299,8 +303,7 @@ mod tests {
         assert_eq!(summary.passed, 3);
         assert_eq!(summary.failed, 0);
         // placeholder efficiency equals min_expected_efficiency per case
-        let expected_avg =
-            (0.8 + 0.7 + 0.6) / 3.0;
+        let expected_avg = (0.8 + 0.7 + 0.6) / 3.0;
         assert!((summary.avg_efficiency - expected_avg).abs() < 1e-9);
         assert!((summary.avg_coherence - 1.0).abs() < 1e-9);
     }
@@ -329,9 +332,6 @@ mod tests {
             vec!["stm", "ltm", "mm"]
         );
         // deep_reasoning_task -> ["ltm","kg"]
-        assert_eq!(
-            suite.results[2].selected_memory_types,
-            vec!["ltm", "kg"]
-        );
+        assert_eq!(suite.results[2].selected_memory_types, vec!["ltm", "kg"]);
     }
 }

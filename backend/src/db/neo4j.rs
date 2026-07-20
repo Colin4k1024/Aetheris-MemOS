@@ -416,7 +416,9 @@ pub async fn init_neo4j_indexes() -> Result<(), AppError> {
     for query in &queries {
         match manager.execute(query).await {
             Ok(_) => tracing::info!(query = %query, "Neo4j index/constraint created"),
-            Err(e) => tracing::error!(query = %query, error = %e, "Neo4j index/constraint creation failed"),
+            Err(e) => {
+                tracing::error!(query = %query, error = %e, "Neo4j index/constraint creation failed")
+            }
         }
     }
 

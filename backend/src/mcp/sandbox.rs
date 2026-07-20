@@ -160,9 +160,9 @@ impl WasmSandbox {
         })?;
 
         let mut store = Store::new(&self.engine, ());
-        store.set_fuel(MAX_FUEL).map_err(|e| {
-            SandboxError::RuntimeError(format!("failed to set fuel: {}", e))
-        })?;
+        store
+            .set_fuel(MAX_FUEL)
+            .map_err(|e| SandboxError::RuntimeError(format!("failed to set fuel: {}", e)))?;
 
         let linker = Linker::new(&self.engine);
         let instance = linker.instantiate(&mut store, &module).map_err(|e| {
@@ -170,9 +170,9 @@ impl WasmSandbox {
             SandboxError::WasmExecutionFailed(e.to_string())
         })?;
 
-        let memory = instance
-            .get_memory(&mut store, "memory")
-            .ok_or_else(|| SandboxError::InvalidModule("wasm module must export 'memory'".into()))?;
+        let memory = instance.get_memory(&mut store, "memory").ok_or_else(|| {
+            SandboxError::InvalidModule("wasm module must export 'memory'".into())
+        })?;
 
         let alloc = instance
             .get_typed_func::<i32, i32>(&mut store, "alloc")
@@ -182,9 +182,8 @@ impl WasmSandbox {
             .get_typed_func::<(i32, i32), i32>(&mut store, "execute")
             .map_err(|_| SandboxError::InvalidModule("wasm module must export 'execute'".into()))?;
 
-        let input_json = serde_json::to_string(&input).map_err(|e| {
-            SandboxError::RuntimeError(format!("failed to serialize input: {}", e))
-        })?;
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| SandboxError::RuntimeError(format!("failed to serialize input: {}", e)))?;
         let input_bytes = input_json.as_bytes();
 
         let input_ptr = alloc
@@ -193,7 +192,9 @@ impl WasmSandbox {
 
         memory
             .write(&mut store, input_ptr as usize, input_bytes)
-            .map_err(|e| SandboxError::WasmExecutionFailed(format!("memory write failed: {}", e)))?;
+            .map_err(|e| {
+                SandboxError::WasmExecutionFailed(format!("memory write failed: {}", e))
+            })?;
 
         let output_ptr = execute
             .call(&mut store, (input_ptr, input_bytes.len() as i32))
@@ -206,13 +207,13 @@ impl WasmSandbox {
                 }
             })?;
 
-        let output_json = read_cstr_from_memory(&memory, &store, output_ptr as usize).map_err(|e| {
-            SandboxError::WasmExecutionFailed(format!("failed to read output: {}", e))
-        })?;
+        let output_json =
+            read_cstr_from_memory(&memory, &store, output_ptr as usize).map_err(|e| {
+                SandboxError::WasmExecutionFailed(format!("failed to read output: {}", e))
+            })?;
 
-        let output: JsonValue = serde_json::from_str(&output_json).map_err(|e| {
-            SandboxError::RuntimeError(format!("invalid output JSON: {}", e))
-        })?;
+        let output: JsonValue = serde_json::from_str(&output_json)
+            .map_err(|e| SandboxError::RuntimeError(format!("invalid output JSON: {}", e)))?;
 
         info!("wasm sandbox execution completed successfully");
         Ok(output)

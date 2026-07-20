@@ -295,6 +295,12 @@ mod tests {
 /// W3.2: Interface for online learning from telemetry samples.
 /// Not yet implemented — currently uses heuristic constants.
 pub trait TrainablePredictor {
-    fn update_from_sample(&mut self, sample: &crate::services::adaptive_telemetry::PerformanceSample);
-    fn fit_from_samples(&mut self, samples: &[crate::services::adaptive_telemetry::PerformanceSample]);
+    fn update_from_sample(
+        &mut self,
+        sample: &crate::services::adaptive_telemetry::PerformanceSample,
+    );
+    fn fit_from_samples(
+        &mut self,
+        samples: &[crate::services::adaptive_telemetry::PerformanceSample],
+    );
 }

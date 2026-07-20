@@ -322,8 +322,14 @@ mod tests {
 
     #[test]
     fn operation_roundtrip() {
-        assert_eq!(OutboxOperation::parse("upsert").unwrap(), OutboxOperation::Upsert);
-        assert_eq!(OutboxOperation::parse("delete").unwrap(), OutboxOperation::Delete);
+        assert_eq!(
+            OutboxOperation::parse("upsert").unwrap(),
+            OutboxOperation::Upsert
+        );
+        assert_eq!(
+            OutboxOperation::parse("delete").unwrap(),
+            OutboxOperation::Delete
+        );
         assert!(OutboxOperation::parse("nope").is_err());
     }
 

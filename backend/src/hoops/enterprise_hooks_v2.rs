@@ -322,19 +322,17 @@ impl AuditHook for AuditHookImpl {
         // non-blocking enqueue) so production audit has a single source of truth.
         // The in-memory push below remains for dev/backward-compat with the
         // `query`/`export` surface.
-        let mut audit_event = crate::db::audit::AuditEvent::new(
-            entry.action.clone(),
-            entry.resource.clone(),
-        )
-        .tenant(entry.tenant_id.clone())
-        .with_metadata(&serde_json::json!({
-            "entry_id": entry.entry_id,
-            "result": format!("{:?}", entry.result),
-            "timestamp": entry.timestamp,
-            "request_id": entry.request_id,
-            "ip_address": entry.ip_address,
-            "metadata": entry.metadata,
-        }));
+        let mut audit_event =
+            crate::db::audit::AuditEvent::new(entry.action.clone(), entry.resource.clone())
+                .tenant(entry.tenant_id.clone())
+                .with_metadata(&serde_json::json!({
+                    "entry_id": entry.entry_id,
+                    "result": format!("{:?}", entry.result),
+                    "timestamp": entry.timestamp,
+                    "request_id": entry.request_id,
+                    "ip_address": entry.ip_address,
+                    "metadata": entry.metadata,
+                }));
 
         if let Some(ref user_id) = entry.user_id {
             audit_event = audit_event.actor(user_id.clone());

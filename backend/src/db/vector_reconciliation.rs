@@ -82,9 +82,7 @@ impl DriftType {
             "orphan" => Ok(Self::Orphan),
             "tenant_mismatch" => Ok(Self::TenantMismatch),
             "content_hash_mismatch" => Ok(Self::ContentHashMismatch),
-            other => Err(AppError::Internal(format!(
-                "unknown drift type: {other}"
-            ))),
+            other => Err(AppError::Internal(format!("unknown drift type: {other}"))),
         }
     }
 }
@@ -283,7 +281,10 @@ mod tests {
             DriftType::ContentHashMismatch
         );
         assert!(DriftType::parse("unknown").is_err());
-        assert_eq!(DriftType::ContentHashMismatch.as_str(), "content_hash_mismatch");
+        assert_eq!(
+            DriftType::ContentHashMismatch.as_str(),
+            "content_hash_mismatch"
+        );
     }
 
     #[test]
@@ -297,7 +298,10 @@ mod tests {
             ReconciliationAction::RewritePayload
         );
         assert!(ReconciliationAction::parse("invalid").is_err());
-        assert_eq!(ReconciliationAction::RewritePayload.as_str(), "rewrite_payload");
+        assert_eq!(
+            ReconciliationAction::RewritePayload.as_str(),
+            "rewrite_payload"
+        );
     }
 
     #[test]

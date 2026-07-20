@@ -10,6 +10,7 @@ use backend::services::evidence_graph::{
 };
 use backend::services::memory_orchestrator::{list_decision_traces, select_memory_trace};
 use backend::services::{AdaptiveMemoryScheduler, PerformancePredictionModel};
+use backend::tenant::TenantId;
 
 static DB_PATH: OnceLock<String> = OnceLock::new();
 static INIT_DB: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
@@ -49,12 +50,14 @@ async fn init_test_db() {
         r#"
         CREATE TABLE IF NOT EXISTS decision_trace (
             trace_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
             task_id TEXT NOT NULL,
             trace_json TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_decision_trace_task_id ON decision_trace (task_id);
         CREATE INDEX IF NOT EXISTS idx_decision_trace_created_at ON decision_trace (created_at);
+        CREATE INDEX IF NOT EXISTS idx_decision_trace_tenant_id ON decision_trace (tenant_id);
         "#,
     )
     .execute(backend::db::sqlite_pool())
@@ -190,8 +193,10 @@ async fn select_memory_trace_persist_trace_record_keeps_legacy_blob_and_workflow
 
     let scheduler = AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()));
     let task_context = sample_task_context("workflow-evidence-live-path");
+    let tenant_id = TenantId::from_string("test-evidence");
     let trace = select_memory_trace(
         &scheduler,
+        &tenant_id,
         &task_context,
         &sample_constraints(),
         &sample_preferences(),
@@ -200,7 +205,7 @@ async fn select_memory_trace_persist_trace_record_keeps_legacy_blob_and_workflow
     .await
     .expect("persist trace through memory orchestrator");
 
-    let traces = list_decision_traces(Some(&trace.task_id), Some(10))
+    let traces = list_decision_traces(&tenant_id, Some(&trace.task_id), Some(10))
         .await
         .expect("list legacy decision traces");
     let evidence = list_workflow_evidence(&trace.task_id)

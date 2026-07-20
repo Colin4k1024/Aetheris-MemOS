@@ -1,7 +1,7 @@
+pub mod adaptive_telemetry;
 #[allow(dead_code)]
 pub mod agent;
 pub mod agent_identity;
-pub mod adaptive_telemetry;
 pub mod analyzer;
 pub mod approval_manager;
 #[allow(dead_code)]

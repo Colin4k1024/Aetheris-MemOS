@@ -146,13 +146,12 @@ pub async fn get_decision_traces(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(q): Query<ListTracesQuery>,
 ) -> JsonResult<ListTracesResponse> {
-    let rows =
-        crate::services::memory_orchestrator::list_decision_traces(
-            &tenant_ctx.tenant_id,
-            q.task_id.as_deref(),
-            q.limit,
-        )
-        .await?;
+    let rows = crate::services::memory_orchestrator::list_decision_traces(
+        &tenant_ctx.tenant_id,
+        q.task_id.as_deref(),
+        q.limit,
+    )
+    .await?;
     let traces = rows
         .into_iter()
         .map(|row| DecisionTraceItem {
@@ -183,13 +182,12 @@ pub async fn explain_memory_selection(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(q): Query<ExplainQuery>,
 ) -> JsonResult<ExplainResponse> {
-    let rows =
-        crate::services::memory_orchestrator::list_decision_traces(
-            &tenant_ctx.tenant_id,
-            q.task_id.as_deref(),
-            q.limit,
-        )
-        .await?;
+    let rows = crate::services::memory_orchestrator::list_decision_traces(
+        &tenant_ctx.tenant_id,
+        q.task_id.as_deref(),
+        q.limit,
+    )
+    .await?;
     let traces = rows
         .into_iter()
         .filter(|row| {

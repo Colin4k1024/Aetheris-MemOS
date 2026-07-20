@@ -63,16 +63,27 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     needs: [code-quality, security]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: memory
+          POSTGRES_PASSWORD: memory
+          POSTGRES_DB: memory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U memory"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Create SQLite DB for SQLx compile check
-        run: |
-          mkdir -p data
-          touch data/sqlx.sqlite
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -85,15 +96,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features postgres
+
+      - name: Run migrations
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+
+      - name: Regenerate SQLx offline cache
+        run: cargo sqlx prepare
+        env:
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+
       - name: Build
         run: cargo build --release
         env:
-          DATABASE_URL: "file:./data/sqlx.sqlite"
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
 
       - name: Test
         run: cargo test
         env:
-          DATABASE_URL: "file:./data/sqlx.sqlite"
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

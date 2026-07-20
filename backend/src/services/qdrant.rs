@@ -651,19 +651,16 @@ fn extract_original_id(
     id: &Option<PointId>,
 ) -> String {
     if let Some(original_id_value) = payload.get("_original_id") {
-        if let Some(qdrant_client::qdrant::value::Kind::StringValue(s)) = &original_id_value.kind
-        {
+        if let Some(qdrant_client::qdrant::value::Kind::StringValue(s)) = &original_id_value.kind {
             return s.clone();
         }
     }
     match id {
         Some(PointId {
-            point_id_options:
-                Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)),
+            point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)),
         }) => uuid.clone(),
         Some(PointId {
-            point_id_options:
-                Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(num)),
+            point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(num)),
         }) => num.to_string(),
         _ => String::new(),
     }

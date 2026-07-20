@@ -206,8 +206,7 @@ impl MemoryStorageService {
         info!("Embedding generated: dimension={}", embedding.len());
 
         let entry_id = ulid::Ulid::new().to_string();
-        let content_hash =
-            crate::services::information_guard::compute_sha256(&extraction.summary);
+        let content_hash = crate::services::information_guard::compute_sha256(&extraction.summary);
         let metadata = serde_json::json!({
             "tenantId": tenant_id.as_str(),
             "title": title,
@@ -230,10 +229,8 @@ impl MemoryStorageService {
             let payload_json = serde_json::to_string(&outbox_payload).map_err(|e| {
                 AppError::Internal(format!("Failed to serialize outbox payload: {e}"))
             })?;
-            let payload_hash =
-                crate::services::information_guard::compute_sha256(&payload_json);
-            let idempotency_key =
-                vector_outbox::upsert_idempotency_key(&entry_id, &payload_hash);
+            let payload_hash = crate::services::information_guard::compute_sha256(&payload_json);
+            let idempotency_key = vector_outbox::upsert_idempotency_key(&entry_id, &payload_hash);
 
             let mut tx = begin_tenant_tx(pool(), tenant_id).await?;
             LTMRepository::insert_knowledge_entry_tx(
@@ -330,7 +327,10 @@ impl MemoryStorageService {
                 return Err(db_err);
             }
 
-            info!("LTM stored successfully (sync dual-write): entry_id={}", entry_id);
+            info!(
+                "LTM stored successfully (sync dual-write): entry_id={}",
+                entry_id
+            );
             "ready".to_string()
         };
 

@@ -85,9 +85,7 @@ impl ReconciliationService {
             }
             Err(e) => {
                 let msg = format!("{e:#}");
-                if let Err(fail_err) =
-                    ReconciliationRepository::fail_run(&run_id, &msg).await
-                {
+                if let Err(fail_err) = ReconciliationRepository::fail_run(&run_id, &msg).await {
                     error!(run_id = %run_id, error = %fail_err, "failed to mark run as failed");
                 }
                 Err(e)
@@ -193,9 +191,7 @@ impl ReconciliationService {
                 if is_repair {
                     enqueue_upsert(entry_id, db_entry)
                         .await
-                        .with_context(|| {
-                            format!("enqueue tenant rewrite for {entry_id}")
-                        })?;
+                        .with_context(|| format!("enqueue tenant rewrite for {entry_id}"))?;
                 }
             }
 
@@ -219,9 +215,7 @@ impl ReconciliationService {
                 if is_repair {
                     enqueue_upsert(entry_id, db_entry)
                         .await
-                        .with_context(|| {
-                            format!("enqueue content rewrite for {entry_id}")
-                        })?;
+                        .with_context(|| format!("enqueue content rewrite for {entry_id}"))?;
                 }
             }
         }

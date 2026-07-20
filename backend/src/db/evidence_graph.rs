@@ -530,22 +530,18 @@ impl EvidenceGraphRepository {
 
     pub async fn list_all_workflow_ids() -> Result<Vec<String>, AppError> {
         match DATABASE_POOL.get() {
-            Some(DatabasePool::Postgres(pool)) => {
-                sqlx::query_scalar::<_, String>(
-                    "SELECT DISTINCT workflow_id FROM workflow_evidence_runs ORDER BY workflow_id",
-                )
-                .fetch_all(pool)
-                .await
-                .map_err(|e| db_error("list_all_workflow_ids", e))
-            }
-            Some(DatabasePool::Sqlite(pool)) => {
-                sqlx::query_scalar::<_, String>(
-                    "SELECT DISTINCT workflow_id FROM workflow_evidence_runs ORDER BY workflow_id",
-                )
-                .fetch_all(pool)
-                .await
-                .map_err(|e| db_error("list_all_workflow_ids", e))
-            }
+            Some(DatabasePool::Postgres(pool)) => sqlx::query_scalar::<_, String>(
+                "SELECT DISTINCT workflow_id FROM workflow_evidence_runs ORDER BY workflow_id",
+            )
+            .fetch_all(pool)
+            .await
+            .map_err(|e| db_error("list_all_workflow_ids", e)),
+            Some(DatabasePool::Sqlite(pool)) => sqlx::query_scalar::<_, String>(
+                "SELECT DISTINCT workflow_id FROM workflow_evidence_runs ORDER BY workflow_id",
+            )
+            .fetch_all(pool)
+            .await
+            .map_err(|e| db_error("list_all_workflow_ids", e)),
             None => Err(AppError::DatabaseConnection(
                 "database pool not initialized".into(),
             )),

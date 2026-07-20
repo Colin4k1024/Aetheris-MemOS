@@ -713,8 +713,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_scheduler_creation() {
-        let _scheduler =
-            AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()));
+        let _scheduler = AdaptiveMemoryScheduler::new(Box::new(PerformancePredictionModel::new()));
         assert!(true);
     }
 

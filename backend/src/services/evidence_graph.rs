@@ -587,6 +587,10 @@ pub async fn scan_all_workflows_for_tampering() -> Result<usize, AppError> {
         }
     }
 
-    tracing::info!(scanned = workflow_ids.len(), tampered, "Evidence tamper scan complete");
+    tracing::info!(
+        scanned = workflow_ids.len(),
+        tampered,
+        "Evidence tamper scan complete"
+    );
     Ok(tampered)
 }
