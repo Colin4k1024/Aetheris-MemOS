@@ -6,14 +6,33 @@ on:
   pull_request:
     branches: [main, master, dev]
 
-# Cancel in-progress runs when a new run is triggered
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Backend CI
+  # Detect which parts of the repo changed to skip unnecessary jobs
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
   backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -21,7 +40,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: memory
           POSTGRES_PASSWORD: memory
@@ -48,45 +67,39 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin/sqlx
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'backend/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features postgres
+        run: which sqlx || cargo install sqlx-cli --no-default-features --features postgres
 
       - name: Run migrations
         run: sqlx migrate run
         env:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
 
-      - name: Regenerate SQLx offline cache
-        run: cargo sqlx prepare
-        env:
-          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
-
       - name: Check formatting
         run: cargo fmt --all -- --check
-        continue-on-error: true
 
       - name: Clippy
         run: cargo clippy --all
         continue-on-error: true
-
-      - name: Build
-        run: cargo build --release
         env:
-          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+          SQLX_OFFLINE: "true"
 
       - name: Test
         run: cargo test
         timeout-minutes: 30
         env:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+          SQLX_OFFLINE: "true"
 
-  # Frontend CI
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -99,9 +112,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/ant-design-pro-template/package-lock.json
 
-      - name: Install
-        run: npm install --legacy-peer-deps
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
 
       - name: Lint
         run: npm run lint

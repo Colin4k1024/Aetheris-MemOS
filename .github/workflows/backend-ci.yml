@@ -12,61 +12,21 @@ on:
       - 'backend/**'
       - '.github/workflows/backend-ci.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: backend
 
 jobs:
-  # Code Quality Check
-  code-quality:
+  test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Clippy linting
-        run: cargo clippy --all
-        continue-on-error: true
-
-      - name: Check for broken links in docs
-        run: |
-          cargo doc --no-deps 2>&1 | tee /tmp/doc.log
-          if grep -q "warning:" /tmp/doc.log; then
-            echo "Doc warnings found"
-          fi
-
-  # Security Audit
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run security audit
-        run: cargo audit
-        working-directory: backend
-        continue-on-error: true
-
-  # Build and Test
-  build-and-test:
-    runs-on: ubuntu-latest
-    needs: [code-quality, security]
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: memory
           POSTGRES_PASSWORD: memory
@@ -84,45 +44,41 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
-      - name: Cache cargo registry
+      - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin/sqlx
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'backend/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features postgres
+        run: which sqlx || cargo install sqlx-cli --no-default-features --features postgres
 
       - name: Run migrations
         run: sqlx migrate run
         env:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
 
-      - name: Regenerate SQLx offline cache
-        run: cargo sqlx prepare
-        env:
-          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Build
-        run: cargo build --release
+      - name: Clippy
+        run: cargo clippy --all
+        continue-on-error: true
         env:
-          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+          SQLX_OFFLINE: "true"
 
       - name: Test
         run: cargo test
         timeout-minutes: 30
         env:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-binary
-          path: backend/target/release/adaptive-memory
-          retention-days: 7
+          SQLX_OFFLINE: "true"
