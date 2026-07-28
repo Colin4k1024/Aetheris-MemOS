@@ -7,8 +7,8 @@ use backend::runtime::subagent_pool::{PoolStatus, SubagentPool};
 async fn test_signal_publish_and_subscribe() {
     let bus = SignalingBus::new();
 
-    // Subscribe to a workflow
-    let mut rx = bus.subscribe("workflow-1");
+    // Subscribe to the workflow the signal targets (routing is by target, not publisher).
+    let mut rx = bus.subscribe("child-1");
 
     // Publish a SubagentSpawn signal
     let signal = WorkflowSignal::SubagentSpawn {

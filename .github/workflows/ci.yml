@@ -81,6 +81,7 @@ jobs:
 
       - name: Test
         run: cargo test
+        timeout-minutes: 30
         env:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
 
