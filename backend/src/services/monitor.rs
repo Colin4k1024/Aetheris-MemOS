@@ -48,9 +48,13 @@ impl ResourceMonitor {
         // （表示"未知"），不再用 850ms 假值喂 cost-benefit 计算。
         //
         // TODO(P3): 从 OTel 请求直方图取 p50/p95，替代单点查询。
-        let response_time_ms = PerformanceMetricsRepository::get_latest_response_time()
-            .await
-            .unwrap_or(0);
+        let response_time_ms = if crate::db::is_postgres() {
+            PerformanceMetricsRepository::get_latest_response_time()
+                .await
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         let current_status = ResourceStatus {
             memory_usage_mb: used_memory,
