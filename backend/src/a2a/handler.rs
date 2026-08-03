@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use crate::db::{self, kg::KGRepository, pool};
-use crate::services::memory_search::MemorySearchService;
 use crate::services::memory_fusion::MemoryFusionService;
+use crate::services::memory_search::MemorySearchService;
 use crate::services::memory_storage::MemoryStorageService;
 use crate::tenant::RequestTenantContext;
 
@@ -39,18 +39,10 @@ impl A2AHandler {
         );
 
         match skill_id {
-            Some(MemorySkill::MemorySearch) => {
-                self.handle_memory_search(request, tenant_ctx).await
-            }
-            Some(MemorySkill::MemoryStore) => {
-                self.handle_memory_store(request, tenant_ctx).await
-            }
-            Some(MemorySkill::MemoryFusion) => {
-                self.handle_memory_fusion(request, tenant_ctx).await
-            }
-            Some(MemorySkill::MemoryStatus) => {
-                self.handle_memory_status(request, tenant_ctx).await
-            }
+            Some(MemorySkill::MemorySearch) => self.handle_memory_search(request, tenant_ctx).await,
+            Some(MemorySkill::MemoryStore) => self.handle_memory_store(request, tenant_ctx).await,
+            Some(MemorySkill::MemoryFusion) => self.handle_memory_fusion(request, tenant_ctx).await,
+            Some(MemorySkill::MemoryStatus) => self.handle_memory_status(request, tenant_ctx).await,
             Some(MemorySkill::KnowledgeGraph) => {
                 self.handle_knowledge_graph(request, tenant_ctx).await
             }
@@ -229,16 +221,11 @@ impl A2AHandler {
 
         // LTM: use list_entities equivalent via search with empty query or direct count
         // Since LTMRepository has no count_by_tenant, use a search with limit 1 to verify connectivity
-        let ltm_accessible = MemorySearchService::search_ltm_for_tenant(
-            &tenant_ctx.tenant_id,
-            "",
-            1,
-            None,
-            None,
-        )
-        .await
-        .map(|r| !r.is_empty() || true) // connectivity check
-        .unwrap_or(false);
+        let ltm_accessible =
+            MemorySearchService::search_ltm_for_tenant(&tenant_ctx.tenant_id, "", 1, None, None)
+                .await
+                .map(|r| !r.is_empty() || true) // connectivity check
+                .unwrap_or(false);
 
         // KG: list_entities takes (pool, tenant_id, entity_type, limit, offset)
         let kg_result = KGRepository::list_entities(
@@ -257,7 +244,11 @@ impl A2AHandler {
             "Memory system status: STM active users={}, KG entities={}, Overall={}",
             stm_count,
             kg_entities,
-            if overall_healthy { "healthy" } else { "degraded" }
+            if overall_healthy {
+                "healthy"
+            } else {
+                "degraded"
+            }
         );
 
         self.create_response(

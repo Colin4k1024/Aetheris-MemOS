@@ -9,9 +9,9 @@ pub mod audit_writer;
 pub mod bitemporal_kg;
 pub mod confidence_scorer;
 #[allow(dead_code)]
-pub mod conflict_detector;
-#[allow(dead_code)]
 pub mod config_recommendation;
+#[allow(dead_code)]
+pub mod conflict_detector;
 #[allow(dead_code)]
 pub mod consolidation;
 pub mod context_compressor;

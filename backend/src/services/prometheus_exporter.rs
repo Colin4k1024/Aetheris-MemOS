@@ -114,11 +114,9 @@ impl PrometheusExporter {
         )
         .expect("gauagevec creation failed");
 
-        let outbox_pending_total = prometheus::Gauge::new(
-            "outbox_pending_total",
-            "Number of pending outbox events",
-        )
-        .expect("gauge creation failed");
+        let outbox_pending_total =
+            prometheus::Gauge::new("outbox_pending_total", "Number of pending outbox events")
+                .expect("gauge creation failed");
 
         let outbox_dead_letter_total = prometheus::Counter::new(
             "outbox_dead_letter_total",
@@ -259,7 +257,8 @@ impl PrometheusExporter {
 
     /// Record outbox processing duration
     pub fn record_outbox_processing_duration(&self, duration_secs: f64) {
-        self.outbox_processing_duration_seconds.observe(duration_secs);
+        self.outbox_processing_duration_seconds
+            .observe(duration_secs);
     }
 
     /// Increment outbox Qdrant upsert success counter

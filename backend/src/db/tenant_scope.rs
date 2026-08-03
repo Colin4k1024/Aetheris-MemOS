@@ -63,9 +63,12 @@ mod tests {
 
     /// Helper: get a test pool (requires DATABASE_URL env var).
     async fn test_pool() -> PgPool {
-        let url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/aetheris_test".to_string());
-        PgPool::connect(&url).await.expect("Failed to connect to test database")
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://postgres:postgres@localhost:5432/aetheris_test".to_string()
+        });
+        PgPool::connect(&url)
+            .await
+            .expect("Failed to connect to test database")
     }
 
     #[tokio::test]

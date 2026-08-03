@@ -8,8 +8,8 @@
 //! `send_to_session` remains a placeholder until a real axum WS route is wired.
 #![allow(dead_code)]
 
-use crate::kernel::types::*;
 use crate::hoops::jwt;
+use crate::kernel::types::*;
 use crate::tenant::RequestTenantContext;
 use crate::AppError;
 use serde::{Deserialize, Serialize};
@@ -397,10 +397,12 @@ async fn handle_ws_connection(mut socket: WebSocket, state: WsHandlerState) {
     // In the interim, REST auth_middleware protects the /ws route mount point,
     // and the tenant context is available from request extensions. This handler
     // will be completed when the axum WS route is actually mounted.
-    let _ = socket.send(Message::Close(Some(axum::extract::ws::CloseFrame {
-        code: 1008,
-        reason: "Authentication required — full WS handler pending route mount".into(),
-    }))).await;
+    let _ = socket
+        .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+            code: 1008,
+            reason: "Authentication required — full WS handler pending route mount".into(),
+        })))
+        .await;
 }
 
 impl Default for WsConnectionManager {

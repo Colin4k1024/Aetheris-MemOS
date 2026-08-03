@@ -39,7 +39,10 @@ impl ConfigArchetype {
     /// Parse the config_json into structured values.
     pub fn parse_config(&self) -> Result<ArchetypeConfig, AppError> {
         serde_json::from_str(&self.config_json).map_err(|e| {
-            error!("Failed to parse config_json for archetype {}: {}", self.archetype_id, e);
+            error!(
+                "Failed to parse config_json for archetype {}: {}",
+                self.archetype_id, e
+            );
             AppError::Internal(format!("Invalid config_json: {}", e))
         })
     }

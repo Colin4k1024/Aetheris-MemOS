@@ -11,7 +11,9 @@
 use tracing::{debug, info};
 
 use crate::db::config_archetypes::{ArchetypeConfig, ConfigArchetype, ConfigArchetypeRepository};
-use crate::models::{MemoryConfig, MemoryType, MemoryWeights, ResourceConstraints, TaskContext, TaskPreferences};
+use crate::models::{
+    MemoryConfig, MemoryType, MemoryWeights, ResourceConstraints, TaskContext, TaskPreferences,
+};
 use crate::AppError;
 
 /// Configuration recommendation result.
@@ -42,7 +44,9 @@ impl ConfigRecommendationEngine {
         // 1. Load active archetypes
         let archetypes = ConfigArchetypeRepository::list_active().await?;
         if archetypes.is_empty() {
-            return Err(AppError::Internal("No active config archetypes found".to_string()));
+            return Err(AppError::Internal(
+                "No active config archetypes found".to_string(),
+            ));
         }
 
         // 2. Filter archetypes by resource constraints
@@ -62,7 +66,8 @@ impl ConfigRecommendationEngine {
             .collect();
 
         // 4. Sort by score (descending)
-        scored_archetypes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored_archetypes
+            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // 5. Select the best archetype
         let (best_archetype, score, reason) = scored_archetypes.first().unwrap();
