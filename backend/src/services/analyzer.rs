@@ -137,25 +137,31 @@ impl TaskCharacteristicAnalyzer {
     }
 
     fn calculate_confidence_score(&self, characteristics: &TaskCharacteristics) -> f64 {
-        // 基于特征完整性和一致性计算置信度
-        let mut score = 0.5;
+        // P3 诚实化：不再用"起点 0.5 + 每项 +0.2/+0.15/+0.15"的启发式堆砌
+        // （几乎必然 ≥ 1.0）。改为基于特征可区分度的简单估计：
+        //
+        // - 如果复杂度在极端区域（< 0.1 或 > 0.9），特征信号强 → 置信度较高
+        // - 如果复杂度在中间区域，特征模糊 → 置信度较低
+        // - 模态数量 0 或 > 3 是异常信号 → 降低置信度
+        //
+        // 这仍然是启发式，但至少不会恒≈1.0。真正的校准置信度来自 P3b
+        // 的 conformal prediction / 残差分位数。
 
-        // 复杂度评估置信度
-        if characteristics.complexity > 0.0 && characteristics.complexity < 1.0 {
-            score += 0.2;
-        }
+        let complexity = characteristics.complexity;
+        let modality_count = characteristics.modality_count;
 
-        // 模态数量合理性
-        if characteristics.modality_count <= 4 {
-            score += 0.15;
-        }
+        // 复杂度极端性：越接近 0 或 1，特征越清晰
+        let extremity = 1.0 - 2.0 * (complexity - 0.5).abs(); // 0.0 at extremes, 1.0 at 0.5
+        let complexity_confidence = 1.0 - extremity * 0.5; // 0.5 at 0.5, 1.0 at extremes
 
-        // 推理深度合理性
-        if characteristics.reasoning_depth >= 0.0 && characteristics.reasoning_depth <= 1.0 {
-            score += 0.15;
-        }
+        // 模态合理性：0 或 > 3 是异常
+        let modality_penalty = if modality_count == 0 || modality_count > 3 {
+            0.3
+        } else {
+            0.0
+        };
 
-        (score as f64).min(1.0)
+        (complexity_confidence - modality_penalty).clamp(0.1, 0.95)
     }
 }
 

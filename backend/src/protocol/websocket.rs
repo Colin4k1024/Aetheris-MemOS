@@ -452,8 +452,9 @@ mod tests {
     async fn test_connection_manager() {
         let manager = WsConnectionManager::new();
 
-        // Create session
-        let (session_id, _rx) = manager.create_session(None).await;
+        // Create session with a mock tenant context
+        let tenant_ctx = crate::tenant::RequestTenantContext::new("test-tenant");
+        let (session_id, _rx) = manager.create_session(tenant_ctx).await;
         assert!(manager.has_session(&session_id).await);
 
         // Get connection
@@ -478,8 +479,10 @@ mod tests {
     async fn test_connection_count() {
         let manager = WsConnectionManager::new();
 
-        let (session1, _) = manager.create_session(None).await;
-        let (session2, _) = manager.create_session(None).await;
+        let tenant_ctx1 = crate::tenant::RequestTenantContext::new("test-tenant-1");
+        let tenant_ctx2 = crate::tenant::RequestTenantContext::new("test-tenant-2");
+        let (session1, _) = manager.create_session(tenant_ctx1).await;
+        let (session2, _) = manager.create_session(tenant_ctx2).await;
 
         assert_eq!(manager.connection_count().await, 2);
 

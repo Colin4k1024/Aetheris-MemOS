@@ -27,6 +27,16 @@ pub struct PrometheusExporter {
     requests_total: prometheus::CounterVec,
     /// Tenant quota usage ratio
     tenant_quota_usage_ratio: prometheus::GaugeVec,
+    /// Outbox pending events count
+    outbox_pending_total: prometheus::Gauge,
+    /// Outbox dead letter events count
+    outbox_dead_letter_total: prometheus::Counter,
+    /// Outbox processing duration histogram (in seconds)
+    outbox_processing_duration_seconds: prometheus::Histogram,
+    /// Outbox Qdrant upsert success count
+    outbox_qdrant_upsert_success_total: prometheus::Counter,
+    /// Outbox Qdrant upsert failure count
+    outbox_qdrant_upsert_failure_total: prometheus::Counter,
     /// Prometheus registry for metric collection
     registry: prometheus::Registry,
 }
@@ -104,6 +114,39 @@ impl PrometheusExporter {
         )
         .expect("gauagevec creation failed");
 
+        let outbox_pending_total = prometheus::Gauge::new(
+            "outbox_pending_total",
+            "Number of pending outbox events",
+        )
+        .expect("gauge creation failed");
+
+        let outbox_dead_letter_total = prometheus::Counter::new(
+            "outbox_dead_letter_total",
+            "Total number of dead letter outbox events",
+        )
+        .expect("counter creation failed");
+
+        let outbox_processing_duration_seconds = prometheus::Histogram::with_opts(
+            prometheus::HistogramOpts::new(
+                "outbox_processing_duration_seconds",
+                "Outbox batch processing duration in seconds",
+            )
+            .buckets(vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0]),
+        )
+        .expect("histogram creation failed");
+
+        let outbox_qdrant_upsert_success_total = prometheus::Counter::new(
+            "outbox_qdrant_upsert_success_total",
+            "Total number of successful Qdrant upsert operations",
+        )
+        .expect("counter creation failed");
+
+        let outbox_qdrant_upsert_failure_total = prometheus::Counter::new(
+            "outbox_qdrant_upsert_failure_total",
+            "Total number of failed Qdrant upsert operations",
+        )
+        .expect("counter creation failed");
+
         // Register all metrics with the registry
         registry
             .register(Box::new(stm_sessions_active.clone()))
@@ -129,6 +172,21 @@ impl PrometheusExporter {
         registry
             .register(Box::new(tenant_quota_usage_ratio.clone()))
             .expect("failed to register tenant_quota_usage_ratio");
+        registry
+            .register(Box::new(outbox_pending_total.clone()))
+            .expect("failed to register outbox_pending_total");
+        registry
+            .register(Box::new(outbox_dead_letter_total.clone()))
+            .expect("failed to register outbox_dead_letter_total");
+        registry
+            .register(Box::new(outbox_processing_duration_seconds.clone()))
+            .expect("failed to register outbox_processing_duration_seconds");
+        registry
+            .register(Box::new(outbox_qdrant_upsert_success_total.clone()))
+            .expect("failed to register outbox_qdrant_upsert_success_total");
+        registry
+            .register(Box::new(outbox_qdrant_upsert_failure_total.clone()))
+            .expect("failed to register outbox_qdrant_upsert_failure_total");
 
         Self {
             stm_sessions_active,
@@ -139,6 +197,11 @@ impl PrometheusExporter {
             request_duration_seconds,
             requests_total,
             tenant_quota_usage_ratio,
+            outbox_pending_total,
+            outbox_dead_letter_total,
+            outbox_processing_duration_seconds,
+            outbox_qdrant_upsert_success_total,
+            outbox_qdrant_upsert_failure_total,
             registry,
         }
     }
@@ -182,6 +245,31 @@ impl PrometheusExporter {
         self.tenant_quota_usage_ratio
             .with_label_values(&[tenant])
             .set(ratio);
+    }
+
+    /// Set outbox pending events count
+    pub fn set_outbox_pending(&self, count: f64) {
+        self.outbox_pending_total.set(count);
+    }
+
+    /// Increment outbox dead letter counter
+    pub fn inc_outbox_dead_letter(&self) {
+        self.outbox_dead_letter_total.inc();
+    }
+
+    /// Record outbox processing duration
+    pub fn record_outbox_processing_duration(&self, duration_secs: f64) {
+        self.outbox_processing_duration_seconds.observe(duration_secs);
+    }
+
+    /// Increment outbox Qdrant upsert success counter
+    pub fn inc_outbox_qdrant_upsert_success(&self) {
+        self.outbox_qdrant_upsert_success_total.inc();
+    }
+
+    /// Increment outbox Qdrant upsert failure counter
+    pub fn inc_outbox_qdrant_upsert_failure(&self) {
+        self.outbox_qdrant_upsert_failure_total.inc();
     }
 
     /// Convert internal metrics to Prometheus format

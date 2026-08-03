@@ -59,6 +59,22 @@ impl PerformanceMetricsRepository {
         Ok(metric_id)
     }
 
+    /// P3: Get the most recent real response time from performance_metrics.
+    /// Used by ResourceMonitor to replace the hardcoded 850ms placeholder.
+    /// Returns None if no metrics exist yet (caller should treat as "unknown").
+    pub async fn get_latest_response_time() -> Option<u64> {
+        let pool = pool();
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT response_time_ms FROM performance_metrics ORDER BY created_at DESC LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+
+        row.map(|(ms,)| ms.max(0) as u64)
+    }
+
     /// 根据 metric_id 获取指标
     pub async fn get_by_id(metric_id: &str) -> Result<Option<PerformanceMetricRow>, AppError> {
         let pool = pool();

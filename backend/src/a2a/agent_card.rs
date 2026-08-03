@@ -11,7 +11,9 @@ pub fn create_agent_card(base_url: &str) -> AgentCard {
             url: "https://github.com/Aetheris-MemOS".to_string(),
         }),
         capabilities: AgentCapabilities {
-            streaming: Some(true),
+            // P2: SSE streaming sends working→completed events, not true incremental
+            // results. Mark as false until real incremental streaming is implemented.
+            streaming: Some(false),
             push_notifications: Some(false),
             extensions: None,
             extended_agent_card: None,

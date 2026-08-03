@@ -43,8 +43,14 @@ impl ResourceMonitor {
             }
         }
 
-        // 响应时间暂时使用模拟数据，实际应从请求处理中获取
-        let response_time_ms = 850;
+        // P3 诚实化：response_time_ms 不再写死常量。
+        // 当前从 performance_metrics 表取最近一次真实延迟；无数据时返回 0
+        // （表示"未知"），不再用 850ms 假值喂 cost-benefit 计算。
+        //
+        // TODO(P3): 从 OTel 请求直方图取 p50/p95，替代单点查询。
+        let response_time_ms = PerformanceMetricsRepository::get_latest_response_time()
+            .await
+            .unwrap_or(0);
 
         let current_status = ResourceStatus {
             memory_usage_mb: used_memory,

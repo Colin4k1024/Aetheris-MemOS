@@ -11,6 +11,7 @@ use ulid::Ulid;
 
 use crate::db::vector_outbox::{self, OutboxOperation};
 use crate::db::{pool, DatabasePool, DATABASE_POOL};
+use crate::services::prometheus_exporter::get_exporter;
 use crate::services::qdrant::get_qdrant_client;
 
 static STARTED: OnceLock<()> = OnceLock::new();
@@ -48,6 +49,8 @@ pub fn request_shutdown() {
 
 async fn run_loop(worker_id: &str) {
     let mut loops: u32 = 0;
+    let exporter = get_exporter();
+
     while !SHUTDOWN.load(Ordering::Relaxed) {
         loops = loops.wrapping_add(1);
         if loops % RECLAIM_EVERY_N_LOOPS == 0 {
@@ -56,9 +59,14 @@ async fn run_loop(worker_id: &str) {
             }
         }
 
+        let start = std::time::Instant::now();
         match process_batch(worker_id).await {
-            Ok(0) => tokio::time::sleep(POLL_INTERVAL).await,
+            Ok(0) => {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
             Ok(n) => {
+                let duration = start.elapsed();
+                exporter.record_outbox_processing_duration(duration.as_secs_f64());
                 info!(applied_or_failed = n, "outbox batch processed");
             }
             Err(e) => {

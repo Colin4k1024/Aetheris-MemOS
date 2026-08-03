@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "totalCompactCount": 4,
+  "sessions": {
+    "a13ada39-2dbb-4b5e-9250-9c5dcfe1d5a3": {
+      "sessionId": "a13ada39-2dbb-4b5e-9250-9c5dcfe1d5a3",
+      "compactCount": 4,
+      "firstCompactedAt": "2026-07-16T05:25:21.577Z",
+      "lastCompactedAt": "2026-07-16T08:49:49.645Z",
+      "lastTrigger": "auto",
+      "transcriptPath": "/Users/fanjia/.claude/projects/-Users-fanjia-Desktop-code-Aetheris-MemOS/a13ada39-2dbb-4b5e-9250-9c5dcfe1d5a3.jsonl",
+      "cwd": "/Users/fanjia/Desktop/code/Aetheris-MemOS"
+    }
+  },
+  "updatedAt": "2026-07-16T08:49:49.645Z"
+}

@@ -24,7 +24,8 @@ pub mod adapters;
 pub mod agent;
 #[allow(dead_code)]
 pub mod audit;
-
+#[allow(dead_code)]
+pub mod config_archetypes;
 pub mod decision_trace;
 pub mod event_store;
 pub mod evidence_graph;
