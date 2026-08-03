@@ -23,7 +23,7 @@ a2a = ["dep:a2a", "dep:a2a-server"]
 
 [dependencies]
 anyhow = "1"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio-stream = "0.1"

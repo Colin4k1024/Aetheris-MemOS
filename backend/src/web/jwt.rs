@@ -1,4 +1,15 @@
-//! JWT Authentication Middleware
+//! JWT Authentication Middleware — DEPRECATED (P2, ADR-0007).
+//!
+//! ⚠️ This module is the **weak** JWT implementation. It accepts query-string
+//! tokens (security: log/referrer leakage), does NOT inject `RequestTenantContext`,
+//! and has no `jwt.disabled` dev-mode support.
+//!
+//! **All new code must use `crate::hoops::jwt::authenticate()` instead** — the
+//! transport-agnostic authenticator core that all four protocols converge on.
+//!
+//! This module is kept only for backward compatibility with any existing
+//! `web::jwt::auth_middleware` call sites. It will be removed once all consumers
+//! migrate to `hoops::jwt`.
 
 use axum::{
     extract::Request,

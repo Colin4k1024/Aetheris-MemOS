@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Extension, State},
     http::StatusCode,
     response::Json,
     routing::{get, post},
@@ -8,6 +8,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+
+use crate::tenant::RequestTenantContext;
 
 use super::agent_card::create_agent_card;
 use super::handler::A2AHandler;
@@ -65,6 +67,7 @@ struct JsonRpcError {
 
 async fn handle_jsonrpc(
     State(state): State<A2AState>,
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<JsonRpcRequest>,
 ) -> Result<Json<JsonRpcResponse>, StatusCode> {
     if request.jsonrpc != "2.0" {
@@ -82,7 +85,7 @@ async fn handle_jsonrpc(
 
     match request.method.as_str() {
         "message/send" => {
-            let response = handle_send_message(state, request.params).await;
+            let response = handle_send_message(state, request.params, &tenant_ctx).await;
             match response {
                 Ok(result) => Ok(Json(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
@@ -136,12 +139,16 @@ async fn handle_jsonrpc(
     }
 }
 
-async fn handle_send_message(state: A2AState, params: Option<Value>) -> Result<Value, String> {
+async fn handle_send_message(
+    state: A2AState,
+    params: Option<Value>,
+    tenant_ctx: &RequestTenantContext,
+) -> Result<Value, String> {
     let params = params.ok_or("Missing parameters")?;
     let request: a2a::types::SendMessageRequest =
         serde_json::from_value(params).map_err(|e| format!("Invalid request: {}", e))?;
 
-    let response = state.handler.handle_message(request).await?;
+    let response = state.handler.handle_message(request, tenant_ctx).await?;
     serde_json::to_value(response).map_err(|e| format!("Serialization error: {}", e))
 }
 
@@ -163,9 +170,10 @@ async fn handle_get_task_rpc(_state: A2AState, params: Option<Value>) -> Result<
 
 async fn handle_rest_message(
     State(state): State<A2AState>,
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<a2a::types::SendMessageRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    match state.handler.handle_message(request).await {
+    match state.handler.handle_message(request, &tenant_ctx).await {
         Ok(response) => Ok(Json(
             serde_json::to_value(response).unwrap_or_else(|_| json!({})),
         )),
@@ -194,6 +202,7 @@ async fn handle_list_tasks(State(_state): State<A2AState>) -> Json<Value> {
 
 async fn handle_stream_message(
     State(state): State<A2AState>,
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<a2a::types::SendMessageRequest>,
 ) -> axum::response::Sse<
     impl futures::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
@@ -221,8 +230,8 @@ async fn handle_stream_message(
 
         yield Ok(Event::default().data(working_event.to_string()));
 
-        // Process the message
-        match handler.handle_message(request).await {
+        // Process the message with real tenant context
+        match handler.handle_message(request, &tenant_ctx).await {
             Ok(response) => {
                 let completed_event = serde_json::json!({
                     "taskId": task_id,

@@ -14,6 +14,43 @@ pub struct JwtClaims {
     pub exp: i64,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Transport-agnostic authenticator core (ADR-0007, P2 PR-1).
+//
+// All four protocols (REST, MCP-over-HTTP, gRPC, WebSocket, A2A) converge on
+// `authenticate()` through their respective transport adapters. This is the
+// **single source of truth** for JWT validation + tenant context construction.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Transport-agnostic authentication: validate a raw JWT token and return
+/// claims + tenant context.
+///
+/// This is the **single source of truth** for JWT validation. All protocols
+/// (REST/MCP/gRPC/WS/A2A) call this through their transport adapters.
+///
+/// # Security
+/// - HS256 only (matches config.jwt.secret).
+/// - Rejects expired tokens.
+/// - Constructs `RequestTenantContext` from the `uid` claim (MVP: user == tenant).
+///
+/// # Errors
+/// Returns `AppError::Unauthorized` if the token is missing, malformed,
+/// expired, or fails signature verification.
+pub fn authenticate(token: &str) -> Result<(JwtClaims, RequestTenantContext), AppError> {
+    let claims = decode_token_claims(token)
+        .ok_or_else(|| AppError::Unauthorized("Token is invalid or expired".to_string()))?;
+
+    // Explicit expiry check — jwtwebtoken's Validation does this by default,
+    // but we double-check to be explicit about the security boundary.
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    if claims.exp < now {
+        return Err(AppError::Unauthorized("Token has expired".to_string()));
+    }
+
+    let tenant_ctx = RequestTenantContext::new(&claims.uid);
+    Ok((claims, tenant_ctx))
+}
+
 pub fn decode_token_claims(token: &str) -> Option<JwtClaims> {
     let validation = Validation::new(Algorithm::HS256);
     decode::<JwtClaims>(
@@ -55,6 +92,11 @@ fn extract_token(req: &Request) -> Option<String> {
         .map(str::to_string)
 }
 
+/// REST/HTTP auth middleware — delegates to `authenticate()` core.
+///
+/// For gRPC (tonic Interceptor), WebSocket (axum handshake), and A2A (HTTP
+/// middleware), each transport adapter calls `authenticate()` directly with the
+/// raw token extracted from its protocol-specific headers.
 pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, AppError> {
     // Allow disabling auth via config (for Docker demo/dev environments)
     if config::get().jwt.disabled {
@@ -81,13 +123,10 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, A
     let token = extract_token(&req)
         .ok_or_else(|| AppError::Unauthorized("Missing authentication token".to_string()))?;
 
-    let claims = decode_token_claims(&token)
-        .ok_or_else(|| AppError::Unauthorized("Token is invalid or expired".to_string()))?;
+    // Delegate to the transport-agnostic authenticator core.
+    let (claims, tenant_ctx) = authenticate(&token)?;
 
-    req.extensions_mut().insert(claims.clone());
-
-    // Populate tenant context from JWT uid claim (MVP: each user is their own tenant)
-    let tenant_ctx = RequestTenantContext::new(&claims.uid);
+    req.extensions_mut().insert(claims);
     req.extensions_mut().insert(tenant_ctx);
 
     Ok(next.run(req).await)

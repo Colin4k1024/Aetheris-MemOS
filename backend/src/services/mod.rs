@@ -22,6 +22,7 @@ pub mod enterprise;
 #[allow(dead_code)]
 pub mod eval_harness;
 pub mod evidence_graph;
+pub mod feature_pipeline;
 pub mod hardware_detector;
 #[allow(dead_code)]
 pub mod hybrid_search;

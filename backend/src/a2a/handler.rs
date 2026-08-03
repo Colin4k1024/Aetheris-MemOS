@@ -3,10 +3,20 @@ use a2a::types::{
     TaskStatus,
 };
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use tracing::{info, warn};
 
-use super::skills::{MemoryFusionRequest, MemorySearchRequest, MemorySkill, MemoryStoreRequest};
+use crate::db::{self, kg::KGRepository, pool};
+use crate::services::memory_search::MemorySearchService;
+use crate::services::memory_fusion::MemoryFusionService;
+use crate::services::memory_storage::MemoryStorageService;
+use crate::tenant::RequestTenantContext;
 
+use super::skills::MemorySkill;
+
+/// A2A handler that delegates to real memory services.
+///
+/// Each handler method receives a `tenant_ctx` (from the A2A auth middleware)
+/// and calls the actual memory service layer — no more format! placeholders.
 pub struct A2AHandler {}
 
 impl A2AHandler {
@@ -17,16 +27,33 @@ impl A2AHandler {
     pub async fn handle_message(
         &self,
         request: SendMessageRequest,
+        tenant_ctx: &RequestTenantContext,
     ) -> Result<SendMessageResponse, String> {
         let message = &request.message;
         let skill_id = self.detect_skill(message);
 
+        info!(
+            tenant = %tenant_ctx.tenant_id,
+            skill = ?skill_id,
+            "A2A message received"
+        );
+
         match skill_id {
-            Some(MemorySkill::MemorySearch) => self.handle_memory_search(request).await,
-            Some(MemorySkill::MemoryStore) => self.handle_memory_store(request).await,
-            Some(MemorySkill::MemoryFusion) => self.handle_memory_fusion(request).await,
-            Some(MemorySkill::MemoryStatus) => self.handle_memory_status(request).await,
-            Some(MemorySkill::KnowledgeGraph) => self.handle_knowledge_graph(request).await,
+            Some(MemorySkill::MemorySearch) => {
+                self.handle_memory_search(request, tenant_ctx).await
+            }
+            Some(MemorySkill::MemoryStore) => {
+                self.handle_memory_store(request, tenant_ctx).await
+            }
+            Some(MemorySkill::MemoryFusion) => {
+                self.handle_memory_fusion(request, tenant_ctx).await
+            }
+            Some(MemorySkill::MemoryStatus) => {
+                self.handle_memory_status(request, tenant_ctx).await
+            }
+            Some(MemorySkill::KnowledgeGraph) => {
+                self.handle_knowledge_graph(request, tenant_ctx).await
+            }
             None => self.handle_general_query(request).await,
         }
     }
@@ -70,26 +97,49 @@ impl A2AHandler {
     async fn handle_memory_search(
         &self,
         request: SendMessageRequest,
+        tenant_ctx: &RequestTenantContext,
     ) -> Result<SendMessageResponse, String> {
         let text = self.extract_text(&request.message);
 
-        let search_request = MemorySearchRequest {
-            query: text,
-            layer: None,
-            limit: Some(10),
-        };
+        // MemorySearchService is a unit struct with static methods.
+        // search_ltm_for_tenant: (tenant_id, query, top_k, enable_rerank, min_score)
+        let results = MemorySearchService::search_ltm_for_tenant(
+            &tenant_ctx.tenant_id,
+            &text,
+            10,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| format!("Memory search failed: {e}"))?;
 
-        let response_text = format!(
-            "Memory search completed for query: '{}'",
-            search_request.query
-        );
+        let result_count = results.len();
+        let response_text = if results.is_empty() {
+            format!("No memories found for query: '{}'", text)
+        } else {
+            let summaries: Vec<String> = results
+                .iter()
+                .take(5)
+                .map(|r| {
+                    let content = r.content.chars().take(100).collect::<String>();
+                    format!("- {} (score: {:.2})", content, r.score)
+                })
+                .collect();
+            format!(
+                "Found {} memories for '{}':\n{}",
+                result_count,
+                text,
+                summaries.join("\n")
+            )
+        };
 
         self.create_response(
             request,
             response_text,
             json!({
                 "skill": "memory_search",
-                "request": search_request
+                "result_count": result_count,
+                "query": text
             }),
         )
     }
@@ -97,23 +147,33 @@ impl A2AHandler {
     async fn handle_memory_store(
         &self,
         request: SendMessageRequest,
+        tenant_ctx: &RequestTenantContext,
     ) -> Result<SendMessageResponse, String> {
         let text = self.extract_text(&request.message);
 
-        let store_request = MemoryStoreRequest {
-            content: text,
-            layer: "stm".to_string(),
-            metadata: None,
-        };
+        // MemoryStorageService::store_ltm_for_tenant: (tenant_id, source_id, source_type, content, title)
+        let result = MemoryStorageService::store_ltm_for_tenant(
+            &tenant_ctx.tenant_id,
+            &format!("a2a:{}", uuid::Uuid::new_v4()),
+            "a2a_message",
+            &text,
+            None,
+        )
+        .await
+        .map_err(|e| format!("Memory store failed: {e}"))?;
 
-        let response_text = format!("Memory stored in {} layer", store_request.layer);
+        let response_text = format!(
+            "Memory stored successfully. Entry ID: {}, Status: {}",
+            result.entry_id, result.index_status
+        );
 
         self.create_response(
             request,
             response_text,
             json!({
                 "skill": "memory_store",
-                "request": store_request
+                "entry_id": result.entry_id,
+                "index_status": result.index_status
             }),
         )
     }
@@ -121,17 +181,23 @@ impl A2AHandler {
     async fn handle_memory_fusion(
         &self,
         request: SendMessageRequest,
+        tenant_ctx: &RequestTenantContext,
     ) -> Result<SendMessageResponse, String> {
         let text = self.extract_text(&request.message);
 
-        let fusion_request = MemoryFusionRequest {
-            query: text,
-            limit: Some(20),
-        };
+        // MemoryFusionService::query: (query, tenant_id, limit)
+        let fusion_result = MemoryFusionService::query(&text, &tenant_ctx.tenant_id, Some(20))
+            .await
+            .map_err(|e| format!("Memory fusion failed: {e}"))?;
 
         let response_text = format!(
-            "Memory fusion query completed for: '{}'",
-            fusion_request.query
+            "Memory fusion completed for '{}': STM={}, LTM={}, KG={}, MM={}, Merged={}",
+            text,
+            fusion_result.layer_results.stm.len(),
+            fusion_result.layer_results.ltm.len(),
+            fusion_result.layer_results.kg.len(),
+            fusion_result.layer_results.mm.len(),
+            fusion_result.merged_results.len()
         );
 
         self.create_response(
@@ -139,7 +205,11 @@ impl A2AHandler {
             response_text,
             json!({
                 "skill": "memory_fusion",
-                "request": fusion_request
+                "stm_count": fusion_result.layer_results.stm.len(),
+                "ltm_count": fusion_result.layer_results.ltm.len(),
+                "kg_count": fusion_result.layer_results.kg.len(),
+                "mm_count": fusion_result.layer_results.mm.len(),
+                "merged_count": fusion_result.merged_results.len()
             }),
         )
     }
@@ -147,19 +217,57 @@ impl A2AHandler {
     async fn handle_memory_status(
         &self,
         request: SendMessageRequest,
+        tenant_ctx: &RequestTenantContext,
     ) -> Result<SendMessageResponse, String> {
-        let response_text = "Memory system status: All layers healthy".to_string();
+        let pg_pool = pool();
+
+        // Get real counts from each memory layer
+        let stm_count = db::stm::STMRepository::get_active_user_ids(pg_pool, &tenant_ctx.tenant_id)
+            .await
+            .map(|ids| ids.len())
+            .unwrap_or(0);
+
+        // LTM: use list_entities equivalent via search with empty query or direct count
+        // Since LTMRepository has no count_by_tenant, use a search with limit 1 to verify connectivity
+        let ltm_accessible = MemorySearchService::search_ltm_for_tenant(
+            &tenant_ctx.tenant_id,
+            "",
+            1,
+            None,
+            None,
+        )
+        .await
+        .map(|r| !r.is_empty() || true) // connectivity check
+        .unwrap_or(false);
+
+        // KG: list_entities takes (pool, tenant_id, entity_type, limit, offset)
+        let kg_result = KGRepository::list_entities(
+            pg_pool,
+            &tenant_ctx.tenant_id,
+            None, // all entity types
+            Some(1),
+            Some(0),
+        )
+        .await;
+        let kg_entities = kg_result.map(|r| r.total).unwrap_or(0);
+
+        let overall_healthy = ltm_accessible;
+
+        let response_text = format!(
+            "Memory system status: STM active users={}, KG entities={}, Overall={}",
+            stm_count,
+            kg_entities,
+            if overall_healthy { "healthy" } else { "degraded" }
+        );
 
         self.create_response(
             request,
             response_text,
             json!({
                 "skill": "memory_status",
-                "stm_count": 0,
-                "ltm_count": 0,
-                "kg_count": 0,
-                "mm_count": 0,
-                "overall_healthy": true
+                "stm_active_users": stm_count,
+                "kg_entities": kg_entities,
+                "overall_healthy": overall_healthy
             }),
         )
     }
@@ -167,16 +275,43 @@ impl A2AHandler {
     async fn handle_knowledge_graph(
         &self,
         request: SendMessageRequest,
+        tenant_ctx: &RequestTenantContext,
     ) -> Result<SendMessageResponse, String> {
         let text = self.extract_text(&request.message);
 
-        let response_text = format!("Knowledge graph query for: '{}'", text);
+        // Use search_entries_by_entity_for_tenant (actual method name)
+        let entities = KGRepository::search_entries_by_entity_for_tenant(
+            pool(),
+            &tenant_ctx.tenant_id,
+            &text,
+            10,
+        )
+        .await
+        .map_err(|e| format!("Knowledge graph query failed: {e}"))?;
+
+        let entity_count = entities.len();
+        let response_text = if entities.is_empty() {
+            format!("No entities found for query: '{}'", text)
+        } else {
+            let summaries: Vec<String> = entities
+                .iter()
+                .take(5)
+                .map(|e| format!("- {} ({})", e.entity_name, e.entity_type))
+                .collect();
+            format!(
+                "Found {} entities for '{}':\n{}",
+                entity_count,
+                text,
+                summaries.join("\n")
+            )
+        };
 
         self.create_response(
             request,
             response_text,
             json!({
                 "skill": "knowledge_graph",
+                "entity_count": entity_count,
                 "query": text
             }),
         )

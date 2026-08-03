@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Extension, State},
     response::{
         sse::{Event, Sse},
         Json,
@@ -17,6 +17,8 @@ use a2a::types::{
     Message, Part, PartContent, Role, SendMessageRequest, Task, TaskState, TaskStatus,
 };
 
+use crate::tenant::RequestTenantContext;
+
 use super::handler::A2AHandler;
 use super::router::A2AState;
 
@@ -26,6 +28,7 @@ pub fn streaming_router() -> Router<A2AState> {
 
 async fn handle_stream_message(
     State(state): State<A2AState>,
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<SendMessageRequest>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let handler = state.handler.clone();
@@ -49,8 +52,8 @@ async fn handle_stream_message(
         let event_data = serde_json::to_string(&working_event).unwrap_or_default();
         yield Ok(Event::default().data(event_data));
 
-        // Process the message
-        match handler.handle_message(request).await {
+        // Process the message with real tenant context
+        match handler.handle_message(request, &tenant_ctx).await {
             Ok(response) => {
                 match response {
                     a2a::types::SendMessageResponse::Task(task) => {
