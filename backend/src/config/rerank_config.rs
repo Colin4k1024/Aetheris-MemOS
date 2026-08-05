@@ -14,6 +14,12 @@ pub struct RerankConfig {
     pub min_score_threshold: f32,
     #[serde(default = "default_timeout")]
     pub timeout_seconds: u64,
+    /// API 格式："ollama"（默认）或 "openai"（OpenAI 兼容，含 DashScope）
+    #[serde(default = "default_api_type")]
+    pub api_type: String,
+    /// API Key，用于 OpenAI 兼容接口认证
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 fn default_rerank_base_url() -> String {
@@ -38,4 +44,8 @@ fn default_timeout() -> u64 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_api_type() -> String {
+    "ollama".to_string()
 }

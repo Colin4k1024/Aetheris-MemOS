@@ -109,6 +109,23 @@ pub fn init() {
         }
     }
 
+    // API key overrides for LLM / Embedding / Rerank (OpenAI-compatible backends)
+    if let Ok(key) = std::env::var("APP_LLM_API_KEY") {
+        if !key.is_empty() {
+            config.llm.api_key = Some(key);
+        }
+    }
+    if let Ok(key) = std::env::var("APP_EMBEDDING_API_KEY") {
+        if !key.is_empty() {
+            config.embedding.api_key = Some(key);
+        }
+    }
+    if let Ok(key) = std::env::var("APP_RERANK_API_KEY") {
+        if !key.is_empty() {
+            config.rerank.api_key = Some(key);
+        }
+    }
+
     // Graceful fallback: if no database URL configured, use a local SQLite database
     if config.db.url.is_empty() {
         let storage = crate::config::StorageConfig::resolve_local_sqlite("adaptive_memory.db");

@@ -7,12 +7,14 @@ use tracing::{error, info, instrument, warn};
 
 use crate::config;
 
-/// LLM 服务，用于调用本地 LLM（Ollama）进行内容总结和结构化提取
+/// LLM 服务，用于调用本地 LLM（Ollama）或 OpenAI 兼容 API 进行内容总结和结构化提取
 pub struct LLMService {
     client: Client,
     base_url: String,
     model: String,
     timeout: Duration,
+    api_type: String,
+    api_key: Option<String>,
 }
 
 impl LLMService {
@@ -27,8 +29,8 @@ impl LLMService {
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 
         info!(
-            "LLM service initialized: base_url={}, model={}",
-            config.llm.base_url, config.llm.model
+            "LLM service initialized: base_url={}, model={}, api_type={}",
+            config.llm.base_url, config.llm.model, config.llm.api_type
         );
 
         Ok(Self {
@@ -36,6 +38,8 @@ impl LLMService {
             base_url: config.llm.base_url.clone(),
             model: config.llm.model.clone(),
             timeout,
+            api_type: config.llm.api_type.clone(),
+            api_key: config.llm.api_key.clone(),
         })
     }
 
@@ -146,8 +150,17 @@ impl LLMService {
         Ok(summary)
     }
 
+    /// 调用 LLM API（支持 Ollama 和 OpenAI 兼容格式）
+    pub async fn call_llm(&self, prompt: &str) -> Result<String> {
+        if self.api_type == "openai" {
+            self.call_openai_compatible(prompt).await
+        } else {
+            self.call_ollama(prompt).await
+        }
+    }
+
     /// 调用 Ollama API
-    async fn call_llm(&self, prompt: &str) -> Result<String> {
+    async fn call_ollama(&self, prompt: &str) -> Result<String> {
         let url = format!("{}/api/generate", self.base_url);
 
         let request_body = json!({
@@ -184,12 +197,74 @@ impl LLMService {
 
         Ok(ollama_response.response)
     }
+
+    /// 调用 OpenAI 兼容 API（含 DashScope）
+    async fn call_openai_compatible(&self, prompt: &str) -> Result<String> {
+        let url = format!("{}/chat/completions", self.base_url);
+
+        let request_body = json!({
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": false
+        });
+
+        let mut request = self.client.post(&url).json(&request_body);
+
+        if let Some(ref key) = self.api_key {
+            request = request.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = request.send().await.map_err(|e| {
+            error!("Failed to send request to OpenAI-compatible API: {}", e);
+            anyhow::anyhow!("Failed to call LLM: {}", e)
+        })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            error!(
+                "OpenAI-compatible API returned error: status={}, body={}",
+                status, error_text
+            );
+            return Err(anyhow::anyhow!(
+                "OpenAI-compatible API error: status={}",
+                status
+            ));
+        }
+
+        let openai_response: OpenAIChatResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse OpenAI-compatible response: {}", e);
+            anyhow::anyhow!("Failed to parse response: {}", e)
+        })?;
+
+        Ok(openai_response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default())
+    }
 }
 
 /// Ollama API 响应
 #[derive(Debug, Deserialize)]
 struct OllamaResponse {
     response: String,
+}
+
+/// OpenAI 兼容 API 响应（含 DashScope）
+#[derive(Debug, Deserialize)]
+struct OpenAIChatResponse {
+    choices: Vec<OpenAIChatChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChatChoice {
+    message: OpenAIChatMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChatMessage {
+    content: String,
 }
 
 /// 实体类型枚举

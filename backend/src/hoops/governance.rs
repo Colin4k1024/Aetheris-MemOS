@@ -105,6 +105,12 @@ pub async fn governance_middleware(req: Request, next: Next) -> Result<Response,
     // incident and rejected with 403 Forbidden, rather than silently letting the request
     // through. This is the recommended posture for production deployments where an
     // unhooked or unauthenticated request must never reach a handler.
+    // When JWT auth is disabled (dev mode), skip governance entirely — there is no
+    // meaningful tenant/user identity to enforce RBAC against.
+    if crate::config::get().jwt.disabled {
+        return Ok(next.run(req).await);
+    }
+
     let fail_closed = std::env::var("GOVERNANCE_FAIL_CLOSED")
         .map(|v| v == "true")
         .unwrap_or(false);

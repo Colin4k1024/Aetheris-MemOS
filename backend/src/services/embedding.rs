@@ -16,6 +16,8 @@ pub struct EmbeddingService {
     dimension: usize,
     timeout: Duration,
     cache: Cache<String, Vec<f32>>,
+    api_type: String,
+    api_key: Option<String>,
 }
 
 impl EmbeddingService {
@@ -50,8 +52,8 @@ impl EmbeddingService {
         };
 
         info!(
-            "Embedding service initialized: base_url={}, model={}, dimension={}",
-            config.embedding.base_url, model, dimension
+            "Embedding service initialized: base_url={}, model={}, dimension={}, api_type={}",
+            config.embedding.base_url, model, dimension, config.embedding.api_type
         );
 
         // 初始化嵌入缓存，容量为10000个条目，过期时间为24小时
@@ -67,6 +69,8 @@ impl EmbeddingService {
             dimension,
             timeout,
             cache,
+            api_type: config.embedding.api_type.clone(),
+            api_key: config.embedding.api_key.clone(),
         })
     }
 
@@ -84,6 +88,37 @@ impl EmbeddingService {
             text.len()
         );
 
+        let embedding = if self.api_type == "openai" {
+            self.generate_embedding_openai(text).await?
+        } else {
+            self.generate_embedding_ollama(text).await?
+        };
+
+        // 验证向量维度
+        if embedding.len() != self.dimension {
+            error!(
+                "Embedding dimension mismatch: expected={}, got={}",
+                self.dimension,
+                embedding.len()
+            );
+            return Err(anyhow::anyhow!(
+                "Embedding dimension mismatch: expected {}, got {}",
+                self.dimension,
+                embedding.len()
+            ));
+        }
+
+        // 将生成的嵌入存入缓存
+        self.cache.insert(text.to_string(), embedding.clone()).await;
+        info!(
+            "Embedding generated and cached successfully, dimension={}",
+            embedding.len()
+        );
+        Ok(embedding)
+    }
+
+    /// 通过 Ollama API 生成嵌入
+    async fn generate_embedding_ollama(&self, text: &str) -> Result<Vec<f32>> {
         let url = format!("{}/api/embeddings", self.base_url);
 
         let request_body = json!({
@@ -120,29 +155,56 @@ impl EmbeddingService {
             anyhow::anyhow!("Failed to parse embedding response: {}", e)
         })?;
 
-        let embedding = ollama_response.embedding;
+        Ok(ollama_response.embedding)
+    }
 
-        // 验证向量维度
-        if embedding.len() != self.dimension {
+    /// 通过 OpenAI 兼容 API 生成嵌入（含 DashScope）
+    async fn generate_embedding_openai(&self, text: &str) -> Result<Vec<f32>> {
+        let url = format!("{}/embeddings", self.base_url);
+
+        let request_body = json!({
+            "model": self.model,
+            "input": text
+        });
+
+        let mut request = self.client.post(&url).json(&request_body);
+
+        if let Some(ref key) = self.api_key {
+            request = request.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = request.send().await.map_err(|e| {
             error!(
-                "Embedding dimension mismatch: expected={}, got={}",
-                self.dimension,
-                embedding.len()
+                "Failed to send request to OpenAI-compatible embeddings API: {}",
+                e
+            );
+            anyhow::anyhow!("Failed to generate embedding: {}", e)
+        })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            error!(
+                "OpenAI-compatible embeddings API returned error: status={}, body={}",
+                status, error_text
             );
             return Err(anyhow::anyhow!(
-                "Embedding dimension mismatch: expected {}, got {}",
-                self.dimension,
-                embedding.len()
+                "OpenAI-compatible embeddings API error: status={}",
+                status
             ));
         }
 
-        // 将生成的嵌入存入缓存
-        self.cache.insert(text.to_string(), embedding.clone()).await;
-        info!(
-            "Embedding generated and cached successfully, dimension={}",
-            embedding.len()
-        );
-        Ok(embedding)
+        let openai_response: OpenAIEmbeddingResponse =
+            response.json().await.map_err(|e| {
+                error!("Failed to parse OpenAI-compatible embedding response: {}", e);
+                anyhow::anyhow!("Failed to parse embedding response: {}", e)
+            })?;
+
+        openai_response
+            .data
+            .first()
+            .map(|d| d.embedding.clone())
+            .ok_or_else(|| anyhow::anyhow!("No embedding data in response"))
     }
 
     /// 批量生成文本向量
@@ -175,6 +237,17 @@ impl EmbeddingService {
 /// Ollama 嵌入 API 响应
 #[derive(Debug, Deserialize)]
 struct OllamaEmbeddingResponse {
+    embedding: Vec<f32>,
+}
+
+/// OpenAI 兼容嵌入 API 响应（含 DashScope）
+#[derive(Debug, Deserialize)]
+struct OpenAIEmbeddingResponse {
+    data: Vec<OpenAIEmbeddingData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIEmbeddingData {
     embedding: Vec<f32>,
 }
 

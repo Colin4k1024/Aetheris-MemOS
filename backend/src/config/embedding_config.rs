@@ -15,6 +15,12 @@ pub struct EmbeddingConfig {
     /// for the detected hardware. Set to `false` to lock to the configured values.
     #[serde(default = "default_auto_detect")]
     pub auto_detect: bool,
+    /// API 格式："ollama"（默认）或 "openai"（OpenAI 兼容，含 DashScope）
+    #[serde(default = "default_api_type")]
+    pub api_type: String,
+    /// API Key，用于 OpenAI 兼容接口认证
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 fn default_embedding_base_url() -> String {
@@ -35,4 +41,8 @@ fn default_timeout() -> u64 {
 
 fn default_auto_detect() -> bool {
     false
+}
+
+fn default_api_type() -> String {
+    "ollama".to_string()
 }
