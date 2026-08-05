@@ -147,10 +147,34 @@ async fn deliver_one(
         OutboxOperation::Upsert => {
             let payload: serde_json::Value =
                 serde_json::from_str(&ev.payload_json).map_err(|e| e.to_string())?;
-            let vector = payload
-                .get("vector")
-                .and_then(|v| serde_json::from_value::<Vec<f32>>(v.clone()).ok())
-                .ok_or_else(|| "outbox payload missing vector".to_string())?;
+            let vector_raw = payload.get("vector").cloned();
+            let vector: Vec<f32> = match vector_raw {
+                Some(v) => {
+                    let deserialized: Result<Vec<f32>, _> = serde_json::from_value(v.clone());
+                    match deserialized {
+                        Ok(vec) => {
+                            tracing::debug!(
+                                event_id = %ev.event_id,
+                                vector_len = vec.len(),
+                                "Deserialized vector from outbox payload"
+                            );
+                            vec
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                event_id = %ev.event_id,
+                                error = %e,
+                                raw_preview = %format!("{:?}", v),
+                                "Failed to deserialize vector from outbox payload"
+                            );
+                            return Err(format!("Failed to deserialize vector: {}", e));
+                        }
+                    }
+                }
+                None => {
+                    return Err("outbox payload missing vector".to_string());
+                }
+            };
             let mut metadata = payload
                 .get("metadata")
                 .cloned()

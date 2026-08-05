@@ -152,6 +152,16 @@ impl QdrantClient {
         let vector_count = vectors.len();
         info!("Inserting {} vectors into collection", vector_count);
 
+        // Debug: log vector dimensions
+        for (i, v) in vectors.iter().enumerate() {
+            tracing::debug!(
+                index = i,
+                vector_len = v.len(),
+                first_few = ?v.iter().take(5).collect::<Vec<_>>(),
+                "Vector dimension check before insert"
+            );
+        }
+
         // Issue #59: validate that every vector has the expected dimension.
         crate::services::vector_guard::validate_write(&vectors)?;
 
@@ -190,12 +200,20 @@ impl QdrantClient {
                     point_id_options: Some(PointIdOptions::Num(numeric_id)),
                 };
 
+                // NOTE: Qdrant Server ≤1.9.x reads the deprecated `data` field (tag 1),
+                // NOT the new `vector` oneof field (tag 101+) introduced in qdrant-client 1.16+.
+                // Vector::new() only sets the new field → server sees dim=0.
+                // Fix: set the deprecated `data` field directly.
+                #[allow(deprecated)]
+                let qdrant_vector = qdrant_client::qdrant::Vector {
+                    data: vector.clone(),
+                    ..Default::default()
+                };
+
                 PointStruct::new(
                     point_id,
                     Vectors {
-                        vectors_options: Some(VectorsOptions::Vector(
-                            qdrant_client::qdrant::Vector::new(vector.clone()),
-                        )),
+                        vectors_options: Some(VectorsOptions::Vector(qdrant_vector)),
                     },
                     payload,
                 )
@@ -208,7 +226,7 @@ impl QdrantClient {
             .upsert_points(UpsertPoints {
                 collection_name: self.collection_name.clone(),
                 points,
-                wait: None,
+                wait: Some(true),  // 等待操作完成以捕获错误
                 ordering: None,
                 shard_key_selector: None,
                 update_filter: None,
