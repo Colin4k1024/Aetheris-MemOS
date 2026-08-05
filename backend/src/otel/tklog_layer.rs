@@ -12,8 +12,13 @@ pub struct TklogLayer;
 
 impl TklogLayer {
     pub fn new() -> Self {
-        // tklog is initialized via its global LOG static.
-        // The macros (tklog::info!, etc.) use this automatically.
+        // Configure tklog to write to file
+        // Use set_cutmode_by_time for daily rotation
+        tklog::LOG
+            .set_console(true)
+            .set_level(tklog::LEVEL::Debug)
+            .set_cutmode_by_time("logs/memos-tklog.log", tklog::MODE::DAY, 0, true);
+
         Self
     }
 }
