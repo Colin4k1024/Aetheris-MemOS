@@ -61,7 +61,7 @@ impl MemoryStorageService {
     }
 
     /// 存储短期记忆（租户隔离）
-    #[instrument]
+    #[instrument(fields(tenant_id = %tenant_id, user_id = %user_id, agent_id = %agent_id))]
     pub async fn store_stm_for_tenant(
         tenant_id: &TenantId,
         user_id: &str,
@@ -137,7 +137,7 @@ impl MemoryStorageService {
     /// On PostgreSQL: DB fact + outbox event in one transaction; Qdrant is filled
     /// asynchronously by the outbox worker (`indexStatus: pending`).
     /// On SQLite / non-PG: legacy synchronous dual-write (`indexStatus: ready`).
-    #[instrument]
+    #[instrument(fields(tenant_id = %tenant_id, source_id = %source_id, source_type = %source_type))]
     pub async fn store_ltm_for_tenant(
         tenant_id: &TenantId,
         source_id: &str,
