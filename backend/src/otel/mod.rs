@@ -4,10 +4,13 @@
 //!   - `EnvFilter` layer  (log level filtering)
 //!   - `fmt` layer        (human/file output)
 //!   - `OpenTelemetryLayer` (OTLP gRPC export to collector, when enabled)
+//!   - `TklogLayer`       (tklog integration for structured file logging)
 //!
 //! Call [`init_tracing`] early in `main()` *before* any `tracing::` calls.
 //! Hold the returned [`TracingGuard`] for the process lifetime — dropping it
 //! flushes the file writer and shuts down the tracer provider.
+
+mod tklog_layer;
 
 use std::collections::HashMap;
 
@@ -19,6 +22,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::config::{LogConfig, OtelConfig};
+use tklog_layer::TklogLayer;
 
 /// Holds resources that must stay alive for the process lifetime.
 /// Dropping this struct flushes logs and shuts down the OTLP exporter.
@@ -76,6 +80,10 @@ pub fn init_tracing(log_cfg: &LogConfig, otel_cfg: &OtelConfig) -> TracingGuard 
     // otel_layer must be constructed inside each branch so Rust infers the
     // correct `OpenTelemetryLayer<S, T>` subscriber type parameter per branch.
     let service_name = otel_cfg.service_name.clone();
+
+    // Initialize tklog layer
+    let tklog_layer = TklogLayer::new();
+
     if log_cfg.stdout {
         let otel_layer = tracer_provider.as_ref().map(|p| {
             let tracer = p.tracer(service_name.clone());
@@ -93,6 +101,7 @@ pub fn init_tracing(log_cfg: &LogConfig, otel_cfg: &OtelConfig) -> TracingGuard 
                     .with_writer(std::io::stdout),
             )
             .with(otel_layer)
+            .with(tklog_layer)
             .init();
     } else {
         let otel_layer = tracer_provider.as_ref().map(|p| {
@@ -111,6 +120,7 @@ pub fn init_tracing(log_cfg: &LogConfig, otel_cfg: &OtelConfig) -> TracingGuard 
                     .with_writer(file_writer),
             )
             .with(otel_layer)
+            .with(tklog_layer)
             .init();
     }
 
