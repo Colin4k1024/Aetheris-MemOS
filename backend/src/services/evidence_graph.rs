@@ -499,8 +499,10 @@ fn compute_edge_hash(edge: &WorkflowEvidenceEdge) -> Result<String, AppError> {
 }
 
 fn canonicalize_value(value: &impl Serialize) -> Result<Value, AppError> {
-    let v = serde_json::to_value(value)
-        .map_err(|err| AppError::Serialization(format!("canonicalize to value: {err}")))?;
+    let s = serde_json::to_string(value)
+        .map_err(|err| AppError::Serialization(format!("canonicalize to string: {err}")))?;
+    let v: Value = serde_json::from_str(&s)
+        .map_err(|err| AppError::Serialization(format!("canonicalize from string: {err}")))?;
     Ok(canonicalize_json(v))
 }
 
