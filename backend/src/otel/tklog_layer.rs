@@ -29,11 +29,7 @@ impl<S> Layer<S> for TklogLayer
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        ctx: Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
         let metadata = event.metadata();
         let level = metadata.level();
 
@@ -83,7 +79,10 @@ where
         let formatted = if message.is_empty() {
             format!("[{}:{}] {}{}", file, line, target, context_info)
         } else {
-            format!("[{}:{}] {}{} - {}", file, line, target, context_info, message)
+            format!(
+                "[{}:{}] {}{} - {}",
+                file, line, target, context_info, message
+            )
         };
 
         // Forward to tklog based on level using macros
@@ -143,23 +142,28 @@ struct SpanFieldVisitor {
 
 impl tracing::field::Visit for SpanFieldVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.fields.insert(field.name().to_string(), format!("{:?}", value));
+        self.fields
+            .insert(field.name().to_string(), format!("{:?}", value));
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.fields.insert(field.name().to_string(), value.to_string());
+        self.fields
+            .insert(field.name().to_string(), value.to_string());
     }
 
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.fields.insert(field.name().to_string(), value.to_string());
+        self.fields
+            .insert(field.name().to_string(), value.to_string());
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.fields.insert(field.name().to_string(), value.to_string());
+        self.fields
+            .insert(field.name().to_string(), value.to_string());
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.fields.insert(field.name().to_string(), value.to_string());
+        self.fields
+            .insert(field.name().to_string(), value.to_string());
     }
 }
 
@@ -195,14 +199,17 @@ impl tracing::field::Visit for FieldVisitor {
     }
 
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.fields.push((field.name().to_string(), value.to_string()));
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.fields.push((field.name().to_string(), value.to_string()));
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.fields.push((field.name().to_string(), value.to_string()));
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
     }
 }

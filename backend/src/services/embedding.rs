@@ -194,11 +194,13 @@ impl EmbeddingService {
             ));
         }
 
-        let openai_response: OpenAIEmbeddingResponse =
-            response.json().await.map_err(|e| {
-                error!("Failed to parse OpenAI-compatible embedding response: {}", e);
-                anyhow::anyhow!("Failed to parse embedding response: {}", e)
-            })?;
+        let openai_response: OpenAIEmbeddingResponse = response.json().await.map_err(|e| {
+            error!(
+                "Failed to parse OpenAI-compatible embedding response: {}",
+                e
+            );
+            anyhow::anyhow!("Failed to parse embedding response: {}", e)
+        })?;
 
         openai_response
             .data

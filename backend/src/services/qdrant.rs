@@ -226,7 +226,7 @@ impl QdrantClient {
             .upsert_points(UpsertPoints {
                 collection_name: self.collection_name.clone(),
                 points,
-                wait: Some(true),  // 等待操作完成以捕获错误
+                wait: Some(true), // 等待操作完成以捕获错误
                 ordering: None,
                 shard_key_selector: None,
                 update_filter: None,

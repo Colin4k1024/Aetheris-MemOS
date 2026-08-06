@@ -104,12 +104,14 @@ impl RerankService {
                 let content = content.clone();
                 let index = *index;
                 async move {
-                    let score = Self::score_relevance(&client, &base_url, &model, &api_type, &api_key, &query, &content)
-                        .await
-                        .unwrap_or_else(|e| {
-                            warn!("Failed to score relevance for candidate {}: {}", index, e);
-                            0.5
-                        });
+                    let score = Self::score_relevance(
+                        &client, &base_url, &model, &api_type, &api_key, &query, &content,
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!("Failed to score relevance for candidate {}: {}", index, e);
+                        0.5
+                    });
                     RerankResult { index, score }
                 }
             });
@@ -169,7 +171,10 @@ impl RerankService {
             }
 
             let response = request.send().await.map_err(|e| {
-                error!("Failed to send rerank request to OpenAI-compatible API: {}", e);
+                error!(
+                    "Failed to send rerank request to OpenAI-compatible API: {}",
+                    e
+                );
                 anyhow::anyhow!("Failed to call rerank: {}", e)
             })?;
 
@@ -180,7 +185,10 @@ impl RerankService {
                     "OpenAI-compatible API returned error: status={}, body={}",
                     status, error_text
                 );
-                return Err(anyhow::anyhow!("OpenAI-compatible API error: status={}", status));
+                return Err(anyhow::anyhow!(
+                    "OpenAI-compatible API error: status={}",
+                    status
+                ));
             }
 
             let openai_response: OpenAIChatResponse = response.json().await.map_err(|e| {
@@ -262,9 +270,13 @@ impl RerankService {
         query: &str,
         candidates: &[(String, f32)],
     ) -> Result<Vec<RerankResult>> {
-        let url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-reranking/text-reranking";
+        let url =
+            "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-reranking/text-reranking";
 
-        let documents: Vec<String> = candidates.iter().map(|(content, _)| content.clone()).collect();
+        let documents: Vec<String> = candidates
+            .iter()
+            .map(|(content, _)| content.clone())
+            .collect();
 
         let request_body = json!({
             "model": self.model,
@@ -296,7 +308,10 @@ impl RerankService {
                 "DashScope rerank API returned error: status={}, body={}",
                 status, error_text
             );
-            return Err(anyhow::anyhow!("DashScope rerank API error: status={}", status));
+            return Err(anyhow::anyhow!(
+                "DashScope rerank API error: status={}",
+                status
+            ));
         }
 
         let dashscope_response: DashScopeRerankResponse = response.json().await.map_err(|e| {
