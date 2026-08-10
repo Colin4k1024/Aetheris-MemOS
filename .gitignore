@@ -46,6 +46,9 @@ logs/
 # Internal planning (do not publish)
 .trae/
 
+# Agent tooling scratch state (opencode / swarm-code session continuation)
+.omo/
+.tsp/
 
 # Backend config (contains secrets)
 backend/config.toml

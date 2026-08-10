@@ -114,28 +114,32 @@ This is a **monorepo** with two main components:
 
 | Method | Endpoint                                      | Description                        |
 | ------ | --------------------------------------------- | ---------------------------------- |
-| GET    | `/api/v1/distributed/epoch/status`            | Epoch / active-context status      |
 | GET    | `/api/v1/distributed/pool/status`             | Sub-agent pool status              |
 | POST   | `/api/v1/distributed/pool/allocate`           | Allocate sub-agent slots           |
 | POST   | `/api/v1/distributed/pool/release`            | Release sub-agent slots            |
 | GET    | `/api/v1/distributed/signals/{workflow_id}`   | Get signals for a workflow         |
 | POST   | `/api/v1/distributed/signals/publish`         | Publish a workflow signal          |
 
-### Tenant & Quota Endpoints
+### Tenant Endpoints
 
-| Method | Endpoint                          | Description              |
-| ------ | --------------------------------- | ------------------------ |
-| GET    | `/api/v1/tenant/context`         | Get current tenant context |
-| GET    | `/api/v1/tenant/quota`           | Get tenant quota status  |
-| POST   | `/api/v1/tenant/quota/reset`     | Reset quota counters    |
+| Method | Endpoint                                  | Description                |
+| ------ | ----------------------------------------- | -------------------------- |
+| GET    | `/api/tenants`                            | List tenants               |
+| POST   | `/api/tenants`                            | Register a tenant          |
+| POST   | `/api/tenants/{tenant_id}/search`         | Tenant-scoped search       |
+| GET    | `/api/tenants/{tenant_id}/sessions`       | List tenant sessions       |
+| POST   | `/api/tenants/access/check`               | Check tenant access        |
 
 ### Health & System Endpoints
 
-| Method | Endpoint                          | Description              |
-| ------ | --------------------------------- | ------------------------ |
-| GET    | `/api/v1/health`                  | Full system health check |
-| GET    | `/api/v1/health/liveness`         | Liveness probe           |
-| GET    | `/api/v1/health/readiness`        | Readiness probe          |
+> There is **no** root `/health` and no liveness/readiness probe. The only real
+> dependency check is `/api/v1/memory/health` (`SELECT 1` against the DB pool).
+
+| Method | Endpoint                    | Description                                      |
+| ------ | --------------------------- | ------------------------------------------------ |
+| GET    | `/api/v1/memory/health`     | Real DB probe (`SELECT 1`), returns `degraded` on failure |
+| GET    | `/api/v1/memory/v1/health`  | Self-healing status — **returns hardcoded values, not a real probe** |
+| GET    | `/metrics`                  | Prometheus metrics (unauthenticated)             |
 
 ## Key Patterns
 
