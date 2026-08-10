@@ -14,6 +14,21 @@
 //!
 //! The outbox table is NOT under RLS, so tests use the owner connection
 //! directly without setting any tenant GUC.
+//!
+//! ⚠️  THESE TESTS WRITE TO THE TARGET DATABASE. They INSERT outbox rows and
+//! DELETE them again, always scoped to their own `vob_<label>_<nanos>` tenant
+//! prefix, and they call the real `claim_batch` / `mark_*` / `reclaim_stale`
+//! functions, which UPDATE row state. Point `DATABASE_URL` at a disposable
+//! database. Notably `claim_batch` is a global queue (see below), so running
+//! these against a database with live pending events will claim and mutate
+//! those events too.
+//!
+//! Design note surfaced by these tests: `claim_batch` does NOT scope by
+//! `tenant_id` — outbox draining is process-global with no per-tenant fairness.
+//! One tenant with a large backlog can delay every other tenant's vector
+//! indexing. That is the current design, not a bug, but it is a gap in the
+//! multi-tenant story and is why these tests need a mutex plus tenant
+//! post-filtering rather than being able to isolate themselves naturally.
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

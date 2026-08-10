@@ -149,6 +149,7 @@ DATABASE_URL=postgres://... cargo test       # 有 DB 时 RLS 测试真实执行
 | # | 工作项 | 依据 | 量级 |
 |---|---|---|---|
 | W4-1 | **补 outbox 行为测试**：`ON CONFLICT DO NOTHING`、`claim_batch`、重试退避、`reclaim_stale`、幂等重放 —— 当前只测了 key 字符串格式 | 全项目最扎实的一块**却没有回归保护**，风险不对称 | M |
+| **W4-1b** | **`claim_batch` 无租户公平性**（新增，由 W4-1 的测试暴露） | `claim_batch` 不按 `tenant_id` 作用域，outbox 消费是**进程全局**的：一个租户堆积大量待投递事件会拖慢**所有**其他租户的向量索引。这是当前设计而非 bug，但属多租户故事的缺口——也是那批测试必须靠互斥锁 + 租户后置过滤才能隔离的原因（它们无法自然隔离）。若要做，需引入按租户轮询或配额化的领取策略 | M |
 | W4-2 | 接上 `vector_reconciliation`：加守护进程或运维端点（代码已完整实现，零调用者） | 低成本高收益 | S |
 | W4-3 | 补真实的 liveness / readiness 探针；readiness 检查 PG / Qdrant 连通性 | CLAUDE.md 和 README 都写了，**实际不存在** | M |
 | W4-4 | 处理 `self_healing` 假数据端点：`check_health` 返回硬编码 `healthy:true` + 1-4ms 假时延，**且对外服务于 `/api/v1/memory/v1/health`** —— 实现真探针或摘除端点 | 对外提供虚假健康状态，运维会误信 | M |
