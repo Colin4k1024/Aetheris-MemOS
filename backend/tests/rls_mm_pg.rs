@@ -2,8 +2,9 @@
 //! isolation is enforced at the PostgreSQL layer, not just by the application-layer
 //! content_metadata JSON tenant filter.
 //!
-//! Skips (does not fail) when `DATABASE_URL` is unset, so the offline `cargo test`
-//! stays green. Run as the CI gate against a live PG:
+//! Reports as `ignored` when `DATABASE_URL` is unset (no false-green pass). The
+//! env-var guard inside the body still skips the test when `--include-ignored` is
+//! used without DATABASE_URL. Run as the CI gate against a live PG:
 //!
 //!   DATABASE_URL=postgres://memory:memory@localhost:5432/memory \
 //!     cargo test --test rls_mm_pg -- --nocapture
@@ -34,6 +35,7 @@ const PROBE_ROLE: &str = "aetheris_rls_probe";
 const PROBE_PASSWORD: &str = "aetheris_rls_probe_pw";
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
     let Ok(admin_url) = std::env::var("DATABASE_URL") else {
         eprintln!("SKIP rls_mm_pg: DATABASE_URL not set");
@@ -106,7 +108,7 @@ async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
         None,
         None,
         None,
-        Some(tenant_a.as_str()),
+        tenant_a.as_str(),
     )
     .await
     .expect("tenant A create source entry must succeed under its own GUC");
@@ -119,7 +121,7 @@ async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
         None,
         None,
         None,
-        Some(tenant_a.as_str()),
+        tenant_a.as_str(),
     )
     .await
     .expect("tenant A create target entry must succeed");
@@ -131,7 +133,7 @@ async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
         1.0,
         1.0,
         None,
-        Some(tenant_a.as_str()),
+        tenant_a.as_str(),
     )
     .await
     .expect("tenant A create relation must succeed under its own GUC");
@@ -139,7 +141,7 @@ async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
     // ── multimodal_entries isolation ─────────────────────────────────────────
 
     // 4a. Tenant B reads the entry via the repository → must not see tenant A's row.
-    let seen_by_b = MMRepository::get_entry_by_id(&src_id, Some(tenant_b.as_str()))
+    let seen_by_b = MMRepository::get_entry_by_id(&src_id, tenant_b.as_str())
         .await
         .expect("tenant B entry read returns Ok");
     assert!(
@@ -148,7 +150,7 @@ async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
     );
 
     // 4b. Tenant A reads via the repository → must see its own row.
-    let seen_by_a = MMRepository::get_entry_by_id(&src_id, Some(tenant_a.as_str()))
+    let seen_by_a = MMRepository::get_entry_by_id(&src_id, tenant_a.as_str())
         .await
         .expect("tenant A entry read returns Ok");
     assert!(
@@ -157,14 +159,14 @@ async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
     );
 
     // 4c. list_entries is RLS-scoped; tenant B sees zero, tenant A sees its two.
-    let list_b = MMRepository::list_entries(None, Some(50), Some(0), Some(tenant_b.as_str()))
+    let list_b = MMRepository::list_entries(None, Some(50), Some(0), tenant_b.as_str())
         .await
         .expect("tenant B list_entries returns Ok");
     assert_eq!(
         list_b.total, 0,
         "RLS breach: tenant B's multimodal entry list is non-empty"
     );
-    let list_a = MMRepository::list_entries(None, Some(50), Some(0), Some(tenant_a.as_str()))
+    let list_a = MMRepository::list_entries(None, Some(50), Some(0), tenant_a.as_str())
         .await
         .expect("tenant A list_entries returns Ok");
     assert!(
@@ -258,14 +260,14 @@ async fn mm_rls_blocks_cross_tenant_access_via_real_repository() {
     // 9. get_related_entries via the repository: tenant B gets nothing, tenant A
     //    resolves the relation + its target entry (proves the path is scoped, not
     //    fail-closed to empty, for the owning tenant).
-    let related_b = MMRepository::get_related_entries(&src_id, Some(10), Some(tenant_b.as_str()))
+    let related_b = MMRepository::get_related_entries(&src_id, Some(10), tenant_b.as_str())
         .await
         .expect("tenant B get_related_entries returns Ok");
     assert!(
         related_b.is_empty(),
         "RLS breach: tenant B resolved tenant A's relations"
     );
-    let related_a = MMRepository::get_related_entries(&src_id, Some(10), Some(tenant_a.as_str()))
+    let related_a = MMRepository::get_related_entries(&src_id, Some(10), tenant_a.as_str())
         .await
         .expect("tenant A get_related_entries returns Ok");
     assert!(

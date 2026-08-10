@@ -2,6 +2,31 @@
 //!
 //! Tests for multi-tenant isolation guarantees per SEC-03 and D-07, D-08, D-09.
 //!
+//! ═══════════════════════════════════════════════════════════════════════════════
+//! ⚠️  CRITICAL: SCOPE WARNING — READ BEFORE RELYING ON THESE TESTS
+//! ═══════════════════════════════════════════════════════════════════════════════
+//!
+//! These tests ONLY verify that `TenantId::prefix()` produces correct
+//! string-formatting output (the "t:{tenant}" prefix shape). They exercise
+//! string comparison logic (`starts_with`, equality, display formatting).
+//!
+//! THEY DO NOT VERIFY DATABASE-LEVEL ISOLATION. Specifically:
+//!   - No PostgreSQL RLS policy is exercised.
+//!   - No cross-tenant query is run against a real database.
+//!   - No begin_tenant_tx GUC scoping is tested.
+//!   - No fail-closed (no-GUC) read path is tested.
+//!
+//! For actual database-level tenant isolation coverage, see:
+//!   - tests/rls_isolation_pg.rs  (LTM — knowledge_entries)
+//!   - tests/rls_kg_pg.rs         (KG — entities + relations)
+//!   - tests/rls_mm_pg.rs         (MM — multimodal_entries + modality_relations)
+//!   - tests/rls_stm_pg.rs        (STM — context_sessions + session_messages)
+//!   - tests/tenant_scope_pg.rs   (tenant GUC scoping)
+//!
+//! These tests provide ZERO evidence of cross-tenant isolation at the storage
+//! layer. They must not be read as isolation coverage.
+//! ═══════════════════════════════════════════════════════════════════════════════
+//!
 //! These tests verify:
 //! - Tenant ID prefix isolation
 //! - Cross-tenant access rejection

@@ -29,4 +29,3 @@ jobs:
 
       - name: Run security audit
         run: cargo audit
-        continue-on-error: true

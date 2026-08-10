@@ -76,6 +76,7 @@ async fn request_json(
 }
 
 #[tokio::test]
+#[ignore = "requires AMS_E2E=1 and DATABASE_URL"]
 async fn environment_backed_memory_platform_flow() {
     if !e2e_enabled() {
         eprintln!("skipping environment E2E test; set AMS_E2E=1 to enable");
