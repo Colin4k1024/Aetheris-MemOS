@@ -103,9 +103,31 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
 
-      - name: Test
-        run: cargo test
+      # `--include-ignored` is REQUIRED, not optional. The cross-tenant RLS
+      # isolation tests are marked `#[ignore]` so that a developer running
+      # `cargo test` on a machine without Postgres sees an honest `ignored`
+      # instead of a false `ok`. Plain `cargo test` would therefore SKIP the
+      # most security-critical suite in the repo exactly where it CAN run.
+      # CI provides Postgres, so it must opt back in.
+      #
+      # `--tests` restricts this to unit + integration targets. Doc-tests are
+      # excluded deliberately: some doc examples are illustrative snippets
+      # marked ```ignore``` that do not compile standalone, and
+      # `--include-ignored` would try to run them and fail.
+      #
+      # Tests needing services CI does not provide (Qdrant-backed e2e, Ollama)
+      # keep an internal env-var guard and still self-skip, so this is safe.
+      - name: Test (unit + integration, including PG-gated)
+        run: cargo test --tests -- --include-ignored
         timeout-minutes: 30
+        env:
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+          SQLX_OFFLINE: "true"
+
+      # Doc-tests run separately so their own `ignore` markers are respected.
+      - name: Doc tests
+        run: cargo test --doc
+        timeout-minutes: 10
         env:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
           SQLX_OFFLINE: "true"
