@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+use crate::hoops::enterprise::{try_enterprise_hooks, HookContext, HookDecision, HookResult, Operation};
 use crate::hoops::governance::governance_middleware;
 use crate::hoops::jwt::auth_middleware;
 use crate::mcp::capability;
@@ -228,6 +229,27 @@ pub struct ToolCallParams {
     pub arguments: Option<serde_json::Value>,
 }
 
+/// Map each MCP tool to the governance [`Operation`] it truly performs.
+///
+/// This mapping lives here — next to the dispatch `match` — so it cannot drift
+/// without being noticed. **A new tool added to the dispatch MUST also be added here.**
+///
+/// | Tool constant          | Operation | Reason                         |
+/// |------------------------|-----------|--------------------------------|
+/// | `TOOL_MEMORY_WRITE`    | Store     | Creates/updates memory entries |
+/// | `TOOL_MEMORY_FORGET`   | Delete    | Deletes memory entries         |
+/// | `TOOL_MEMORY_SEARCH`   | Search    | Read-only query                |
+/// | `TOOL_MEMORY_RECALL`   | Search    | Read-only session recall       |
+/// | `TOOL_MEMORY_LIST`     | Search    | Read-only listing              |
+fn tool_to_operation(tool_name: &str) -> Option<Operation> {
+    match tool_name {
+        TOOL_MEMORY_WRITE => Some(Operation::Store),
+        TOOL_MEMORY_FORGET => Some(Operation::Delete),
+        TOOL_MEMORY_SEARCH | TOOL_MEMORY_RECALL | TOOL_MEMORY_LIST => Some(Operation::Search),
+        _ => None,
+    }
+}
+
 /// Call MCP tool
 async fn call_tool(
     State(state): State<McpState>,
@@ -313,6 +335,56 @@ async fn call_tool(
         )));
     }
 
+    // --- Step c: Governance (quota, RBAC) ---
+    // MCP calls bypass the REST governance middleware because all tools share a
+    // single POST /api/mcp/tools/call path, so classify() cannot distinguish them.
+    // Instead, governance is applied here where the tool name is known.
+    //
+    // When JWT auth is disabled (dev mode), skip governance entirely — there is no
+    // meaningful tenant/user identity to enforce against.
+    let governance_op = if !crate::config::get().jwt.disabled {
+        tool_to_operation(&params.name)
+    } else {
+        None
+    };
+
+    if let Some(op) = governance_op {
+        if let Some(hooks) = try_enterprise_hooks() {
+            let ctx = HookContext::new(
+                tenant_ctx.tenant_id.to_string(),
+                op,
+                "/api/mcp/tools/call".to_string(),
+            )
+            .with_user(tenant_ctx.user_id.clone());
+
+            let decision = match op {
+                Operation::Store => hooks.pre_store(&ctx),
+                Operation::Search => hooks.pre_search(&ctx),
+                Operation::Delete => hooks.pre_delete(&ctx),
+                Operation::Update => HookDecision::Allow, // unreachable for MCP tools
+            };
+
+            if let HookDecision::Deny(reason) = decision {
+                warn!(
+                    component_id = %params.name,
+                    reason = %reason,
+                    "MCP tool call denied by governance"
+                );
+                audit_writer::record_audit(
+                    AuditEvent::new("mcp.call_tool", "mcp_tool")
+                        .tenant(tenant_ctx.tenant_id.as_str())
+                        .with_metadata(&serde_json::json!({
+                            "tool": params.name,
+                            "outcome": "denied",
+                            "reason": "governance",
+                            "detail": reason,
+                        })),
+                );
+                return Err(AppError::Forbidden(reason));
+            }
+        }
+    }
+
     let result = match params.name.as_str() {
         TOOL_MEMORY_WRITE => handle_memory_write(&tenant_ctx.tenant_id, params.arguments).await,
         TOOL_MEMORY_SEARCH => handle_memory_search(&tenant_ctx.tenant_id, params.arguments).await,
@@ -336,6 +408,21 @@ async fn call_tool(
             )));
         }
     };
+
+    // --- Post-store hook for successful writes ---
+    // Mirror governance_middleware: increment quota usage only after a successful
+    // Store operation. Failed tool calls must NOT increment usage.
+    if governance_op == Some(Operation::Store) && result.is_ok() {
+        if let Some(hooks) = try_enterprise_hooks() {
+            let ctx = HookContext::new(
+                tenant_ctx.tenant_id.to_string(),
+                Operation::Store,
+                "/api/mcp/tools/call".to_string(),
+            )
+            .with_user(tenant_ctx.user_id.clone());
+            hooks.post_store(&ctx, &HookResult::success());
+        }
+    }
 
     match result {
         Ok(response) => {
@@ -484,7 +571,7 @@ async fn handle_memory_write(
                 None,
                 None,
                 None,
-                Some(tenant_id.as_str()),
+                tenant_id.as_str(),
             )
             .await?;
 
@@ -591,7 +678,7 @@ async fn handle_memory_search(
             let entries = MMRepository::get_entries_by_modality(
                 "text",
                 Some(limit),
-                Some(tenant_id.as_str()),
+                tenant_id.as_str(),
             )
             .await?;
             // Filter by query if possible
@@ -795,7 +882,7 @@ async fn handle_memory_list(
                 modality_type,
                 Some(limit),
                 Some(offset),
-                Some(tenant_id.as_str()),
+                tenant_id.as_str(),
             )
             .await?;
 
@@ -1030,7 +1117,7 @@ async fn read_resource(
             // Multimodal resources
             if let Some(entry_id) = id {
                 let entry =
-                    MMRepository::get_entry_by_id(&entry_id, Some(tenant_id.as_str())).await?;
+                    MMRepository::get_entry_by_id(&entry_id, tenant_id.as_str()).await?;
 
                 match entry {
                     Some(e) => {
@@ -1038,7 +1125,7 @@ async fn read_resource(
                         let related = MMRepository::get_related_entries(
                             &entry_id,
                             Some(5),
-                            Some(tenant_id.as_str()),
+                            tenant_id.as_str(),
                         )
                         .await?;
                         let relations: Vec<serde_json::Value> = related
@@ -1079,7 +1166,7 @@ async fn read_resource(
             } else {
                 // List all entries
                 let response =
-                    MMRepository::list_entries(None, Some(20), Some(0), Some(tenant_id.as_str()))
+                    MMRepository::list_entries(None, Some(20), Some(0), tenant_id.as_str())
                         .await?;
 
                 serde_json::json!({
@@ -1110,4 +1197,73 @@ async fn read_resource(
             data: None,
         }],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_write_maps_to_store() {
+        assert_eq!(
+            tool_to_operation(TOOL_MEMORY_WRITE),
+            Some(Operation::Store)
+        );
+    }
+
+    #[test]
+    fn memory_forget_maps_to_delete() {
+        assert_eq!(
+            tool_to_operation(TOOL_MEMORY_FORGET),
+            Some(Operation::Delete)
+        );
+    }
+
+    #[test]
+    fn memory_search_maps_to_search() {
+        assert_eq!(
+            tool_to_operation(TOOL_MEMORY_SEARCH),
+            Some(Operation::Search)
+        );
+    }
+
+    #[test]
+    fn memory_recall_maps_to_search() {
+        assert_eq!(
+            tool_to_operation(TOOL_MEMORY_RECALL),
+            Some(Operation::Search)
+        );
+    }
+
+    #[test]
+    fn memory_list_maps_to_search() {
+        assert_eq!(
+            tool_to_operation(TOOL_MEMORY_LIST),
+            Some(Operation::Search)
+        );
+    }
+
+    #[test]
+    fn unknown_tool_returns_none() {
+        assert_eq!(tool_to_operation("memory_unknown"), None);
+        assert_eq!(tool_to_operation(""), None);
+        assert_eq!(tool_to_operation("some_random_tool"), None);
+    }
+
+    #[test]
+    fn all_known_tools_are_covered() {
+        let known = [
+            TOOL_MEMORY_WRITE,
+            TOOL_MEMORY_SEARCH,
+            TOOL_MEMORY_RECALL,
+            TOOL_MEMORY_FORGET,
+            TOOL_MEMORY_LIST,
+        ];
+        for &tool in &known {
+            assert!(
+                tool_to_operation(tool).is_some(),
+                "known tool {tool} must map to an operation"
+            );
+        }
+    }
 }

@@ -749,6 +749,18 @@ impl EnterpriseHookSet {
             .map(|h| h.pre_delete(ctx))
             .unwrap_or(HookDecision::Allow)
     }
+
+    // ------------------------------------------------------------------
+    // Post-hook dispatch (used by the governance middleware after the
+    // handler returns, for operations that need to count usage).
+    // ------------------------------------------------------------------
+
+    /// Post-store hook (delegates to governance hook, no-op if none).
+    pub fn post_store(&self, ctx: &HookContext, result: &HookResult) {
+        if let Some(h) = &self.governance {
+            h.post_store(ctx, result);
+        }
+    }
 }
 
 /// Global enterprise hook set

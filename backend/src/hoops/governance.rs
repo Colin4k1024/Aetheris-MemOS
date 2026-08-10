@@ -13,11 +13,13 @@
 //! `hoops::jwt::auth_middleware`, asks the global [`EnterpriseHookSet`] for a
 //! pre-hook decision, and turns a [`HookDecision::Deny`] into a `403 Forbidden`.
 //!
-//! Fail-open by design: if the enterprise hooks are not initialized, no tenant
-//! context is present, or the path is not a governed memory operation, the request
-//! proceeds untouched. Quota *denial* is audited inside the governance hook itself
-//! (its `pre_store`/`pre_search` call `record_audit` before returning `Deny`), which
-//! now persists via the async audit writer (see `enterprise_impl::create_enterprise_hook_set`).
+//! Fail-closed by default: the middleware rejects requests with 403 Forbidden when
+//! enterprise hooks are not initialised or the tenant context is missing (genuine
+//! misconfiguration). Site operators can opt back to fail-open with
+//! `GOVERNANCE_FAIL_CLOSED=false` during migration. Quota *denial* is audited inside
+//! the governance hook itself (its `pre_store`/`pre_search` call `record_audit`
+//! before returning `Deny`), which now persists via the async audit writer
+//! (see `enterprise_impl::create_enterprise_hook_set`).
 //!
 //! [`EnterpriseHookSet`]: crate::hoops::enterprise::EnterpriseHookSet
 
@@ -94,26 +96,50 @@ fn decision_outcome(decision: HookDecision) -> Result<(), AppError> {
     }
 }
 
+/// Decide the fail-closed posture from a raw configuration value.
+///
+/// Split out from [`fail_closed_from_env`] so the policy can be tested as a pure
+/// function. Tests must NOT mutate `GOVERNANCE_FAIL_CLOSED` directly: env vars are
+/// process-global while Rust runs tests in parallel threads, so doing so makes the
+/// suite flaky — and a flaky security test trains people to ignore failures.
+fn fail_closed_from_value(value: Option<&str>) -> bool {
+    match value {
+        // Only these disable fail-closed. Everything else stays secure.
+        Some(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "false" | "0" | "no" | "off"
+        ),
+        // Unset — secure default.
+        None => true,
+    }
+}
+
+/// Resolve the fail-closed posture from the environment.
+///
+/// Fail-closed is the **default**. Because this is a security control, only an
+/// explicit and unambiguous false value opts out — any unrecognised value keeps
+/// the secure posture rather than silently downgrading it.
+///
+/// A naive `v == "true"` check would be a footgun here: an operator writing
+/// `GOVERNANCE_FAIL_CLOSED=1` or `=TRUE` intending to *enable* fail-closed would
+/// instead have selected fail-open, silently weakening security.
+fn fail_closed_from_env() -> bool {
+    fail_closed_from_value(std::env::var("GOVERNANCE_FAIL_CLOSED").ok().as_deref())
+}
+
 /// Governance middleware — see the module docs for the request-chain position.
 pub async fn governance_middleware(req: Request, next: Next) -> Result<Response, AppError> {
-    // Fail-open by default: if the enterprise hooks are not initialized, no tenant
-    // context is present, or the path is not a governed memory operation, the request
-    // proceeds untouched (best-effort governance).
+    // Fail-closed by default: a missing enterprise hook set or missing tenant
+    // context is treated as a security incident and rejected with 403 Forbidden.
+    // Set GOVERNANCE_FAIL_CLOSED=false to opt back to fail-open during migration.
     //
-    // When GOVERNANCE_FAIL_CLOSED=true, the middleware switches to fail-closed mode:
-    // a missing enterprise hook set or missing tenant context is treated as a security
-    // incident and rejected with 403 Forbidden, rather than silently letting the request
-    // through. This is the recommended posture for production deployments where an
-    // unhooked or unauthenticated request must never reach a handler.
     // When JWT auth is disabled (dev mode), skip governance entirely — there is no
     // meaningful tenant/user identity to enforce RBAC against.
     if crate::config::get().jwt.disabled {
         return Ok(next.run(req).await);
     }
 
-    let fail_closed = std::env::var("GOVERNANCE_FAIL_CLOSED")
-        .map(|v| v == "true")
-        .unwrap_or(false);
+    let fail_closed = fail_closed_from_env();
 
     // Full path (with the /api prefix and mount prefixes), independent of nesting.
     // `OriginalUri` is inserted by the outermost router before any prefix stripping;
@@ -169,7 +195,16 @@ pub async fn governance_middleware(req: Request, next: Next) -> Result<Response,
     // before it returns, so we only translate the decision to an HTTP outcome here.
     decision_outcome(decision)?;
 
-    Ok(next.run(req).await)
+    let response = next.run(req).await;
+
+    // After the handler returns, if the operation was a Store and the response
+    // indicates success (2xx), invoke the post_store hook so that quota usage is
+    // actually counted.  Failed or rejected writes must NOT increment usage.
+    if operation == Operation::Store && response.status().is_success() {
+        hooks.post_store(&ctx, &crate::hoops::enterprise::HookResult::success());
+    }
+
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -314,5 +349,55 @@ mod tests {
     fn allow_and_skip_decisions_proceed() {
         assert!(decision_outcome(HookDecision::Allow).is_ok());
         assert!(decision_outcome(HookDecision::Skip).is_ok());
+    }
+
+    /// Policy tests target the pure [`fail_closed_from_value`] rather than mutating
+    /// `GOVERNANCE_FAIL_CLOSED`. Env vars are process-global and Rust runs tests in
+    /// parallel threads, so mutating them here made the suite intermittently fail.
+    #[test]
+    fn fail_closed_defaults_to_true_when_unset() {
+        assert!(
+            fail_closed_from_value(None),
+            "default must be fail-closed (true)"
+        );
+    }
+
+    /// The documented opt-out must work in its common spellings and be
+    /// case/whitespace tolerant, so a deliberate migration escape hatch is not
+    /// defeated by formatting.
+    #[test]
+    fn recognised_false_values_select_fail_open() {
+        for v in ["false", "FALSE", "False", "0", "no", "off", " false "] {
+            assert!(
+                !fail_closed_from_value(Some(v)),
+                "value {v:?} must select fail-open"
+            );
+        }
+    }
+
+    /// Regression guard: an unrecognised value must NOT silently downgrade the
+    /// security posture. An operator writing `1` / `TRUE` / `yes` intends to
+    /// enable fail-closed, and a bare typo must never select fail-open.
+    #[test]
+    fn unrecognised_values_keep_fail_closed() {
+        for v in ["true", "TRUE", "True", "1", "yes", "on", "", "  ", "nonsense"] {
+            assert!(
+                fail_closed_from_value(Some(v)),
+                "value {v:?} must keep the secure fail-closed posture"
+            );
+        }
+    }
+
+    /// The env-reading wrapper is exercised once, without mutation, to prove it
+    /// delegates to the policy function above.
+    #[test]
+    fn env_wrapper_delegates_to_policy() {
+        // Whatever the ambient env happens to be, the wrapper must agree with the
+        // policy applied to that same value — no independent logic of its own.
+        let ambient = std::env::var("GOVERNANCE_FAIL_CLOSED").ok();
+        assert_eq!(
+            fail_closed_from_env(),
+            fail_closed_from_value(ambient.as_deref())
+        );
     }
 }

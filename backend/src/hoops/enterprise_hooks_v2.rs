@@ -643,10 +643,8 @@ impl EnterpriseHooksV2 {
         filter: AuditQueryFilter,
         _user_id: &str,
     ) -> Result<Vec<AuditLogEntry>, String> {
-        // Check RBAC permission
-        if let Ok(rbac) = self.rbac.roles().try_read() {
-            // For now, allow all - in production would check Permission::Manage
-        }
+        // RBAC check: for now, allow all.
+        // In production, use self.rbac.blocking_has_permission(...) with Permission::Manage.
 
         Ok(self.audit.query(&filter))
     }
