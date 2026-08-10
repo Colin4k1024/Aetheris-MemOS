@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::OnceLock;
 
 use figment::providers::{Env, Format, Toml};
@@ -91,6 +92,25 @@ pub fn init() {
     if let Ok(url) = std::env::var("DATABASE_URL") {
         if !url.is_empty() {
             config.db.url = url;
+        }
+    }
+
+    // APP_DB_ADMIN_URL enables the RLS-bypassing maintenance pool (see
+    // `db::ADMIN_POOL`). Needs an explicit handler for the same reason as the
+    // secrets below: figment's prefixed env does not map `APP_DB_ADMIN_URL` onto
+    // the nested `db.admin_url` key, so without this the documented .env.example
+    // switch would be silently ignored and the feature unreachable.
+    if let Ok(url) = std::env::var("APP_DB_ADMIN_URL") {
+        if !url.is_empty() {
+            config.db.admin_url = Some(url);
+        }
+    }
+
+    // APP_DB_AUTO_MIGRATE — same reason: figment would map this to
+    // `db.auto.migrate` (splitting on `_`) instead of `db.auto_migrate`.
+    if let Ok(val) = std::env::var("APP_DB_AUTO_MIGRATE") {
+        if let Ok(b) = val.parse::<bool>() {
+            config.db.auto_migrate = b;
         }
     }
 
@@ -260,6 +280,15 @@ pub struct ServerConfig {
     pub metrics: MetricsConfig,
     #[serde(default)]
     pub otel: OtelConfig,
+    /// Trusted reverse-proxy IPs whose `X-Forwarded-For` header is honoured.
+    ///
+    /// When empty (the default), the XFF header is **never** trusted — the
+    /// rate limiter always uses the direct peer IP from the TCP connection.
+    /// When non-empty, only connections from addresses in this list may
+    /// supply a client IP via XFF, and the rightmost non-trusted entry is
+    /// used (not the leftmost, which is client-supplied and forgeable).
+    #[serde(default)]
+    pub trusted_proxies: Vec<IpAddr>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

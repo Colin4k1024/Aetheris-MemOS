@@ -69,7 +69,7 @@ class MemoryClient:
 
     def initialize_mcp(self) -> Dict[str, Any]:
         """Initialize MCP connection."""
-        return self._request("POST", "api/mcp/initialize")
+        return self._request("POST", "api/initialize")
 
     def list_mcp_tools(self) -> Dict[str, Any]:
         """List available MCP tools."""
@@ -351,7 +351,7 @@ class MemoryClient:
         return self._request(
             "GET",
             "api/v1/memory/storage/sessions",
-            params={"userId": user_id, "limit": limit} if user_id else {"limit": limit},
+            params={"user_id": user_id, "limit": limit} if user_id else {"limit": limit},
         )
 
     def list_ltm_entries(

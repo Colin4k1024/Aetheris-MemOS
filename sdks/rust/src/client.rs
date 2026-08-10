@@ -115,10 +115,25 @@ impl Client {
         &self,
         user_id: Option<&str>,
         limit: Option<usize>,
-    ) -> Result<Vec<Session>, Error> {
+    ) -> Result<SessionListResponse, Error> {
+        let mut path = String::from("v1/memory/storage/sessions");
+        let mut params = Vec::new();
+        if let Some(uid) = user_id {
+            params.push(format!(
+                "user_id={}",
+                urlencoding::encode(uid)
+            ));
+        }
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        if !params.is_empty() {
+            path.push('?');
+            path.push_str(&params.join("&"));
+        }
         self.request(
             reqwest::Method::GET,
-            "v1/memory/storage/sessions",
+            &path,
             None::<&()>,
         )
         .await
@@ -128,7 +143,7 @@ impl Client {
 
     /// Initialize MCP
     pub async fn initialize_mcp(&self) -> Result<serde_json::Value, Error> {
-        self.request(reqwest::Method::POST, "mcp/initialize", None::<&()>).await
+        self.request(reqwest::Method::POST, "initialize", None::<&()>).await
     }
 
     /// List MCP tools

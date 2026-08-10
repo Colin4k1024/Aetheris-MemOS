@@ -1,5 +1,7 @@
 #![recursion_limit = "256"]
 
+use std::net::SocketAddr;
+
 use axum::Json;
 use serde::Serialize;
 use tokio::signal;
@@ -62,6 +64,19 @@ async fn main() {
     // Initialize tracing subscriber (fmt + optional OTLP) before any tracing:: calls.
     // The guard must be held for the process lifetime — dropping it flushes spans.
     let _tracing_guard = otel::init_tracing(&config.log, &config.otel);
+
+    if config.jwt.disabled {
+        tracing::warn!(
+            "\n\
+             ╔══════════════════════════════════════════════════════════════╗\n\
+             ║  AUTH IS DISABLED — GOVERNANCE & RBAC ARE SKIPPED           ║\n\
+             ║  Every request runs unauthenticated as a single shared      ║\n\
+             ║  anonymous tenant. This configuration must NEVER be used    ║\n\
+             ║  outside local development.                                 ║\n\
+             ╚══════════════════════════════════════════════════════════════╝"
+        );
+    }
+
     crate::db::init(&config.db)
         .await
         .expect("Database initialization failed");
@@ -162,7 +177,7 @@ async fn main() {
         tokio::spawn(shutdown_signal_with_handle(handle.clone()));
         axum_server::bind_rustls(addr, rustls_config)
             .handle(handle)
-            .serve(app.into_make_service())
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
             .await
             .expect("axum tls server failed");
     } else {
@@ -177,7 +192,7 @@ async fn main() {
         let listener = tokio::net::TcpListener::bind(&config.listen_addr)
             .await
             .expect("failed to bind listener");
-        axum::serve(listener, app)
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
             .with_graceful_shutdown(shutdown_signal())
             .await
             .expect("axum server failed");

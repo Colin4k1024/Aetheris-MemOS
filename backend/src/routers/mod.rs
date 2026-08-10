@@ -53,7 +53,8 @@ struct Assets;
 pub fn root() -> Router {
     let _ = &config::get().jwt;
     let auth_layer = middleware::from_fn(hoops::jwt::auth_middleware);
-    let rate_limit_state = hoops::rate_limit_state(100, 60);
+    let trusted_proxies = config::get().trusted_proxies.clone();
+    let rate_limit_state = hoops::rate_limit_state(100, 60, trusted_proxies.clone());
     let memory_rate_limit =
         middleware::from_fn_with_state(rate_limit_state, hoops::rate_limit_middleware);
     let governance_layer = middleware::from_fn(hoops::governance::governance_middleware);
@@ -401,7 +402,7 @@ pub fn root() -> Router {
     // Login endpoints get their own stricter rate limit to blunt credential
     // brute-forcing, independent of the memory-route limiter.
     let login_rate_limit = middleware::from_fn_with_state(
-        hoops::rate_limit_state(10, 60),
+        hoops::rate_limit_state(10, 60, trusted_proxies.clone()),
         hoops::rate_limit_middleware,
     );
     let login_routes = Router::new()
@@ -411,6 +412,16 @@ pub fn root() -> Router {
             post(auth::post_login_with_token).get(auth::get_login_with_token),
         )
         .route_layer(login_rate_limit);
+
+    // POST /register gets the same stricter rate limit as login to prevent
+    // account-spam and user enumeration.
+    let register_rate_limit = middleware::from_fn_with_state(
+        hoops::rate_limit_state(10, 60, trusted_proxies),
+        hoops::rate_limit_middleware,
+    );
+    let register_routes = Router::new()
+        .route("/register", post(auth::register))
+        .route_layer(register_rate_limit);
 
     let api_router = Router::new()
         .merge(login_routes)
@@ -435,7 +446,7 @@ pub fn root() -> Router {
     Router::new()
         .route("/", get(demo::hello))
         .route("/login", get(auth::login_page))
-        .route("/register", post(auth::register))
+        .merge(register_routes)
         .route("/users", get(user::list_page))
         .nest("/api", api_router)
         .route("/api-doc/openapi.json", get(openapi_json))

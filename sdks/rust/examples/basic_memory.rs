@@ -104,10 +104,14 @@ async fn main() -> anyhow::Result<()> {
     // ── 5. List sessions ───────────────────────────────────────────────────
     println!("\n=== Session List ===");
 
-    let sessions = client.list_sessions(Some("user-001"), Some(10)).await?;
-    println!("Sessions for user-001: {} found", sessions.len());
-    for s in &sessions {
-        println!("  session_id: {}", s.session_id);
+    let response = client.list_sessions(Some("user-001"), Some(10)).await?;
+    println!(
+        "Sessions for user-001: {} found (total: {})",
+        response.sessions.len(),
+        response.total
+    );
+    for s in &response.sessions {
+        println!("  session_id: {}  status: {}", s.session_id, s.status);
     }
 
     // ── 6. Adaptive memory config ──────────────────────────────────────────
@@ -124,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
     println!("  STM session created : {session_id}");
     println!("  LTM entry stored    : {}", ltm_resp.entry_id);
     println!("  LTM search results  : {}", results.len());
-    println!("  Active sessions     : {}", sessions.len());
+    println!("  Active sessions     : {}", response.sessions.len());
     println!("\nBasic memory operations demo completed.");
 
     Ok(())
