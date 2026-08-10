@@ -171,9 +171,13 @@
 
 ## 5. Backlog 回填
 
-⬜ **未同步**。本仓库 `docs/memory/` 下只有 `project-context.md` 与 `sessions/`，**没有 `backlog.md`**。
-§2（7 项决策）与 §3（未完成项，含 8 条实测候选）是当前唯一的完整清单，
-建议由 `tech-lead` 决定是否建立 `docs/memory/backlog.md` 作为跨任务事实源。
+✅ **已同步**（2026-08-10）。已建立 `docs/memory/backlog.md` 作为跨任务事实源，
+本文 §2（7 项决策）与 §3（未完成项 + 实测候选）已全量回填并按实施成本排序。
+
+tech-lead 拍板结论：7 项「声明 vs 实现」缺口一律**补齐实现**（不删除声明）。
+其中 D-7（P3 自适应）按 ADR-0008 自身规定有前置条件——必须先把
+`eval_harness` 做成真的（当前 `run` 硬编码 `passed:true`、从不调用 scheduler），
+证明自适应显著优于静态最优配置之后才放行学习闭环。
 
 ---
 
