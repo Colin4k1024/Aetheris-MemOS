@@ -3,7 +3,7 @@ use tracing::{error, info, instrument, warn};
 
 use crate::db::tenant_scope::begin_tenant_tx;
 use crate::db::vector_outbox::{self, OutboxOperation};
-use crate::db::{ltm::LTMRepository, pool, stm::STMRepository};
+use crate::db::{admin_pool, ltm::LTMRepository, pool, stm::STMRepository};
 use crate::services::{
     embedding::get_embedding_service, llm::get_llm_service, qdrant::get_qdrant_client,
 };
@@ -468,8 +468,16 @@ impl MemoryStorageService {
     ) -> Result<QdrantTenantBackfillReport, AppError> {
         let limit = limit.clamp(1, 1000);
         let offset = offset.max(0);
+        let admin = admin_pool().ok_or_else(|| {
+            AppError::BadRequest(
+                "Qdrant tenant backfill requires a configured admin database connection \
+                 (db.admin_url). This feature is disabled by default — set db.admin_url to \
+                 an owner/BYPASSRLS connection string to enable it."
+                    .into(),
+            )
+        })?;
         let rows =
-            LTMRepository::list_qdrant_tenant_backfill_entries(pool(), limit, offset).await?;
+            LTMRepository::list_qdrant_tenant_backfill_entries(admin, limit, offset).await?;
 
         let mut report = QdrantTenantBackfillReport {
             dry_run,

@@ -52,9 +52,35 @@ pub struct DbConfig {
     /// creation.
     #[serde(default = "default_helper_threads")]
     pub helper_threads: usize,
+    /// Whether to run database migrations automatically at startup.
+    ///
+    /// Running migrations requires DDL privileges (CREATE on schema), so the
+    /// application should normally NOT do it. Leave `false` in production and
+    /// run migrations as a separate owner-privileged step (e.g. `sqlx migrate
+    /// run`). When `false`, the application verifies that the schema is up to
+    /// date and fails fast if any migration is missing.
+    ///
+    /// Set to `true` only for local development where the database connection
+    /// already holds DDL privileges.
+    #[serde(default = "default_false")]
+    pub auto_migrate: bool,
+
     /// Whether to enforce that all the database connections are encrypted with TLS.
     #[serde(default = "default_false")]
     pub enforce_tls: bool,
+
+    /// Optional owner/BYPASSRLS maintenance connection URL for cross-tenant
+    /// operations that must run outside Row Level Security (e.g. Qdrant
+    /// tenant-metadata backfill).
+    ///
+    /// When set, a separate small connection pool (max 2) is created at
+    /// startup using this URL.  The pool is NOT used for any regular query;
+    /// it is only consumed by the backfill endpoint.
+    ///
+    /// **Default is `None` (disabled).**  The backfill endpoint returns an
+    /// explicit error until an operator deliberately configures this.
+    #[serde(default)]
+    pub admin_url: Option<String>,
 }
 
 fn default_helper_threads() -> usize {

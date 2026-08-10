@@ -102,7 +102,7 @@ pub async fn store_mm(
         body.image_url.as_deref(),
         body.audio_url.as_deref(),
         None, // video_url
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to store multimodal: {}", e)))?;
@@ -116,7 +116,7 @@ pub async fn get_mm(
     Path(entry_id): Path<String>,
     Query(_query): Query<LimitQuery>,
 ) -> JsonResult<Option<MMEntryInfo>> {
-    let entry = MMRepository::get_entry_by_id(&entry_id, Some(tenant_ctx.tenant_id.as_str()))
+    let entry = MMRepository::get_entry_by_id(&entry_id, tenant_ctx.tenant_id.as_str())
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get multimodal: {}", e)))?;
 
@@ -143,7 +143,7 @@ pub async fn get_session_mm(
     let entries = MMRepository::get_entries_by_session(
         &session_id,
         Some(limit),
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to get session multimodal: {}", e)))?;
@@ -174,7 +174,7 @@ pub async fn get_by_modality(
     let entries = MMRepository::get_entries_by_modality(
         &modality_type,
         Some(limit),
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to get by modality: {}", e)))?;
@@ -216,7 +216,7 @@ pub async fn list_mm(
         modality_filter,
         Some(limit),
         Some(offset),
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await?;
     let infos: Vec<MMEntryInfo> = result

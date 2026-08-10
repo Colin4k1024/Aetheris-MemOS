@@ -2,7 +2,15 @@ listen_addr = "127.0.0.1:8008"
 
 [db]
 # PostgreSQL (local: start with docker compose up -d postgres, or set DATABASE_URL)
-url = "postgres://memory:memory@localhost:5432/memory"
+#
+# ⚠️  LOCAL DEVELOPMENT ONLY — this password matches docker/initdb/01-create-app-role.sql.
+#     Production and staging MUST override DATABASE_URL with a credential from a
+#     secrets manager (Vault, AWS Secrets Manager, k8s secrets, etc.) and must never
+#     use this default. The role is intentionally NOSUPERUSER NOBYPASSRLS so that
+#     Row Level Security is actually enforced.
+#
+#     Administrative cross-tenant maintenance uses the separate db.admin_url setting.
+url = "postgres://aetheris_app:aetheris_app@localhost:5432/memory"
 # 连接池配置
 pool_size = 10
 min_idle = 2

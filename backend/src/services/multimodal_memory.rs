@@ -25,7 +25,7 @@ impl MultimodalMemoryService {
         image_url: Option<&str>,
         audio_url: Option<&str>,
         video_url: Option<&str>,
-        tenant_id: Option<&str>,
+        tenant_id: &str,
     ) -> Result<String, crate::AppError> {
         info!(
             "Storing multimodal memory: modality_type={}, source_id={}",
@@ -88,7 +88,7 @@ impl MultimodalMemoryService {
     #[instrument]
     pub async fn get_multimodal_memory(
         entry_id: &str,
-        tenant_id: Option<&str>,
+        tenant_id: &str,
     ) -> Result<Option<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!("Getting multimodal memory: entry_id={}", entry_id);
 
@@ -111,7 +111,7 @@ impl MultimodalMemoryService {
     pub async fn get_multimodal_memories_by_session(
         session_id: &str,
         limit: Option<i32>,
-        tenant_id: Option<&str>,
+        tenant_id: &str,
     ) -> Result<Vec<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!(
             "Getting multimodal memories by session: session_id={}",
@@ -133,7 +133,7 @@ impl MultimodalMemoryService {
     pub async fn get_multimodal_memories_by_modality(
         modality_type: &str,
         limit: Option<i32>,
-        tenant_id: Option<&str>,
+        tenant_id: &str,
     ) -> Result<Vec<crate::db::mm::MultimodalEntry>, crate::AppError> {
         info!(
             "Getting multimodal memories by modality: modality_type={}",
@@ -156,7 +156,7 @@ impl MultimodalMemoryService {
     pub async fn get_related_multimodal_memories(
         entry_id: &str,
         limit: Option<i32>,
-        tenant_id: Option<&str>,
+        tenant_id: &str,
     ) -> Result<
         Vec<(
             crate::db::mm::MultimodalEntry,
@@ -186,7 +186,7 @@ impl MultimodalMemoryService {
         relation_strength: f64,
         relation_confidence: f64,
         description: Option<&str>,
-        tenant_id: Option<&str>,
+        tenant_id: &str,
     ) -> Result<String, crate::AppError> {
         info!(
             "Creating multimodal relation: source={}, target={}, type={}",

@@ -2,9 +2,10 @@
 
 use sqlx::migrate::Migrator;
 use sqlx::{PgPool, SqlitePool};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::OnceLock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::config::{DatabaseBackend, DbConfig, StorageConfig};
 
@@ -60,6 +61,21 @@ pub enum DatabasePool {
 
 pub static DATABASE_POOL: OnceLock<DatabasePool> = OnceLock::new();
 
+/// Admin connection pool — **BYPASSES tenant isolation (Row Level Security).**
+///
+/// This pool connects as an owner / BYPASSRLS role and must be used **only**
+/// by the Qdrant tenant-metadata backfill path (`POST
+/// /api/v1/memory/storage/qdrant/backfill-tenant-metadata`).  Every other
+/// query must route through the regular [`pool()`] which is subject to RLS.
+///
+/// Once role-based access control becomes functional, the backfill endpoint
+/// must additionally be restricted to administrators.
+///
+/// The pool is `None` (unconfigured) by default — the backfill endpoint
+/// returns a clear actionable error until an operator deliberately sets
+/// `db.admin_url` in configuration.
+static ADMIN_POOL: OnceLock<PgPool> = OnceLock::new();
+
 /// Initialize the database based on configuration
 pub async fn init(config: &DbConfig) -> Result<(), DbInitError> {
     match config.backend {
@@ -93,7 +109,6 @@ async fn init_postgres(config: &DbConfig) -> Result<(), DbInitError> {
     })?;
     info!("PostgreSQL pool health check passed");
 
-    info!("Running migrations...");
     let migrations_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
     info!("Migrations path: {:?}", migrations_path);
 
@@ -102,16 +117,55 @@ async fn init_postgres(config: &DbConfig) -> Result<(), DbInitError> {
         DbInitError(format!("Failed to create migrator: {}", e))
     })?;
 
-    migrator.run(&sqlx_pool).await.map_err(|e| {
-        error!("Migrations failed: {}", e);
-        DbInitError(format!("Failed to run migrations: {}", e))
-    })?;
-    info!("Migrations completed");
+    if config.auto_migrate {
+        warn!(
+            "auto_migrate is enabled: running migrations automatically. \
+             This requires the database connection to hold DDL privileges \
+             and is NOT recommended outside local development."
+        );
+        migrator.run(&sqlx_pool).await.map_err(|e| {
+            error!("Migrations failed: {}", e);
+            DbInitError(format!("Failed to run migrations: {}", e))
+        })?;
+        info!("Migrations completed");
+    } else {
+        info!("auto_migrate is disabled — verifying schema is up to date");
+        verify_migrations(&sqlx_pool, &migrator).await?;
+    }
 
     DATABASE_POOL
         .set(DatabasePool::Postgres(sqlx_pool))
         .map_err(|_| DbInitError("database pool already set".to_string()))?;
     info!("PostgreSQL initialization complete");
+
+    if let Some(ref admin_url) = config.admin_url {
+        info!(
+            "Admin pool URL: {} (redacted)",
+            admin_url.split('@').last().unwrap_or("")
+        );
+        let admin_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(std::time::Duration::from_secs(config.connection_timeout))
+            .connect(admin_url)
+            .await
+            .map_err(|e| {
+                error!("Admin pool connection failed: {}", e);
+                DbInitError(format!("Admin pool connection failed: {}", e))
+            })?;
+        admin_pool.acquire().await.map_err(|e| {
+            error!("Admin pool health check failed: {}", e);
+            DbInitError(format!("Admin pool health check failed: {}", e))
+        })?;
+        warn!(
+            "RLS-bypassing admin pool is ACTIVE (max 2 connections). \
+             This pool bypasses tenant isolation and must only be used by \
+             the Qdrant tenant-metadata backfill endpoint."
+        );
+        ADMIN_POOL
+            .set(admin_pool)
+            .map_err(|_| DbInitError("admin pool already set".to_string()))?;
+    }
+
     Ok(())
 }
 
@@ -191,7 +245,11 @@ async fn init_sqlite(config: &DbConfig) -> Result<(), DbInitError> {
     })?;
     info!("SQLite pool health check passed");
 
-    info!("Running migrations...");
+    // SQLite is dev-only here — auto-migrate unconditionally. The `auto_migrate`
+    // config flag only gates the Postgres path because SQLite connections always
+    // have write access to the local file and there is no privilege separation
+    // to worry about.
+    info!("Running migrations (SQLite — auto-migrate always on)...");
     let migrations_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations_sqlite");
     info!("Migrations path: {:?}", migrations_path);
 
@@ -232,6 +290,59 @@ async fn init_sqlite(config: &DbConfig) -> Result<(), DbInitError> {
     Ok(())
 }
 
+/// Verify that all expected migrations have been applied, without running any.
+///
+/// Reads the `_sqlx_migrations` table (which the sqlx Migrator itself populates)
+/// and compares the set of successfully-applied versions against the migration
+/// list embedded in the binary.  If any migration is missing, startup fails fast
+/// with a clear error telling the operator to run `sqlx migrate run` with an
+/// owner or superuser connection.
+async fn verify_migrations(pool: &PgPool, migrator: &Migrator) -> Result<(), DbInitError> {
+    let applied: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations WHERE success ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to query _sqlx_migrations: {}", e);
+                DbInitError(format!(
+                    "Failed to query migration status: {e}. \
+                     The _sqlx_migrations table may not exist yet — \
+                     run `sqlx migrate run` with an owner or superuser connection first."
+                ))
+            })?;
+
+    let applied_set: HashSet<i64> = applied.into_iter().collect();
+
+    let expected: Vec<i64> = migrator.migrations.iter().map(|m| m.version).collect();
+
+    let missing: Vec<i64> = expected
+        .iter()
+        .filter(|v| !applied_set.contains(v))
+        .copied()
+        .collect();
+
+    if missing.is_empty() {
+        info!(
+            "Schema verification passed: all {} migrations applied",
+            expected.len()
+        );
+        Ok(())
+    } else {
+        error!(
+            pending = missing.len(),
+            versions = ?missing,
+            "Schema is out of date"
+        );
+        Err(DbInitError(format!(
+            "Schema is out of date: {} pending migration(s) not applied: {:?}. \
+             Run `sqlx migrate run` with an owner or superuser connection to apply them, \
+             then restart the application.",
+            missing.len(),
+            missing
+        )))
+    }
+}
+
 /// Get PostgreSQL pool (panics if not PostgreSQL)
 pub fn pool() -> &'static PgPool {
     match DATABASE_POOL.get() {
@@ -260,6 +371,15 @@ pub fn is_postgres() -> bool {
     matches!(DATABASE_POOL.get(), Some(DatabasePool::Postgres(_)))
 }
 
+/// Get the admin pool (BYPASSRLS), if configured.
+///
+/// Returns `None` when [`DbConfig::admin_url`] was not set — the backfill
+/// endpoint must return a clear error in that case.  This accessor never
+/// panics, unlike the regular [`pool()`].
+pub fn admin_pool() -> Option<&'static PgPool> {
+    ADMIN_POOL.get()
+}
+
 /// Initialize database based on storage config
 pub async fn init_storage(config: &StorageConfig) -> Result<(), DbInitError> {
     let db_config = DbConfig {
@@ -280,6 +400,8 @@ pub async fn init_storage(config: &StorageConfig) -> Result<(), DbInitError> {
         statement_timeout: 30,
         helper_threads: 4,
         enforce_tls: false,
+        auto_migrate: false,
+        admin_url: None,
     };
     init(&db_config).await
 }

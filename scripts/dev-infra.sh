@@ -75,7 +75,9 @@ cat <<'EOF'
 
 Next steps:
   export APP_JWT_SECRET="$(openssl rand -hex 32)"     # required: auth is on by default
-  cd backend && cargo run                              # serves http://127.0.0.1:8008 (auto-migrates)
+  cd backend && cargo run                              # serves http://127.0.0.1:8008
+                                                       # (migrations are applied by this script;
+                                                       #  the app only verifies they are up to date)
 
 P1 execution (see docs/artifacts/2026-07-16-enterprise-productionization/p1-execution-runbook.md):
   - Start with PR-1 (tenant_scope executor), then PR-2 (audit), PR-3 (RLS).
