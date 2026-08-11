@@ -1,6 +1,39 @@
 //! Tenant Router
 //!
 //! API endpoints for multi-tenant management.
+//!
+//! # This module is deliberately NOT mounted (backlog C-5)
+//!
+//! `routers/mod.rs` declares it `#[allow(dead_code)]` and `/tenants` is served by
+//! [`crate::routers::multi_tenant_router`] instead. None of the handlers below is
+//! reachable over HTTP today. That is a decision, not an oversight — read this
+//! before wiring any of them up.
+//!
+//! **Why it is kept rather than deleted.** It carries two capabilities
+//! `multi_tenant_router` does not have, and that an org-level tenant model needs:
+//!
+//! - quota management (`get_tenant_quota`, `update_tenant_quota`)
+//! - role assignment (`assign_role`, `get_user_role`, `list_roles`)
+//!
+//! Role assignment in particular is a prerequisite for backlog C-3 (decoupling
+//! `tenant_id` from `user_id`): today every user is the sole `Owner` of their own
+//! single-user tenant, so no role can differ from any other and RBAC cannot
+//! distinguish anything. Deleting these handlers now would mean re-writing them
+//! for C-3.
+//!
+//! **Before mounting, note two things.**
+//!
+//! 1. Every handler here already compares its path `tenant_id` against the
+//!    caller via [`crate::tenant::RequestTenantContext::authorize_path_tenant`]
+//!    (backlog P0-6). That fix was applied defensively *because* the module is
+//!    dead — so that mounting it later cannot silently reintroduce the
+//!    cross-tenant leak. Do not remove those calls.
+//! 2. `create_tenant` overlaps with `multi_tenant_router::register_tenant`.
+//!    Mounting both would give two paths to create a tenant with different
+//!    validation. Pick one and delete the other; do not ship both.
+//!
+//! `reset_tenant_memory` is destructive. If C-3 mounts this module, that endpoint
+//! needs an explicit confirmation or admin-only gate beyond the tenant check.
 
 use axum::extract::{Extension, Path};
 use axum::Json;

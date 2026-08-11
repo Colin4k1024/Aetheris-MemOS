@@ -542,10 +542,32 @@ impl GovernanceHook for GovernanceHookImpl {
             let mut quota = quota_manager.ensure_quota(&ctx.tenant_id);
             quota.used.memory_entries += 1;
             let new_used = quota.used.memory_entries;
+            let limit = quota.memory_entries;
             quota_manager.set_quota(&ctx.tenant_id, quota);
+
+            // Publish the usage ratio here rather than from `QuotaManager::set_quota`:
+            // this is the only place that holds tenant + current + limit together,
+            // and putting a Prometheus side effect inside a generic map setter would
+            // also fire it from unrelated unit tests.
+            //
+            // CARDINALITY: `tenant` is an unbounded label — one series per tenant that
+            // ever stores a memory. Acceptable for self-hosted and small tenant counts;
+            // a large multi-tenant deployment must bound it (emit only above a
+            // threshold, or pre-aggregate server-side) before enabling the staged
+            // TenantQuotaNearLimit rule. Do not add more labels here.
+            //
+            // A zero limit would mean "unlimited" or "unconfigured" depending on the
+            // caller; either way a ratio is undefined, so skip rather than divide.
+            if limit > 0 {
+                let ratio = new_used as f64 / limit as f64;
+                crate::services::prometheus_exporter::get_exporter()
+                    .set_tenant_quota_usage(&ctx.tenant_id, ratio);
+            }
+
             tracing::info!(
                 tenant_id = %ctx.tenant_id,
                 new_used,
+                limit,
                 "quota: incremented memory_entries after successful store"
             );
         } else {
@@ -763,6 +785,86 @@ mod tests {
             quota.used.memory_entries, 1,
             "a successful Store must increment used.memory_entries by exactly 1"
         );
+    }
+
+    /// The usage-ratio gauge must actually move — `tenant_quota_usage_ratio` was
+    /// registered but never written for the whole life of the project (backlog
+    /// B-5), so it read a frozen 0 in `/metrics` while looking instrumented.
+    #[test]
+    fn post_store_publishes_the_usage_ratio_gauge() {
+        let (quota_manager, governance) = make_test_governance();
+        let tenant = "tenant-ratio";
+        let ctx = HookContext::new(tenant.to_string(), Operation::Store, "/test".to_string());
+
+        // Small limit so one store produces an exactly-predictable ratio.
+        let mut seed = ResourceQuota::default();
+        seed.memory_entries = 4;
+        seed.used.memory_entries = 0;
+        quota_manager.set_quota(tenant, seed);
+
+        governance.post_store(&ctx, &HookResult::success());
+
+        let families = crate::services::prometheus_exporter::get_exporter()
+            .registry()
+            .gather();
+        let ratio = families
+            .iter()
+            .find(|f| f.get_name() == "tenant_quota_usage_ratio")
+            .expect("tenant_quota_usage_ratio must be registered")
+            .get_metric()
+            .iter()
+            .find(|m| {
+                m.get_label()
+                    .iter()
+                    .any(|l| l.get_name() == "tenant" && l.get_value() == tenant)
+            })
+            .map(|m| m.get_gauge().get_value())
+            .expect("post_store must emit a series for this tenant");
+
+        assert!(
+            (ratio - 0.25).abs() < f64::EPSILON,
+            "1 used of limit 4 must publish 0.25, got {ratio}"
+        );
+    }
+
+    /// A zero limit means "unlimited" or "unconfigured" depending on the caller, so
+    /// a ratio is undefined. Emitting one would either divide by zero (inf) or
+    /// invent a number an alert would then act on.
+    #[test]
+    fn post_store_emits_no_ratio_when_limit_is_zero() {
+        let (quota_manager, governance) = make_test_governance();
+        let tenant = "tenant-zero-limit";
+        let ctx = HookContext::new(tenant.to_string(), Operation::Store, "/test".to_string());
+
+        let mut seed = ResourceQuota::default();
+        seed.memory_entries = 0;
+        quota_manager.set_quota(tenant, seed);
+
+        governance.post_store(&ctx, &HookResult::success());
+
+        let families = crate::services::prometheus_exporter::get_exporter()
+            .registry()
+            .gather();
+        let emitted = families
+            .iter()
+            .find(|f| f.get_name() == "tenant_quota_usage_ratio")
+            .map(|f| {
+                f.get_metric().iter().any(|m| {
+                    m.get_label()
+                        .iter()
+                        .any(|l| l.get_name() == "tenant" && l.get_value() == tenant)
+                })
+            })
+            .unwrap_or(false);
+
+        assert!(
+            !emitted,
+            "a zero limit must not publish a ratio — inf or a fabricated value would \
+             be acted on by the quota alert"
+        );
+
+        // The counter itself must still advance; only the derived ratio is skipped.
+        assert_eq!(quota_manager.ensure_quota(tenant).used.memory_entries, 1);
     }
 
     #[test]

@@ -194,3 +194,115 @@ groups:
             this points at Qdrant or DB degradation. NOTE: backlog and delivery-
             failure metrics are not yet instrumented, so this latency signal is
             the only automated outbox health check today.
+
+  # ---------------------------------------------------------------------------
+  # Tenant quota — promoted out of alerts-staged/ on 2026-08-11 (backlog #44).
+  #
+  # tenant_quota_usage_ratio is a GaugeVec, so it emitted NO series at all until
+  # something called set_tenant_quota_usage. That call now exists in the quota
+  # enforcement path (hoops/enterprise_impl.rs post_store), which is the only
+  # place holding tenant + current + limit together. Verified by unit test
+  # post_store_publishes_the_usage_ratio_gauge.
+  #
+  # CARDINALITY WARNING: `tenant` is an unbounded label — one series per tenant
+  # that ever stores a memory. Fine for self-hosted / small tenant counts. A
+  # large multi-tenant deployment must bound it (emit only above a threshold, or
+  # pre-aggregate server-side) before relying on this rule; see the comment at
+  # the emission site.
+  #
+  # A tenant whose limit is 0 deliberately emits no series (a ratio would be
+  # inf or fabricated), so such tenants are invisible here rather than alerting
+  # spuriously.
+  # ---------------------------------------------------------------------------
+  - name: aetheris_tenant_quota
+    rules:
+      - alert: TenantQuotaNearLimit
+        expr: tenant_quota_usage_ratio > 0.9
+        for: 15m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: tenancy
+        annotations:
+          summary: "Tenant {{ $labels.tenant }} quota usage > 90%"
+          description: >
+            Tenant {{ $labels.tenant }} has used {{ $value | humanizePercentage }}
+            of its quota for 15m. Writes will start being rejected at 100%.
+
+  # ---------------------------------------------------------------------------
+  # Outbox delivery health — promoted out of alerts-staged/ on 2026-08-11
+  # (backlog B-5). All three metrics below were registered but had NO producer,
+  # so these rules would have watched frozen zeros. They are now written by
+  # services/outbox_worker.rs:
+  #   outbox_pending_total               <- :72  (throttled, every 15th loop ~30s)
+  #   outbox_dead_letter_total           <- :123 (only on a real dead-letter
+  #                                              transition, using the same
+  #                                              predicate that drives the DB
+  #                                              status update — so the counter
+  #                                              cannot drift from actual state)
+  #   outbox_qdrant_upsert_{success,failure}_total <- :145 / :111
+  #
+  # Together with OutboxProcessingSlow above, outbox now has backlog, dead-letter
+  # and failure-rate coverage — not just latency. The note on OutboxProcessingSlow
+  # saying latency is "the only automated outbox health check today" is superseded
+  # by this group.
+  # ---------------------------------------------------------------------------
+  - name: aetheris_outbox_delivery
+    rules:
+      - alert: OutboxBacklogHigh
+        # The gauge refreshes about every 30s, so a short `for:` would just
+        # sample the same value repeatedly.
+        expr: outbox_pending_total > 500
+        for: 10m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: outbox
+        annotations:
+          summary: "Outbox backlog high ({{ $value }} pending events)"
+          description: >
+            More than 500 vector-outbox events are awaiting first delivery and the
+            backlog has persisted for 10m. Affected memories exist in PostgreSQL
+            but are not yet searchable. Check Qdrant reachability and the outbox
+            worker. Note per-tenant fairness caps each tenant's slice of a batch,
+            so one tenant's bulk import shows up here without starving others.
+
+      - alert: OutboxDeadLetterGrowing
+        # ANY new dead-letter is a delivery that exhausted all retries: that
+        # memory will never become searchable without operator action. Hence
+        # critical on `> 0` rather than a rate threshold.
+        expr: increase(outbox_dead_letter_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: aetheris-backend
+          category: outbox
+        annotations:
+          summary: "Outbox dead-letters accumulating ({{ $value }} in last 1h)"
+          description: >
+            {{ $value }} outbox event(s) exhausted their retry budget in the last
+            hour and were dead-lettered. Those vectors are permanently missing from
+            Qdrant until replayed — the reconciliation scanner will also report them
+            as `missing`. Inspect memory_vector_outbox WHERE status='dead_letter'.
+
+      - alert: OutboxDeliveryFailureRateHigh
+        # clamp_min(..., 1) keeps the ratio defined when both rates are 0 (idle
+        # worker) — without it an idle period would evaluate 0/0 and produce NaN.
+        expr: >
+          sum(rate(outbox_qdrant_upsert_failure_total[5m])) / clamp_min(
+            sum(rate(outbox_qdrant_upsert_success_total[5m]))
+            + sum(rate(outbox_qdrant_upsert_failure_total[5m])),
+            1
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: outbox
+        annotations:
+          summary: "Outbox → Qdrant delivery failure rate > 10%"
+          description: >
+            Over 10% of Qdrant upsert attempts failed over the last 5m, sustained
+            for 10m. Failures still retry with backoff, so this fires before
+            dead-lettering — it is the early warning that OutboxDeadLetterGrowing
+            is the late one. Counts Upsert only; Delete failures are not tracked.
