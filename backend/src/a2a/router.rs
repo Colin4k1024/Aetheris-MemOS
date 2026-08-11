@@ -1,6 +1,7 @@
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
+    middleware,
     response::Json,
     routing::{get, post},
     Router,
@@ -27,14 +28,31 @@ pub fn a2a_router(base_url: String, handler: Arc<A2AHandler>) -> Router {
         base_url: base_url.clone(),
     };
 
-    Router::new()
-        .route("/.well-known/agent-card.json", get(get_agent_card))
+    // Public discovery endpoint. The A2A agent card is the well-known capability
+    // descriptor other agents fetch *before* authenticating — per the A2A spec it
+    // also advertises the agent's security schemes, i.e. it is how a caller learns
+    // how to authenticate. Gating it behind auth would be a chicken-and-egg break
+    // of discovery, so it stays unauthenticated on purpose — exactly like MCP's
+    // public `/initialize` (routers/mcp.rs).
+    let public_router = Router::new().route("/.well-known/agent-card.json", get(get_agent_card));
+
+    // Protected agent-interop surface. Every handler here reads
+    // `Extension<RequestTenantContext>`, which `auth_middleware` injects only
+    // after a valid JWT (ADR-0007: A2A message/stream endpoints reuse the *same*
+    // axum `auth_middleware` as REST/MCP, converging on the transport-agnostic
+    // `authenticate()` core). Without this layer the extractor fails 500 and,
+    // far worse, these endpoints would run unauthenticated with no tenant
+    // isolation. `auth` is applied as the outer `.layer` so it runs first —
+    // mirrors `routers/mcp.rs`.
+    let protected_router = Router::new()
         .route("/a2a/jsonrpc", post(handle_jsonrpc))
         .route("/a2a/rest/messages", post(handle_rest_message))
         .route("/a2a/rest/messages/stream", post(handle_stream_message))
         .route("/a2a/rest/tasks/{task_id}", get(handle_get_task))
         .route("/a2a/rest/tasks", get(handle_list_tasks))
-        .with_state(state)
+        .layer(middleware::from_fn(crate::hoops::jwt::auth_middleware));
+
+    public_router.merge(protected_router).with_state(state)
 }
 
 async fn get_agent_card(State(state): State<A2AState>) -> Json<Value> {

@@ -137,26 +137,27 @@ jobs:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
           SQLX_OFFLINE: "true"
 
-  # A2A agent-interop protocol build channel. A SEPARATE job (not a step in
-  # `backend`) on purpose: the `a2a` feature pulls a2a-rs from a pinned GitHub rev,
-  # so a cold-cache build must reach GitHub over the network. Folding it into
-  # `backend` would put that job's security-critical suite (RLS isolation, fmt,
-  # clippy) at the mercy of GitHub availability — one network blip fetching a2a-rs
-  # would red the whole backend gate. A dedicated job contains that blast radius
-  # while STILL blocking the workflow: there is deliberately NO continue-on-error,
-  # so if the feature stops compiling against the pinned rev this job goes red.
+  # A2A agent-interop protocol channel. A SEPARATE job (not a step in `backend`)
+  # on purpose: the `a2a` feature pulls a2a-rs from a pinned GitHub rev, so a
+  # cold-cache build must reach GitHub over the network. Folding it into `backend`
+  # would put that job's security-critical suite (RLS isolation, fmt, clippy) at
+  # the mercy of GitHub availability — one network blip fetching a2a-rs would red
+  # the whole backend gate. A dedicated job contains that blast radius while STILL
+  # blocking the workflow: there is deliberately NO continue-on-error, so if the
+  # feature stops compiling or a test regresses, this job goes red.
   #
-  # Scope: this job COMPILES the feature and the a2a test target; it does not yet run
-  # the 7 tests as a green gate. 4 of the 7 currently fail (500 != 200) because the
-  # a2a handlers require an `Extension<RequestTenantContext>` that neither the test
-  # harness nor the production mount (routers/mod.rs) injects — a real wiring bug
-  # tracked separately. Gating on compilation is the honest gate achievable today: it
-  # kills the failure mode where the `#![cfg(feature = "a2a")]`-gated test file
-  # silently compiles to nothing and the 7 tests never run at all.
+  # History worth keeping: `tests/a2a_integration.rs` is gated by a file-level
+  # `#![cfg(feature = "a2a")]`, so without this job the whole file compiled to
+  # nothing and its tests SILENTLY DID NOT EXIST — not failed, absent. Running them
+  # for the first time on 2026-08-11 immediately surfaced a real bug: the a2a router
+  # was merged without `auth_middleware`, so the handlers' `Extension<RequestTenant
+  # Context>` extractor failed and 4 of 7 returned 500. Fixed in backlog A-4b.
   #
   # No Postgres/Qdrant service and no DATABASE_URL: the crate uses runtime sqlx
   # (`sqlx::query` / `.bind`), not compile-checked `query!` macros, so it builds
-  # fully offline; the 7 tests build the router in-process and open no DB pool.
+  # fully offline, and these tests build the router in-process without a DB pool.
+  # The one test that does need real infra is `#[ignore]`d with its reason stated,
+  # so `cargo test` reports it as honestly skipped rather than silently passing.
   backend-a2a:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
@@ -199,39 +200,28 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
 
-      # Compiles the 7-test integration target (does not execute it — see job note).
+      # Compiles the integration target. Kept as its own step from the build so a
+      # test-only compile error is distinguishable from a lib/bin one in the log.
       - name: Compile a2a integration tests
         run: cargo test --features a2a --test a2a_integration --no-run
         timeout-minutes: 15
         env:
           SQLX_OFFLINE: "true"
 
-      # Run the 3 tests that actually pass, so they become a real regression gate
-      # instead of only being compiled.
+      # Full suite, no filter and no allow-failure. An earlier revision of this job
+      # ran only the 3 tests that passed at the time, because the other 4 were red
+      # from the missing-auth bug; that filter is gone now A-4b has landed.
       #
-      # Measured 2026-08-11 on a clean tree: 3 passed, 4 failed.
-      #   pass: test_agent_card_endpoint, test_get_task, test_list_tasks
-      #   fail: test_jsonrpc_send_message, test_jsonrpc_invalid_method,
-      #         test_rest_send_message, test_streaming_endpoint  (all 500 != 200)
+      # Measured 2026-08-11 after the fix: 7 passed, 0 failed, 1 ignored.
+      # The ignored one is `test_rest_send_message` — it performs a real LTM write,
+      # so it needs a reachable embedding backend plus a DB. It carries an explicit
+      # `#[ignore]` reason, which is what makes `cargo test` report it as honestly
+      # skipped instead of quietly green. Run it under e2e infra with `--ignored`.
       #
-      # The 4 failures are a real wiring bug, not flaky tests: the a2a router is
-      # merged in routers/mod.rs WITHOUT `auth_middleware`, which is what injects
-      # `Extension<RequestTenantContext>` — so handlers that extract it 500. Tracked
-      # as backlog A-4b. Do NOT "fix" it by injecting the extension without the auth
-      # layer: that would leave the a2a endpoints unauthenticated, which is worse
-      # than the current 500.
-      #
-      # Naming the 3 passing tests explicitly (rather than `|| true` on the whole
-      # suite) is deliberate: an allow-failure run is a gate that cannot fail, and a
-      # filter would silently widen if someone renamed a test. When A-4b lands,
-      # replace this step with a plain `cargo test --features a2a --test
-      # a2a_integration` and delete this comment.
-      - name: Run passing a2a integration tests
-        run: |
-          cargo test --features a2a --test a2a_integration -- --exact \
-            test_agent_card_endpoint \
-            test_get_task \
-            test_list_tasks
+      # Do NOT reintroduce a name filter or `|| true` here: a run that cannot fail
+      # is not a gate, and a filter silently narrows the moment someone adds a test.
+      - name: Run a2a integration tests
+        run: cargo test --features a2a --test a2a_integration
         timeout-minutes: 15
         env:
           SQLX_OFFLINE: "true"

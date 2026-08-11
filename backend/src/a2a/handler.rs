@@ -144,10 +144,17 @@ impl A2AHandler {
         let text = self.extract_text(&request.message);
 
         // MemoryStorageService::store_ltm_for_tenant: (tenant_id, source_id, source_type, content, title)
+        //
+        // `source_type` MUST be one of the values `SourceType::parse` accepts
+        // (document/api/database/web/user_input) — the previous "a2a_message"
+        // was not, so every A2A store was rejected with 400 at the boundary
+        // before any DB/embedding work. "user_input" is the honest label for
+        // caller-provided content and matches what the sibling MCP write handler
+        // uses (routers/mcp.rs `handle_memory_write`).
         let result = MemoryStorageService::store_ltm_for_tenant(
             &tenant_ctx.tenant_id,
             &format!("a2a:{}", uuid::Uuid::new_v4()),
-            "a2a_message",
+            "user_input",
             &text,
             None,
         )
