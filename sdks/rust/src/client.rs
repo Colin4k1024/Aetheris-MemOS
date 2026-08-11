@@ -41,13 +41,22 @@ impl Client {
         format!("{}/api/{}", self.base_url.trim_end_matches('/'), path.trim_start_matches('/'))
     }
 
-    /// Make a request
-    async fn request<T: DeserializeOwned, B: Serialize>(
+    /// Build a request (without sending it), applying auth, optional query
+    /// parameters, and an optional JSON body.
+    ///
+    /// Extracted as a separate seam so URL/query construction can be
+    /// unit-tested without a live server (see the tests below).
+    fn build_request<B, Q>(
         &self,
         method: reqwest::Method,
         path: &str,
         body: Option<B>,
-    ) -> Result<T, Error> {
+        query: Option<&Q>,
+    ) -> reqwest::RequestBuilder
+    where
+        B: Serialize,
+        Q: Serialize + ?Sized,
+    {
         let url = self.build_url(path);
         let mut request = self.http.request(method, url);
 
@@ -55,10 +64,21 @@ impl Client {
             request = request.bearer_auth(key);
         }
 
+        if let Some(query) = query {
+            request = request.query(query);
+        }
+
         if let Some(body) = body {
             request = request.json(&body);
         }
 
+        request
+    }
+
+    /// Send a prepared request and deserialize the JSON response.
+    async fn send_and_parse<T: DeserializeOwned>(
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, Error> {
         let response = request.send().await?;
 
         if response.status().is_success() {
@@ -68,6 +88,16 @@ impl Client {
             let message = response.text().await.unwrap_or_default();
             Err(Error::Api { status, message })
         }
+    }
+
+    /// Make a request
+    async fn request<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<B>,
+    ) -> Result<T, Error> {
+        Self::send_and_parse(self.build_request(method, path, body, None::<&()>)).await
     }
 
     // === Storage ===
@@ -110,33 +140,36 @@ impl Client {
         .await
     }
 
+    /// Build the `list_sessions` request (without sending it), so query
+    /// construction is unit-testable and parameters can't be silently dropped.
+    fn list_sessions_request(
+        &self,
+        user_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> reqwest::RequestBuilder {
+        #[derive(Serialize)]
+        struct ListSessionsQuery<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            user_id: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            limit: Option<usize>,
+        }
+
+        self.build_request(
+            reqwest::Method::GET,
+            "v1/memory/storage/sessions",
+            None::<&()>,
+            Some(&ListSessionsQuery { user_id, limit }),
+        )
+    }
+
     /// List sessions
     pub async fn list_sessions(
         &self,
         user_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<SessionListResponse, Error> {
-        let mut path = String::from("v1/memory/storage/sessions");
-        let mut params = Vec::new();
-        if let Some(uid) = user_id {
-            params.push(format!(
-                "user_id={}",
-                urlencoding::encode(uid)
-            ));
-        }
-        if let Some(l) = limit {
-            params.push(format!("limit={}", l));
-        }
-        if !params.is_empty() {
-            path.push('?');
-            path.push_str(&params.join("&"));
-        }
-        self.request(
-            reqwest::Method::GET,
-            &path,
-            None::<&()>,
-        )
-        .await
+        Self::send_and_parse(self.list_sessions_request(user_id, limit)).await
     }
 
     // === MCP ===
@@ -265,6 +298,62 @@ mod tests {
         assert_eq!(
             client.build_url("v1/memory/storage/stm"),
             "http://localhost:8008/api/v1/memory/storage/stm"
+        );
+    }
+
+    /// Build a `list_sessions` request and return its final URL string.
+    fn list_sessions_url(user_id: Option<&str>, limit: Option<usize>) -> String {
+        Client::new("http://localhost:8008")
+            .list_sessions_request(user_id, limit)
+            .build()
+            .expect("request should build")
+            .url()
+            .as_str()
+            .to_string()
+    }
+
+    #[test]
+    fn list_sessions_sends_all_params() {
+        assert_eq!(
+            list_sessions_url(Some("alice"), Some(10)),
+            "http://localhost:8008/api/v1/memory/storage/sessions?user_id=alice&limit=10"
+        );
+    }
+
+    #[test]
+    fn list_sessions_sends_only_user_id() {
+        assert_eq!(
+            list_sessions_url(Some("alice"), None),
+            "http://localhost:8008/api/v1/memory/storage/sessions?user_id=alice"
+        );
+    }
+
+    #[test]
+    fn list_sessions_sends_only_limit() {
+        assert_eq!(
+            list_sessions_url(None, Some(10)),
+            "http://localhost:8008/api/v1/memory/storage/sessions?limit=10"
+        );
+    }
+
+    #[test]
+    fn list_sessions_omits_absent_params() {
+        // Both params absent → no query string at all (no dangling '?').
+        assert_eq!(
+            list_sessions_url(None, None),
+            "http://localhost:8008/api/v1/memory/storage/sessions"
+        );
+    }
+
+    #[test]
+    fn list_sessions_encodes_special_characters() {
+        // form-urlencoded (reqwest `.query()`) encodes spaces as '+', which every
+        // standard query-string parser (including the Axum backend) decodes back
+        // to a space. This differs from percent-encoding ('%20') but is equivalent
+        // on decode.
+        assert_eq!(
+            list_sessions_url(Some("alice smith"), None),
+            "http://localhost:8008/api/v1/memory/storage/sessions?user_id=alice+smith"
         );
     }
 }
