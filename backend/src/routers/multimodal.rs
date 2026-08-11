@@ -119,10 +119,16 @@ pub async fn store_mm(
 }
 
 /// 获取多模态记忆
+///
+/// 刻意不接 `Query<LimitQuery>`：本端点按 `entry_id` 取单条，`limit` 与
+/// `tenantId` 对它没有任何意义。此前它绑定了 `Query(_query): Query<LimitQuery>`
+/// 又整个丢弃——参数被接受、被忽略、不报错，正是 D-g 那一类缺陷。既然
+/// `LimitQuery` 现在带 `deny_unknown_fields`，继续绑定反而会让 `?limit=5`
+/// 变成「被接受但无效」；直接不接，多余参数由 axum 忽略，而契约里不再宣称
+/// 支持它。
 pub async fn get_mm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entry_id): Path<String>,
-    Query(_query): Query<LimitQuery>,
 ) -> JsonResult<Option<MMEntryInfo>> {
     let entry = MMRepository::get_entry_by_id(&entry_id, tenant_ctx.tenant_id.as_str())
         .await
@@ -247,7 +253,13 @@ pub async fn list_mm(
     })
 }
 
+// These two are the clearest illustration of the hazard `deny_unknown_fields`
+// guards: `modality_type` is snake_case while `tenantId` right beside it is
+// camelCase. Both spellings have live consumers, so both are pinned by the
+// `query_param_contract` tests in `routers/mod.rs`. See `ListSessionsQuery`
+// (routers/memory_storage.rs) for why an unknown parameter must 400.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct LimitQuery {
     pub limit: Option<usize>,
     #[serde(rename = "tenantId")]
@@ -255,6 +267,7 @@ pub struct LimitQuery {
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ListMMQuery {
     pub modality_type: Option<String>,
     pub limit: Option<usize>,

@@ -105,7 +105,12 @@ pub async fn delete_user(Path(user_id): Path<String>) -> EmptyResult {
     empty_ok()
 }
 
+/// `deny_unknown_fields`: see `ListSessionsQuery` (routers/memory_storage.rs).
+/// `current_page` / `page_size` are snake_case here — a caller sending
+/// ProTable's native `currentPage` would otherwise silently get page 1 rather
+/// than the page they asked for.
 #[derive(Debug, Deserialize, Validate, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UserListQuery {
     pub username: Option<String>,
     #[serde(default = "default_page")]

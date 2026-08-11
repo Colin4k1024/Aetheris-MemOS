@@ -810,3 +810,430 @@ async fn scalar_ui() -> Html<String> {
 async fn not_found() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, Html("Page not found".to_string()))
 }
+
+/// Query-parameter naming contract (D-i).
+///
+/// # Why this exists
+///
+/// `Query<T>` deserializes the query string into `T`. An `Option<_>` field whose
+/// wire name does not match what the caller sent stays `None` — the extractor
+/// succeeds, the handler runs, and the parameter is **silently dropped**: no
+/// error to the caller, no log line. That shape already produced four separate
+/// bugs here (`docs/memory/backlog.md`, D-i), because the wire name is decided
+/// by a `#[serde(rename)]` attribute sitting far from the call site.
+///
+/// The naming is *not* uniform and deliberately stays that way. Request
+/// **bodies** are camelCase (hundreds of renames); most **query** structs are
+/// snake_case; three are camelCase (`ExplainQuery`, `ListMemoryConfigsRequest`,
+/// and the `tenantId` fields in `multimodal.rs`). Each of those three already
+/// has a live consumer — the frontend typings, the Python SDK (whose own
+/// contract test pins `traceId`), and the Rust SDK. Renaming them to make the
+/// codebase look tidy would be a breaking change for external integrators, so
+/// this module pins the wire contract **as it is** and lets
+/// `deny_unknown_fields` reject everything else. Fixing the silent drop matters;
+/// cosmetic uniformity does not.
+///
+/// These tests live in-crate because the router submodules are private — making
+/// them `pub` just to reach the structs from `tests/` would widen the public API
+/// surface for a test's benefit.
+#[cfg(test)]
+mod query_param_contract {
+    use axum::extract::Query;
+    use axum::http::Uri;
+
+    /// Deserialize through the **real** extractor. `Query::try_from_uri` is the
+    /// same entry point axum uses when a handler binds `Query<T>`, so a passing
+    /// assertion here means a live request with that spelling is accepted.
+    fn parse<T>(query_string: &str) -> Result<T, String>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let uri: Uri = format!("http://test/x?{query_string}")
+            .parse()
+            .expect("uri");
+        Query::<T>::try_from_uri(&uri)
+            .map(|Query(value)| value)
+            .map_err(|rejection| rejection.body_text())
+    }
+
+    // --- snake_case query structs: the majority convention -----------------
+
+    #[test]
+    fn list_sessions_query_accepts_snake_case() {
+        use super::memory_storage::ListSessionsQuery;
+
+        // Consumers: `sdks/rust/src/client.rs::list_sessions_request` and the
+        // frontend `services/memory/storageApi.ts` both send these spellings.
+        let q: ListSessionsQuery = parse("user_id=u1&status=active&limit=10&offset=5")
+            .expect("snake_case is this endpoint's contract");
+        assert_eq!(q.user_id.as_deref(), Some("u1"));
+        assert_eq!(q.status.as_deref(), Some("active"));
+        assert_eq!(q.limit, Some(10));
+        assert_eq!(q.offset, Some(5));
+    }
+
+    #[test]
+    fn list_sessions_query_rejects_camel_case_rather_than_dropping_it() {
+        use super::memory_storage::ListSessionsQuery;
+
+        // `userId` is not this endpoint's contract. Before `deny_unknown_fields`
+        // this parsed happily with `user_id == None`, so the filter vanished and
+        // every session came back — a wrong answer, not an error.
+        let err = parse::<ListSessionsQuery>("userId=u1")
+            .expect_err("unknown parameter must be rejected, not ignored");
+        assert!(
+            err.contains("userId"),
+            "rejection should name the offending parameter, got: {err}"
+        );
+    }
+
+    #[test]
+    fn list_entities_query_accepts_snake_case() {
+        use super::knowledge_graph::ListEntitiesQuery;
+
+        let q: ListEntitiesQuery =
+            parse("entity_type=person&limit=20&offset=0").expect("snake_case contract");
+        assert_eq!(q.entity_type.as_deref(), Some("person"));
+        assert_eq!(q.limit, Some(20));
+        assert_eq!(q.offset, Some(0));
+    }
+
+    #[test]
+    fn list_traces_query_accepts_snake_case() {
+        use super::memory::ListTracesQuery;
+
+        let q: ListTracesQuery = parse("task_id=t1&limit=5").expect("snake_case contract");
+        assert_eq!(q.task_id.as_deref(), Some("t1"));
+        assert_eq!(q.limit, Some(5));
+    }
+
+    // --- camelCase query structs: each pinned to a known consumer ----------
+
+    #[test]
+    fn explain_query_accepts_camel_case() {
+        use super::memory::ExplainQuery;
+
+        // Consumer: Python SDK `client.explain()` sends `traceId` / `taskId`,
+        // pinned there by `test_explain_uses_rest_contract`.
+        let q: ExplainQuery = parse("traceId=tr1&taskId=tk1&limit=3").expect("camelCase contract");
+        assert_eq!(q.trace_id.as_deref(), Some("tr1"));
+        assert_eq!(q.task_id.as_deref(), Some("tk1"));
+        assert_eq!(q.limit, Some(3));
+    }
+
+    #[test]
+    fn explain_query_rejects_snake_case_rather_than_dropping_it() {
+        use super::memory::ExplainQuery;
+
+        // Mirror image of the ListSessions case: here *snake_case* is wrong.
+        // `trace_id=tr1` used to mean "explain the newest trace" instead of
+        // "explain trace tr1".
+        let err = parse::<ExplainQuery>("trace_id=tr1")
+            .expect_err("unknown parameter must be rejected, not ignored");
+        assert!(
+            err.contains("trace_id"),
+            "rejection should name the offending parameter, got: {err}"
+        );
+    }
+
+    #[test]
+    fn list_memory_configs_query_accepts_camel_case() {
+        use super::memory::ListMemoryConfigsRequest;
+
+        // Consumer: `pages/MemoryManagement/index.tsx`.
+        let q: ListMemoryConfigsRequest =
+            parse("page=2&pageSize=20&userId=u1&agentId=a1&status=active&configType=default")
+                .expect("camelCase contract");
+        assert_eq!(q.page, Some(2));
+        assert_eq!(q.page_size, Some(20));
+        assert_eq!(q.user_id.as_deref(), Some("u1"));
+        assert_eq!(q.agent_id.as_deref(), Some("a1"));
+        assert_eq!(q.status.as_deref(), Some("active"));
+        assert_eq!(q.config_type.as_deref(), Some("default"));
+    }
+
+    #[test]
+    fn multimodal_queries_mix_snake_case_fields_with_camel_case_tenant_id() {
+        use super::multimodal::{LimitQuery, ListMMQuery};
+
+        // The starkest case: `modality_type` and `tenantId` sit side by side in
+        // one struct with different conventions. Both are load-bearing.
+        let q: ListMMQuery = parse("modality_type=image&limit=10&offset=0&tenantId=t1")
+            .expect("mixed-case contract");
+        assert_eq!(q.modality_type.as_deref(), Some("image"));
+        assert_eq!(q.limit, Some(10));
+        assert_eq!(q.offset, Some(0));
+        assert_eq!(q.tenant_id.as_deref(), Some("t1"));
+
+        let q: LimitQuery = parse("limit=7&tenantId=t1").expect("mixed-case contract");
+        assert_eq!(q.limit, Some(7));
+        assert_eq!(q.tenant_id.as_deref(), Some("t1"));
+    }
+
+    // --- omitted parameters must stay omissible ---------------------------
+
+    /// `deny_unknown_fields` must not turn optional parameters into required
+    /// ones. Several of these endpoints are called with no query string at all,
+    /// so an empty query must still deserialize.
+    #[test]
+    fn empty_query_string_still_parses() {
+        use super::knowledge_graph::{ListEntitiesQuery, RelatedEntitiesQuery};
+        use super::memory::{ExplainQuery, ListMemoryConfigsRequest, ListTracesQuery};
+        use super::memory_storage::{GetSessionMessagesQuery, ListSessionsQuery};
+        use super::multimodal::{LimitQuery, ListMMQuery};
+
+        parse::<ListSessionsQuery>("").expect("ListSessionsQuery");
+        parse::<GetSessionMessagesQuery>("").expect("GetSessionMessagesQuery");
+        parse::<ListEntitiesQuery>("").expect("ListEntitiesQuery");
+        parse::<RelatedEntitiesQuery>("").expect("RelatedEntitiesQuery");
+        parse::<ListTracesQuery>("").expect("ListTracesQuery");
+        parse::<ExplainQuery>("").expect("ExplainQuery");
+        parse::<ListMemoryConfigsRequest>("").expect("ListMemoryConfigsRequest");
+        parse::<LimitQuery>("").expect("LimitQuery");
+        parse::<ListMMQuery>("").expect("ListMMQuery");
+    }
+
+    // --- structural anti-drift guards -------------------------------------
+
+    /// Every query struct reached by a `Query<..>` extractor must carry
+    /// `deny_unknown_fields`, or opt out with an `ALLOWS_UNKNOWN_QUERY_PARAMS`
+    /// comment stating why.
+    ///
+    /// Keyed on the *shape* of the code rather than a hand-maintained list, so a
+    /// query struct added tomorrow is covered without editing this test. Without
+    /// the attribute a misspelled parameter is silently dropped, which is the
+    /// root cause D-i exists to close.
+    ///
+    /// The escape hatch is deliberate but narrow: it requires a comment next to
+    /// the struct, so an exemption is a documented decision rather than an
+    /// omission. `TokenQuery` (routers/auth.rs) is the only current user — its
+    /// URL travels through email clients that append tracking parameters.
+    #[test]
+    fn every_query_struct_denies_unknown_fields() {
+        let mut checked = 0usize;
+        let mut exempt = 0usize;
+        for s in query_structs() {
+            checked += 1;
+            // The exemption is read from the comments, the attribute from the
+            // attribute lines. Keeping the two sources separate is what makes
+            // this guard capable of failing — see `query_structs`.
+            if s.comments.contains("ALLOWS_UNKNOWN_QUERY_PARAMS") {
+                exempt += 1;
+                continue;
+            }
+            assert!(
+                s.attrs.contains("deny_unknown_fields"),
+                "{}: query struct `{}` lacks `#[serde(deny_unknown_fields)]`. Without it a caller \
+                 who misspells an optional parameter gets a silent `None` — the filter disappears \
+                 and the endpoint returns a confidently wrong result instead of a 400 (see \
+                 docs/memory/backlog.md, D-i). Add the attribute and pin the accepted spellings \
+                 with a test above. If unknown parameters genuinely must be tolerated (e.g. a URL \
+                 that travels through link-rewriting clients), document that with an \
+                 `ALLOWS_UNKNOWN_QUERY_PARAMS:` comment on the struct explaining why the \
+                 silent-drop hazard does not apply.",
+                s.file,
+                s.name
+            );
+        }
+        assert!(
+            checked >= 16,
+            "expected to find the known query structs (>=16), found {checked}; did the scanner or \
+             the `pub struct` shape change?"
+        );
+        // Pins the exemption count: a further opt-out has to be a conscious edit
+        // here, not something that rides along unnoticed. Current exemptions are
+        // `TokenQuery` (email-borne URL) and `WorkflowEvidenceQuery` (no fields,
+        // so nothing can be dropped).
+        assert_eq!(
+            exempt, 2,
+            "expected exactly 2 documented exemptions (TokenQuery, WorkflowEvidenceQuery), found \
+             {exempt}"
+        );
+    }
+
+    /// Any explicit `#[serde(rename = "...")]` on a query field must rename to
+    /// the camelCase form of that field.
+    ///
+    /// This permits both conventions — a field with no attribute stays
+    /// snake_case, which is the majority — while forbidding what actually broke
+    /// things: a rename inventing a *third* spelling (`trace-id`, `TraceID`)
+    /// that matches neither convention and therefore matches no caller. With
+    /// `deny_unknown_fields` now in place, such a field would reject every
+    /// realistic request instead of quietly ignoring it.
+    #[test]
+    fn renamed_query_fields_use_camel_case() {
+        let mut checked = 0usize;
+        for (file, name, body) in query_struct_bodies() {
+            for (field, wire_name) in renamed_fields(&body) {
+                checked += 1;
+                let expected = to_camel_case(&field);
+                assert_eq!(
+                    wire_name, expected,
+                    "{file}: `{name}.{field}` renames to `{wire_name}`, which is neither the \
+                     snake_case field name nor its camelCase form (`{expected}`). A wire name \
+                     matching no convention matches no caller. Use `{expected}`, or drop the \
+                     attribute to accept `{field}`."
+                );
+            }
+        }
+        // ExplainQuery's 2 + ListMemoryConfigsRequest's 4 + multimodal's 2.
+        assert!(
+            checked >= 8,
+            "expected to check the known renamed query fields (>=8), checked {checked}; did the \
+             attribute shape change?"
+        );
+    }
+
+    // --- source scanning helpers ------------------------------------------
+    //
+    // Text-level scanning (not a real parser) mirrors the tenant guards in
+    // `src/tenant/context.rs`: dependency-free, and robust to these structs
+    // moving between router files. `CARGO_MANIFEST_DIR` keeps it independent of
+    // the test's working directory.
+
+    /// A query struct is one consumed by a `Query<..>` extractor. Detected by
+    /// the `*Query` name suffix plus the single historical outlier
+    /// (`ListMemoryConfigsRequest`, bound as `Query<..>` despite its name).
+    fn is_query_struct(name: &str) -> bool {
+        name.ends_with("Query") || name == "ListMemoryConfigsRequest"
+    }
+
+    /// Yields `(file, struct_name, attributes, comments)` for every query struct
+    /// under `src/routers`.
+    ///
+    /// Attributes and comments are returned **separately and deliberately**. The
+    /// two signals the guard reads live in different places — the
+    /// `deny_unknown_fields` attribute is code, the `ALLOWS_UNKNOWN_QUERY_PARAMS`
+    /// exemption is a comment — and conflating them makes the guard unable to
+    /// fail: several of these structs have doc comments *explaining* the
+    /// attribute, so prose containing the words `deny_unknown_fields` would
+    /// satisfy an attribute check by itself. Deleting the real attribute would
+    /// then keep the test green. That is precisely the "gate exists but does not
+    /// bite" defect this remediation batch is about; the control-group run caught
+    /// it here.
+    fn query_structs() -> Vec<QueryStruct> {
+        let mut out = Vec::new();
+        for (file, src) in router_sources() {
+            let chunks: Vec<&str> = src.split("pub struct ").collect();
+            for (idx, chunk) in chunks.iter().enumerate().skip(1) {
+                let name = leading_ident(chunk);
+                if !is_query_struct(&name) {
+                    continue;
+                }
+                // Attributes and comments sit in the tail of the *previous*
+                // chunk, since splitting on "pub struct " cuts right after them.
+                let window = chunks[idx - 1].rsplit("\n\n").next().unwrap_or("");
+                let (comment_lines, attr_lines): (Vec<&str>, Vec<&str>) = window
+                    .lines()
+                    .partition(|line| line.trim_start().starts_with("//"));
+                out.push(QueryStruct {
+                    file: file.clone(),
+                    name,
+                    attrs: attr_lines.join("\n"),
+                    comments: comment_lines.join("\n"),
+                });
+            }
+        }
+        out
+    }
+
+    struct QueryStruct {
+        file: String,
+        name: String,
+        /// Non-comment lines preceding the struct, i.e. the real `#[...]`
+        /// attributes.
+        attrs: String,
+        /// Comment lines preceding the struct, where an exemption is declared.
+        comments: String,
+    }
+
+    /// Yields `(file, struct_name, struct_body)` for every query struct.
+    fn query_struct_bodies() -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        for (file, src) in router_sources() {
+            for chunk in src.split("pub struct ").skip(1) {
+                let name = leading_ident(chunk);
+                if !is_query_struct(&name) {
+                    continue;
+                }
+                let Some(open) = chunk.find('{') else {
+                    continue;
+                };
+                let Some(close) = chunk[open..].find('}') else {
+                    continue;
+                };
+                out.push((file.clone(), name, chunk[open..open + close].to_string()));
+            }
+        }
+        out
+    }
+
+    fn router_sources() -> Vec<(String, String)> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routers");
+        let entries = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+        let mut out = Vec::new();
+        for entry in entries {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+            out.push((
+                path.file_name().unwrap().to_string_lossy().into_owned(),
+                src,
+            ));
+        }
+        out
+    }
+
+    fn leading_ident(s: &str) -> String {
+        s.chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect()
+    }
+
+    /// Pairs each `#[serde(rename = "wire")]` in a struct body with the field it
+    /// decorates (the next `ident:` after the attribute).
+    fn renamed_fields(body: &str) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for seg in body.split("rename = \"").skip(1) {
+            let Some(end) = seg.find('"') else { continue };
+            let wire_name = seg[..end].to_string();
+            let after = &seg[end..];
+            let Some(colon) = after.find(':') else {
+                continue;
+            };
+            let field: String = after[..colon]
+                .chars()
+                .rev()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if wire_name.is_empty() || field.is_empty() {
+                continue;
+            }
+            out.push((field, wire_name));
+        }
+        out
+    }
+
+    fn to_camel_case(snake: &str) -> String {
+        let mut out = String::with_capacity(snake.len());
+        let mut upper_next = false;
+        for c in snake.chars() {
+            if c == '_' {
+                upper_next = true;
+            } else if upper_next {
+                out.extend(c.to_uppercase());
+                upper_next = false;
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+}

@@ -62,10 +62,31 @@ impl Default for DashboardState {
 // ============================================================================
 
 /// Time range query
+///
+/// `deny_unknown_fields`: see `ListSessionsQuery` (routers/memory_storage.rs).
+///
+/// Bounds are **Unix epoch milliseconds**, matching `MetricsEvent::timestamp`
+/// (`services/metrics.rs`) so the comparison needs no unit conversion. The unit is
+/// stated here because it was previously unstated *and* unused — the handler bound
+/// this as `_query` and discarded it, so every caller passing a range silently got
+/// metrics for all time (D-g). Both bounds are inclusive; either may be omitted to
+/// leave that side unbounded.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TimeRangeQuery {
+    /// Inclusive lower bound, Unix epoch **milliseconds**.
     pub start: Option<i64>,
+    /// Inclusive upper bound, Unix epoch **milliseconds**.
     pub end: Option<i64>,
+}
+
+impl TimeRangeQuery {
+    /// True when `timestamp` (Unix epoch ms) falls inside this range. An omitted
+    /// bound leaves that side open, so a fully-empty range accepts everything.
+    fn contains(&self, timestamp: i64) -> bool {
+        self.start.is_none_or(|start| timestamp >= start)
+            && self.end.is_none_or(|end| timestamp <= end)
+    }
 }
 
 /// Dashboard metrics response
@@ -177,12 +198,22 @@ pub struct FailureResponse {
 /// Get aggregate dashboard metrics (anonymous)
 pub async fn get_dashboard_metrics(
     State(state): State<Arc<DashboardState>>,
-    _query: Option<Query<TimeRangeQuery>>,
+    query: Option<Query<TimeRangeQuery>>,
 ) -> JsonResult<DashboardMetricsResponse> {
     let start = Instant::now();
 
-    // Get metrics from aggregator
-    let events = state.metrics.get_metrics();
+    // Get metrics from aggregator, honouring the requested window. Previously this
+    // parameter was bound as `_query` and dropped, so `?start=..&end=..` returned
+    // all-time metrics with no indication the range had been ignored (D-g).
+    let events: Vec<_> = match query.as_deref() {
+        Some(range) => state
+            .metrics
+            .get_metrics()
+            .into_iter()
+            .filter(|event| range.contains(event.timestamp))
+            .collect(),
+        None => state.metrics.get_metrics(),
+    };
 
     // Calculate aggregate metrics
     let mut total_count = 0u64;
@@ -421,6 +452,46 @@ mod tests {
             get_dashboard_metrics(State(state), Option::<Query<TimeRangeQuery>>::None).await;
 
         assert!(result.is_ok());
+    }
+
+    /// The range bounds must actually filter (D-g). `start`/`end` used to be bound
+    /// as `_query` and discarded, so a caller asking for a narrow window silently
+    /// received all-time metrics. Asserting on `contains` rather than on the handler
+    /// keeps this independent of a live metrics backend.
+    #[test]
+    fn time_range_bounds_are_inclusive_and_individually_optional() {
+        let range = TimeRangeQuery {
+            start: Some(100),
+            end: Some(200),
+        };
+        assert!(range.contains(100), "lower bound is inclusive");
+        assert!(range.contains(200), "upper bound is inclusive");
+        assert!(range.contains(150));
+        assert!(!range.contains(99));
+        assert!(!range.contains(201));
+
+        let from_only = TimeRangeQuery {
+            start: Some(100),
+            end: None,
+        };
+        assert!(from_only.contains(i64::MAX), "omitted end is unbounded");
+        assert!(!from_only.contains(99));
+
+        let until_only = TimeRangeQuery {
+            start: None,
+            end: Some(200),
+        };
+        assert!(until_only.contains(i64::MIN), "omitted start is unbounded");
+        assert!(!until_only.contains(201));
+
+        // An empty range must not filter everything out — omitting the query
+        // entirely and passing an empty one have to behave the same.
+        let unbounded = TimeRangeQuery {
+            start: None,
+            end: None,
+        };
+        assert!(unbounded.contains(0));
+        assert!(unbounded.contains(i64::MAX));
     }
 
     #[tokio::test]

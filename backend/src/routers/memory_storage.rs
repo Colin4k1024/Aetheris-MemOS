@@ -269,7 +269,16 @@ pub async fn get_session_messages(
     json_ok(messages)
 }
 
+/// `deny_unknown_fields` is load-bearing here, not tidiness. Every field is
+/// `Option<_>`, so a misspelled parameter (`userId` instead of `user_id`) would
+/// otherwise deserialize to `None`: the extractor succeeds, the filter silently
+/// disappears, and the caller gets *all* sessions back believing they asked for
+/// one user's. That silent-drop shape already caused four bugs in this repo — see
+/// `docs/memory/backlog.md` (D-i). Rejecting the unknown parameter turns a wrong
+/// answer into a 400 the integrator can act on. Accepted wire names are pinned by
+/// the `query_param_contract` tests in `routers/mod.rs`.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ListSessionsQuery {
     pub user_id: Option<String>,
     pub status: Option<String>,
@@ -278,6 +287,7 @@ pub struct ListSessionsQuery {
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct GetSessionMessagesQuery {
     pub limit: Option<i32>,
 }

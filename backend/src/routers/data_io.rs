@@ -15,7 +15,13 @@ use crate::tenant::TenantId;
 use crate::{json_ok, AppError, JsonResult};
 
 /// Export format
+///
+/// `deny_unknown_fields`: every field has a `default`, so a misspelled parameter
+/// would otherwise fall back to that default and silently export something other
+/// than what the caller asked for. See `ListSessionsQuery`
+/// (routers/memory_storage.rs) for the full rationale.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExportQuery {
     /// Export format: "json" or "markdown"
     #[serde(default = "default_format")]

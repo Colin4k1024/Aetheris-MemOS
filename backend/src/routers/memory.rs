@@ -118,7 +118,14 @@ pub async fn select_memory_config_trace(
     json_ok(trace)
 }
 
+// `deny_unknown_fields`: see the rationale on `ListSessionsQuery`
+// (routers/memory_storage.rs). Note the contrast with `ExplainQuery` ~40 lines
+// below — these two live in the same file and use *opposite* conventions
+// (`task_id` here, `taskId` there). Both are pinned by the
+// `query_param_contract` tests in `routers/mod.rs`, because remembering which is
+// which is exactly what failed before.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListTracesQuery {
     pub task_id: Option<String>,
     pub limit: Option<i32>,
@@ -164,7 +171,14 @@ pub async fn get_decision_traces(
     json_ok(ListTracesResponse { traces })
 }
 
+// camelCase on the wire, and it must stay that way: the Python SDK's
+// `client.explain()` sends `traceId` / `taskId`
+// (`sdks/python/adaptive_memory/client.py`, pinned by its own
+// `test_explain_uses_rest_contract`). Renaming these to match the snake_case
+// sibling above would silently break that SDK, so the mismatch is preserved
+// deliberately rather than "cleaned up".
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExplainQuery {
     #[serde(rename = "traceId")]
     pub trace_id: Option<String>,
@@ -205,6 +219,13 @@ pub async fn explain_memory_selection(
     json_ok(ExplainResponse { traces })
 }
 
+/// Takes no query parameters at all.
+///
+/// ALLOWS_UNKNOWN_QUERY_PARAMS: an empty struct has no field for a parameter to
+/// be silently dropped *into*, so the D-i hazard cannot occur here. Adding
+/// `deny_unknown_fields` would instead make this endpoint reject any request
+/// carrying a stray parameter — a behaviour change with no safety gain. If this
+/// struct ever gains a field, delete this marker and add the attribute.
 #[derive(Deserialize, Debug, Default, ToSchema)]
 pub struct WorkflowEvidenceQuery {}
 
@@ -795,7 +816,12 @@ use crate::services::weight_adjuster::*;
 
 // ========== 记忆配置管理 API ==========
 
+// camelCase on the wire: `pages/MemoryManagement/index.tsx` maps ProTable's
+// params onto these exact keys (typed as `API.ListMemoryConfigsParams`). It
+// whitelists each field rather than spreading `params`, so `deny_unknown_fields`
+// is safe — ProTable's own bookkeeping keys never reach the backend.
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListMemoryConfigsRequest {
     pub page: Option<u32>,
     #[serde(rename = "pageSize")]

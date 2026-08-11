@@ -11,6 +11,27 @@ use crate::services::memory_search::{MemorySearchService, SearchResult};
 use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
+/// Time a search operation and record `memory_search_duration_seconds`.
+///
+/// Instrumentation lives at the HTTP-handler boundary, not inside the search
+/// service: `hybrid`/`triple`/`scored` internally re-enter
+/// `search_ltm_for_tenant` and `keyword_search_for_tenant`, so timing the
+/// service methods would record two-plus observations for a single user request
+/// and skew the histogram. Handlers never call each other, so this yields
+/// exactly one observation per request. Duration is recorded on both the success
+/// and error paths — a slow *failed* search is still latency that matters —
+/// before the result is propagated with `?`.
+async fn timed_search<F, T>(op: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let start = std::time::Instant::now();
+    let out = op.await;
+    crate::services::prometheus_exporter::get_exporter()
+        .record_search_duration(start.elapsed().as_secs_f64());
+    out
+}
+
 /// 搜索短期记忆请求
 #[derive(Deserialize, ToSchema, Validate)]
 pub struct SearchSTMRequest {
@@ -121,13 +142,13 @@ pub async fn search_stm(
         req.user_id, req.agent_id, req.session_type
     );
 
-    let messages = MemorySearchService::search_stm_for_tenant(
+    let messages = timed_search(MemorySearchService::search_stm_for_tenant(
         &tenant_ctx.tenant_id,
         &req.user_id,
         &req.agent_id,
         req.session_type.as_deref(),
         req.limit,
-    )
+    ))
     .await?;
 
     json_ok(SearchSTMResponse { messages })
@@ -146,13 +167,13 @@ pub async fn search_ltm(
         req.top_k
     );
 
-    let results = MemorySearchService::search_ltm_for_tenant(
+    let results = timed_search(MemorySearchService::search_ltm_for_tenant(
         &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
         req.enable_rerank,
         req.min_score,
-    )
+    ))
     .await?;
 
     json_ok(SearchLTMResponse { results })
@@ -171,7 +192,7 @@ pub async fn hybrid_search(
         req.top_k
     );
 
-    let results = MemorySearchService::hybrid_search_for_tenant(
+    let results = timed_search(MemorySearchService::hybrid_search_for_tenant(
         &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
@@ -179,7 +200,7 @@ pub async fn hybrid_search(
         req.vector_weight.unwrap_or(0.7),
         req.enable_rerank,
         req.min_score,
-    )
+    ))
     .await?;
 
     json_ok(HybridSearchResponse { results })
@@ -197,11 +218,11 @@ pub async fn search_by_entity(
         req.entity, req.limit
     );
 
-    let results = MemorySearchService::search_by_entity_for_tenant(
+    let results = timed_search(MemorySearchService::search_by_entity_for_tenant(
         &tenant_ctx.tenant_id,
         &req.entity,
         req.limit,
-    )
+    ))
     .await?;
 
     json_ok(SearchByEntityResponse { results })
@@ -220,7 +241,7 @@ pub async fn triple_hybrid_search(
         req.top_k
     );
 
-    let results = MemorySearchService::triple_hybrid_search_for_tenant(
+    let results = timed_search(MemorySearchService::triple_hybrid_search_for_tenant(
         &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
@@ -229,7 +250,7 @@ pub async fn triple_hybrid_search(
         req.graph_weight,
         req.enable_rerank,
         req.min_score,
-    )
+    ))
     .await?;
 
     json_ok(TripleHybridSearchResponse { results })
@@ -289,7 +310,7 @@ pub async fn scored_search(
     );
 
     // 先执行三路混合搜索
-    let raw_results = MemorySearchService::triple_hybrid_search_for_tenant(
+    let raw_results = timed_search(MemorySearchService::triple_hybrid_search_for_tenant(
         &tenant_ctx.tenant_id,
         &req.query,
         req.top_k.unwrap_or(10),
@@ -298,7 +319,7 @@ pub async fn scored_search(
         req.graph_weight,
         req.enable_rerank,
         req.min_score,
-    )
+    ))
     .await?;
 
     // 构建置信度评分配置
@@ -368,7 +389,12 @@ pub async fn get_ltm_entry(
 // ============ Bi-temporal Tracking Endpoints ============
 
 /// 时间旅行查询请求
+///
+/// `deny_unknown_fields`：见 `ListSessionsQuery`（routers/memory_storage.rs）。
+/// 这里 `limit` 拼错会静默回落成默认条数，而 `at` 是必填、拼错会直接报错——
+/// 前者才是需要这条属性挡住的场景。
 #[derive(Deserialize, ToSchema, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct TimeTravelQuery {
     /// RFC3339 格式的时间戳，例如 "2024-01-01T00:00:00Z"
     pub at: String,
