@@ -945,6 +945,13 @@ pub async fn get_memory_config(
 pub async fn create_memory_config(
     Json(req): Json<CreateMemoryConfigRequest>,
 ) -> JsonResult<serde_json::Value> {
+    // 校验 config_type（backlog D-k）。合法值的单一真相源是
+    // `models::memory_enums::ConfigType`（与 migration 的 `CHECK (config_type IN (...))`
+    // 由防漂移测试锁定一致）。此前直接把 req.config_type 绑进 INSERT，非法值以 DB check
+    // 违约（HTTP 500 内部错误）暴露；现在在写入边界拒绝并返回 400，错误消息列出合法值。
+    let config_type = crate::models::memory_enums::ConfigType::parse(&req.config_type)
+        .map_err(crate::AppError::BadRequest)?;
+
     let config_id = ulid::Ulid::new().to_string();
 
     // 创建 MemoryConfigRow
@@ -953,7 +960,7 @@ pub async fn create_memory_config(
         user_id: req.user_id,
         agent_id: req.agent_id,
         config_name: req.config_name,
-        config_type: req.config_type,
+        config_type: config_type.as_str().to_string(),
         stm_enabled: req.stm_enabled as i16,
         stm_max_length: req.stm_max_length,
         stm_retention_hours: req.stm_retention_hours,
@@ -1052,7 +1059,12 @@ pub async fn update_memory_config(
         existing.config_name = name;
     }
     if let Some(ct) = update_req.config_type {
-        existing.config_type = ct;
+        // 校验 config_type（backlog D-k）：仅在调用方显式提供该字段时校验并写入，
+        // 未提供则保留既有值。合法值真相源同 create（`ConfigType`）。此前直接覆写，
+        // 非法值以 DB check 违约（HTTP 500）暴露；现在返回 400 并列出合法值。
+        let ct = crate::models::memory_enums::ConfigType::parse(&ct)
+            .map_err(crate::AppError::BadRequest)?;
+        existing.config_type = ct.as_str().to_string();
     }
     if let Some(val) = update_req.stm_enabled {
         existing.stm_enabled = val as i16;

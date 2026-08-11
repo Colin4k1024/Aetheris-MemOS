@@ -81,6 +81,14 @@ pub async fn store_mm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<StoreMMRequest>,
 ) -> JsonResult<StoreMMResponse> {
+    // 校验 modality_type（backlog D-k）。
+    // 合法值的单一真相源是 `models::memory_enums::ModalityType`（与 migration 的
+    // `CHECK (modality_type IN (...))` 由防漂移测试锁定一致）。此前 handler 把调用方
+    // 的原始字符串直接绑进 INSERT，非法值会以 DB check 违约（HTTP 500 内部错误）暴露；
+    // 现在在写入边界拒绝并返回 400，错误消息列出全部合法值，集成方可据此自查。
+    let modality_type = crate::models::memory_enums::ModalityType::parse(&body.modality_type)
+        .map_err(crate::AppError::BadRequest)?;
+
     // 解析二进制内容
     let _binary_data = if let Some(content) = &body.content {
         use base64::Engine;
@@ -96,7 +104,7 @@ pub async fn store_mm(
     let entry_id = MMRepository::create_entry(
         body.session_id.as_deref(),
         &body.source_id,
-        &body.modality_type,
+        modality_type.as_str(),
         "{}", // content_metadata
         body.text_content.as_deref(),
         body.image_url.as_deref(),

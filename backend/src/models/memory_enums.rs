@@ -110,6 +110,98 @@ impl SourceType {
     }
 }
 
+/// Multimodal `multimodal_entries.modality_type`.
+///
+/// Source of truth: `migrations/20240101000005_multimodal_memory.sql`
+/// (`CHECK (modality_type IN ('text', 'image', 'audio', 'video', 'mixed'))`).
+///
+/// Before this enum the write path (`MMRepository::create_entry`) bound the
+/// caller's raw string straight into the INSERT, so an invalid modality
+/// surfaced as a DB `CHECK` violation (HTTP 500). The HTTP write boundary now
+/// validates here and returns a 400 that lists the valid values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalityType {
+    Text,
+    Image,
+    Audio,
+    Video,
+    Mixed,
+}
+
+impl ModalityType {
+    /// All valid values, ordered as in the migration `CHECK` clause.
+    pub const ALL: &'static [&'static str] = &["text", "image", "audio", "video", "mixed"];
+
+    /// Canonical string persisted to the DB.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModalityType::Text => "text",
+            ModalityType::Image => "image",
+            ModalityType::Audio => "audio",
+            ModalityType::Video => "video",
+            ModalityType::Mixed => "mixed",
+        }
+    }
+
+    /// Exact-match parse; `Err` is the caller-facing 400 message.
+    ///
+    /// No case-folding or trimming — same rationale as [`SessionType::parse`]:
+    /// the DB `CHECK` is exact, so the app must enforce the identical contract.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "text" => Ok(ModalityType::Text),
+            "image" => Ok(ModalityType::Image),
+            "audio" => Ok(ModalityType::Audio),
+            "video" => Ok(ModalityType::Video),
+            "mixed" => Ok(ModalityType::Mixed),
+            other => Err(invalid_value_message("modalityType", other, Self::ALL)),
+        }
+    }
+}
+
+/// Memory config `memory_configurations.config_type`.
+///
+/// Source of truth: `migrations/20240101000006_memory_management.sql`
+/// (`CHECK (config_type IN ('default', 'custom', 'optimized'))`).
+///
+/// The create/update HTTP handlers bound the caller's raw string straight into
+/// the INSERT/UPDATE, so an invalid `configType` surfaced as a DB `CHECK`
+/// violation (HTTP 500). Those handlers now validate here and return a 400 that
+/// lists the valid values. (Internal callers — scheduler / orchestrator — pass
+/// the fixed literal `"optimized"`, so they never depended on this.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigType {
+    Default,
+    Custom,
+    Optimized,
+}
+
+impl ConfigType {
+    /// All valid values, ordered as in the migration `CHECK` clause.
+    pub const ALL: &'static [&'static str] = &["default", "custom", "optimized"];
+
+    /// Canonical string persisted to the DB.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfigType::Default => "default",
+            ConfigType::Custom => "custom",
+            ConfigType::Optimized => "optimized",
+        }
+    }
+
+    /// Exact-match parse; `Err` is the caller-facing 400 message.
+    ///
+    /// No case-folding or trimming — same rationale as [`SessionType::parse`].
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "default" => Ok(ConfigType::Default),
+            "custom" => Ok(ConfigType::Custom),
+            "optimized" => Ok(ConfigType::Optimized),
+            other => Err(invalid_value_message("configType", other, Self::ALL)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,12 +229,37 @@ mod tests {
     }
 
     #[test]
+    fn modality_type_parse_accepts_all_valid_values() {
+        assert_eq!(ModalityType::parse("text").unwrap(), ModalityType::Text);
+        assert_eq!(ModalityType::parse("image").unwrap(), ModalityType::Image);
+        assert_eq!(ModalityType::parse("audio").unwrap(), ModalityType::Audio);
+        assert_eq!(ModalityType::parse("video").unwrap(), ModalityType::Video);
+        assert_eq!(ModalityType::parse("mixed").unwrap(), ModalityType::Mixed);
+    }
+
+    #[test]
+    fn config_type_parse_accepts_all_valid_values() {
+        assert_eq!(ConfigType::parse("default").unwrap(), ConfigType::Default);
+        assert_eq!(ConfigType::parse("custom").unwrap(), ConfigType::Custom);
+        assert_eq!(
+            ConfigType::parse("optimized").unwrap(),
+            ConfigType::Optimized
+        );
+    }
+
+    #[test]
     fn as_str_round_trips_through_parse() {
         for v in SessionType::ALL {
             assert_eq!(SessionType::parse(v).unwrap().as_str(), *v);
         }
         for v in SourceType::ALL {
             assert_eq!(SourceType::parse(v).unwrap().as_str(), *v);
+        }
+        for v in ModalityType::ALL {
+            assert_eq!(ModalityType::parse(v).unwrap().as_str(), *v);
+        }
+        for v in ConfigType::ALL {
+            assert_eq!(ConfigType::parse(v).unwrap().as_str(), *v);
         }
     }
 
@@ -177,6 +294,36 @@ mod tests {
     }
 
     #[test]
+    fn invalid_modality_type_error_lists_all_valid_values() {
+        let err = ModalityType::parse("gif").unwrap_err();
+        assert!(
+            err.contains("gif"),
+            "message must echo the bad value: {err}"
+        );
+        for v in ModalityType::ALL {
+            assert!(
+                err.contains(v),
+                "message must list valid value '{v}': {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_config_type_error_lists_all_valid_values() {
+        let err = ConfigType::parse("tuned").unwrap_err();
+        assert!(
+            err.contains("tuned"),
+            "message must echo the bad value: {err}"
+        );
+        for v in ConfigType::ALL {
+            assert!(
+                err.contains(v),
+                "message must list valid value '{v}': {err}"
+            );
+        }
+    }
+
+    #[test]
     fn parse_is_exact_match_no_case_fold_or_trim() {
         // Guards the deliberate decision to NOT silently normalize: these must be
         // rejected, not coerced, so app and DB enforce the identical contract.
@@ -186,12 +333,20 @@ mod tests {
         assert!(SourceType::parse("Document").is_err());
         assert!(SourceType::parse(" web ").is_err());
         assert!(SourceType::parse("USER_INPUT").is_err());
+        assert!(ModalityType::parse("Image").is_err());
+        assert!(ModalityType::parse(" audio ").is_err());
+        assert!(ModalityType::parse("VIDEO").is_err());
+        assert!(ConfigType::parse("Default").is_err());
+        assert!(ConfigType::parse(" custom ").is_err());
+        assert!(ConfigType::parse("OPTIMIZED").is_err());
     }
 
     #[test]
     fn empty_value_is_rejected() {
         assert!(SessionType::parse("").is_err());
         assert!(SourceType::parse("").is_err());
+        assert!(ModalityType::parse("").is_err());
+        assert!(ConfigType::parse("").is_err());
     }
 
     // --- Anti-drift: enum ⇄ migration CHECK clause -------------------------- //
@@ -242,6 +397,30 @@ mod tests {
         assert_eq!(
             migration_values, enum_values,
             "SourceType::ALL drifted from the migration CHECK clause; \
+             update whichever is wrong so both agree"
+        );
+    }
+
+    #[test]
+    fn anti_drift_modality_type_matches_migration_check() {
+        let sql = include_str!("../../migrations/20240101000005_multimodal_memory.sql");
+        let migration_values = parse_check_in_values(sql, "modality_type");
+        let enum_values: Vec<String> = ModalityType::ALL.iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            migration_values, enum_values,
+            "ModalityType::ALL drifted from the migration CHECK clause; \
+             update whichever is wrong so both agree"
+        );
+    }
+
+    #[test]
+    fn anti_drift_config_type_matches_migration_check() {
+        let sql = include_str!("../../migrations/20240101000006_memory_management.sql");
+        let migration_values = parse_check_in_values(sql, "config_type");
+        let enum_values: Vec<String> = ConfigType::ALL.iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            migration_values, enum_values,
+            "ConfigType::ALL drifted from the migration CHECK clause; \
              update whichever is wrong so both agree"
         );
     }
