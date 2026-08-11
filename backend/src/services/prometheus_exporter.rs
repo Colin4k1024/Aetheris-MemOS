@@ -854,4 +854,113 @@ mod tests {
             2.0
         );
     }
+
+    // --- B-5b: the four previously zero-call metrics ---------------------- //
+
+    /// Sample count of an unlabelled histogram, or 0 if the series is absent.
+    fn histogram_count(reg: &prometheus::Registry, name: &str) -> u64 {
+        for mf in reg.gather() {
+            if mf.get_name() == name {
+                if let Some(m) = mf.get_metric().first() {
+                    return m.get_histogram().get_sample_count();
+                }
+            }
+        }
+        0
+    }
+
+    /// Value of a labelled counter series (e.g. `memory_requests_total`) matching
+    /// ALL of `labels`, or 0.0 if no such series exists.
+    fn labelled_counter(reg: &prometheus::Registry, name: &str, labels: &[(&str, &str)]) -> f64 {
+        for mf in reg.gather() {
+            if mf.get_name() != name {
+                continue;
+            }
+            for m in mf.get_metric() {
+                let series = m.get_label();
+                let all_match = labels.iter().all(|(k, v)| {
+                    series
+                        .iter()
+                        .any(|l| l.get_name() == *k && l.get_value() == *v)
+                });
+                if all_match {
+                    return m.get_counter().get_value();
+                }
+            }
+        }
+        0.0
+    }
+
+    #[test]
+    fn set_inventory_gauges_reflected_in_registry() {
+        let exporter = PrometheusExporter::new();
+        exporter.set_ltm_entries_total(1234.0);
+        exporter.set_stm_sessions_active(56.0);
+
+        assert_eq!(
+            gauge_scalar(exporter.registry(), "memory_ltm_entries_total"),
+            1234.0,
+            "LTM inventory gauge must carry the value it was set to"
+        );
+        assert_eq!(
+            gauge_scalar(exporter.registry(), "memory_stm_sessions_active"),
+            56.0
+        );
+        // A gauge tracks the latest observation, not a running sum.
+        exporter.set_ltm_entries_total(1000.0);
+        assert_eq!(
+            gauge_scalar(exporter.registry(), "memory_ltm_entries_total"),
+            1000.0
+        );
+    }
+
+    #[test]
+    fn record_search_duration_lands_in_the_histogram() {
+        let exporter = PrometheusExporter::new();
+        assert_eq!(
+            histogram_count(exporter.registry(), "memory_search_duration_seconds"),
+            0,
+            "histogram starts empty"
+        );
+        exporter.record_search_duration(0.05);
+        exporter.record_search_duration(0.20);
+        assert_eq!(
+            histogram_count(exporter.registry(), "memory_search_duration_seconds"),
+            2,
+            "each search observation must be counted in the histogram"
+        );
+    }
+
+    #[test]
+    fn record_request_moves_counter_and_latency_histogram() {
+        let exporter = PrometheusExporter::new();
+        exporter.record_request("/api/x", 200, Duration::from_millis(5));
+        exporter.record_request("/api/x", 200, Duration::from_millis(7));
+        exporter.record_request("/api/x", 500, Duration::from_millis(9));
+
+        assert_eq!(
+            labelled_counter(
+                exporter.registry(),
+                "memory_requests_total",
+                &[("endpoint", "/api/x"), ("status", "200")]
+            ),
+            2.0,
+            "two 200s under the same endpoint must accumulate on one series"
+        );
+        assert_eq!(
+            labelled_counter(
+                exporter.registry(),
+                "memory_requests_total",
+                &[("endpoint", "/api/x"), ("status", "500")]
+            ),
+            1.0,
+            "a different status is a distinct series"
+        );
+        // record_request also observes the shared (unlabelled) latency histogram,
+        // once per call regardless of status.
+        assert_eq!(
+            histogram_count(exporter.registry(), "memory_request_duration_seconds"),
+            3
+        );
+    }
 }

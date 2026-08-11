@@ -738,3 +738,27 @@ impl STMRepository {
         Ok(result.rows_affected() > 0)
     }
 }
+
+/// Count live STM sessions across **all tenants** for the operational inventory
+/// gauge (`memory_stm_sessions_active`).
+///
+/// Deliberately cross-tenant and NOT routed through `begin_tenant_tx` — see
+/// [`crate::db::ltm::count_active_entries`] for the shared RLS caveat (returns 0
+/// under a hardened NOBYPASSRLS role with no tenant GUC; returns the real count
+/// under today's default role).
+///
+/// "Active" is `status = 'active' AND expires_at > NOW()`: sessions expire by
+/// their `expires_at` timestamp, and there is no sweep that flips the status
+/// column, so `status = 'active'` alone would keep counting sessions whose TTL
+/// has already lapsed.
+pub async fn count_active_sessions(pool: &sqlx::PgPool) -> Result<i64, AppError> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM context_sessions WHERE status = 'active' AND expires_at > NOW()",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| {
+        error!("count_active_sessions failed: {}", e);
+        AppError::Internal(format!("Database error: {}", e))
+    })
+}

@@ -469,6 +469,13 @@ pub fn root() -> Router {
         // dependency outage into a restart storm.
         .merge(probes::router())
         .nest_service("/assets", ServeDir::new("assets"))
+        // Per-request metrics (memory_requests_total{endpoint,status} +
+        // memory_request_duration_seconds). Applied at the outermost router so it
+        // covers every route; the endpoint label is the resolved route template
+        // (MatchedPath), which is available and fully-qualified at this layer —
+        // verified in hoops::metrics_mw tests. Scrape/probe endpoints are skipped
+        // inside the middleware.
+        .layer(middleware::from_fn(hoops::track_request_metrics))
         .layer(TraceLayer::new_for_http())
         .fallback(not_found)
 }

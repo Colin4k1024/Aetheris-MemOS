@@ -3,6 +3,7 @@ pub mod enterprise_hooks_v2;
 pub mod enterprise_impl;
 pub mod governance;
 pub mod jwt;
+pub mod metrics_mw;
 pub mod rate_limit;
 pub mod validation;
 pub use enterprise::{
@@ -19,6 +20,7 @@ pub use enterprise_impl::{
     GovernanceHookImpl, JwtAuthHookImpl, RbacHookImpl, TenantQuotaHookImpl,
 };
 pub use governance::{classify, governance_middleware};
+pub use metrics_mw::track_request_metrics;
 pub use rate_limit::{rate_limit_middleware, rate_limit_state};
 pub use validation::{
     contains_sql_injection, contains_xss, validate_content_length, validation_middleware,

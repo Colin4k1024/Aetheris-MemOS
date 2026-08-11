@@ -827,3 +827,27 @@ impl LTMRepository {
         Ok(new_entry_id)
     }
 }
+
+/// Count active LTM entries across **all tenants** for the operational inventory
+/// gauge (`memory_ltm_entries_total`).
+///
+/// Deliberately cross-tenant and NOT routed through `begin_tenant_tx`: this is a
+/// process-wide inventory level, not a tenant-scoped read. It mirrors the
+/// reconciliation scanner's global `knowledge_entries` read (`load_db_entries`)
+/// and shares its caveat — under a hardened NOSUPERUSER/NOBYPASSRLS app role with
+/// no `aetheris.tenant_id` GUC set, RLS filters every row and this returns 0.
+/// Today's default (superuser) role makes RLS a no-op, so it returns the real
+/// total.
+///
+/// Filters `status = 'active'`: `knowledge_entries` retains superseded rows as
+/// `status = 'deprecated'` (bi-temporal versioning) and soft-deletes, so a bare
+/// `COUNT(*)` would count historical versions and tombstones, not live entries.
+pub async fn count_active_entries(pool: &sqlx::PgPool) -> Result<i64, AppError> {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM knowledge_entries WHERE status = 'active'")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            error!("count_active_entries failed: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })
+}

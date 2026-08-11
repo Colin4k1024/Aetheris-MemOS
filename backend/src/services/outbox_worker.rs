@@ -22,9 +22,11 @@ const BATCH_SIZE: i64 = 32;
 const MAX_ATTEMPTS: i32 = 8;
 const STALE_LOCK_SECS: i64 = 120;
 const RECLAIM_EVERY_N_LOOPS: u32 = 15;
-/// Publish the pending-queue depth every N loops rather than on every 2s poll,
-/// so the `outbox_pending_total` gauge tracks reality without a full-table
-/// COUNT on each cycle. Mirrors [`RECLAIM_EVERY_N_LOOPS`]; ~30s at the 2s poll.
+/// Publish the pending-queue depth and the memory-inventory gauges every N loops
+/// rather than on every 2s poll, so `outbox_pending_total`,
+/// `memory_ltm_entries_total` and `memory_stm_sessions_active` track reality
+/// without a full-table COUNT on each cycle. Mirrors [`RECLAIM_EVERY_N_LOOPS`];
+/// ~30s at the 2s poll.
 const PUBLISH_PENDING_EVERY_N_LOOPS: u32 = 15;
 
 /// Start the outbox worker (idempotent). No-op when not on PostgreSQL.
@@ -71,6 +73,25 @@ async fn run_loop(worker_id: &str) {
             match vector_outbox::count_pending(pool()).await {
                 Ok(n) => exporter.set_outbox_pending(n as f64),
                 Err(e) => warn!("outbox count_pending: {}", e),
+            }
+
+            // Memory-inventory gauges (memory_ltm_entries_total /
+            // memory_stm_sessions_active) piggyback on this loop rather than a
+            // dedicated task: it is the only always-on PostgreSQL background loop
+            // (started whenever PG is configured), so death of the loop is already
+            // observable via the OutboxBacklogHigh / OutboxProcessingSlow alerts on
+            // the pending gauge it shares. A separate refresher would have no such
+            // liveness coverage without minting an otherwise-unactioned staleness
+            // metric. A COUNT that errors leaves the gauge at its previous value —
+            // zeroing on a transient DB blip would fabricate an "empty" reading,
+            // the exact false-calm this instrumentation exists to avoid.
+            match crate::db::ltm::count_active_entries(pool()).await {
+                Ok(n) => exporter.set_ltm_entries_total(n as f64),
+                Err(e) => warn!("inventory count_active_entries: {}", e),
+            }
+            match crate::db::stm::count_active_sessions(pool()).await {
+                Ok(n) => exporter.set_stm_sessions_active(n as f64),
+                Err(e) => warn!("inventory count_active_sessions: {}", e),
             }
         }
 
