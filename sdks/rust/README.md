@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let stm = client.store_stm(StoreStmRequest {
         user_id: "user1".to_string(),
         agent_id: "assistant".to_string(),
-        session_type: "default".to_string(),
+        session_type: "conversation".to_string(),
         role: "user".to_string(),
         content: "Hello, world!".to_string(),
     }).await?;
@@ -116,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
     let stm = client.store_stm(StoreStmRequest {
         user_id: "user1".to_string(),
         agent_id: "assistant".to_string(),
-        session_type: "default".to_string(),
+        session_type: "conversation".to_string(),
         role: "user".to_string(),
         content: "Hello!".to_string(),
     }).await?;

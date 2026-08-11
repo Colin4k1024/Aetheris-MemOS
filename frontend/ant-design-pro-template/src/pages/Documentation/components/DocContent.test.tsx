@@ -52,7 +52,9 @@ describe('DocContent sanitization', () => {
   });
 
   it('strips <script> tags from rendered markdown', () => {
-    const body = getBody('safe text\n\n<script>window.__pwned = true;</script>');
+    const body = getBody(
+      'safe text\n\n<script>window.__pwned = true;</script>',
+    );
     expect(body.querySelector('script')).toBeNull();
     expect(body.textContent).toContain('safe text');
   });

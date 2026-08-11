@@ -9,27 +9,63 @@
 
 ## 任务追踪对照
 
-2026-08-11 全量登记进会话任务清单，共 **30 项**（原 29 项 + 新发现 1 项）。
-`#N` 为任务 ID。**会话任务清单是易失的，本文仍是唯一持久事实源**——
-任务状态变化必须回写本文，不能只留在任务清单里。
+原始清单 29 项，2026-08-11 期间因做别的事撞出 **12 项新发现**（其中 2 项 P0），
+共 41 项。`#N` 为会话任务 ID。**会话任务清单是易失的，本文是唯一持久事实源**
+——任务状态变化必须回写本文。
 
-| 分类 | 项数 | 任务 ID | 状态 |
-|---|---|---|---|
-| B 生产阻塞 | 5 | #1 #2 #4 #31 #39 | **#1 #2 #31 代码完成待真机验证**；#4 未开始；#39 为本次新发现 |
-| A 声明 vs 实现 | 7 | #5 #6 #7 #8 #9 #10 #11 | **#5 完成**；#8 部分完成（1/3）；其余未开始 |
-| C 治理与多租户 | 4 | #32 #13 #14 #15 | 未开始 |
-| D 实测候选 | 9 | #16 #17 #18 #19 #20 #21 #22 #23 #24 | **#19 #20 #23 完成**；其余未开始 |
-| E 技术债 | 7 | #25 #26 #27 #28 #29 #33 #34 | **#28 #29 完成**；#33 #34 为本次新发现 |
+### 已完成（28 项，已提交，2026-08-11 共 8 个 commit）
 
-**已登记的硬依赖**：`#6 ← #5`（沙箱双平面需先有按主体授予集合，**#5 已完成，#6 解除阻塞**）、
-`#17 ← #16`（先统一命名+契约测试，否则手工排查要做两遍）。
-其余项均可独立开工。
+| 分类 | 已完成 |
+|---|---|
+| **P0 安全** | P0-6 path 跨租户泄漏（#56）、P0-7 body/无参跨租户泄漏（#64）、C-4 SQLite 静默降级（#15） |
+| **B 生产阻塞** | B-1 审计落盘（#4）、B-2 告警+dashboard（#31）、B-3 探针（#2）、B-4 对账接线（#1）、B-5 指标接线（#39）、#44 配额指标 |
+| **A 声明 vs 实现** | A-1 MCP capability 按主体（#5）、A-2 沙箱双平面（#6）、A-4 A2A 入 CI（#8，部分——见 A-4b） |
+| **C 治理与多租户** | C-1 治理覆盖 5 组路由（#32）、C-2 outbox 租户公平性（#13）、C-5 tenant.rs 去留（#65） |
+| **D 实测候选** | D-a 枚举 400（#18）、D-b 配置维度（#19）、D-c vector_guard 提示（#20）、D-d Neo4j 阻塞启动（#21）、D-e 摘要降级（#22）、D-e2 embedding 硬依赖（#61）、D-f doc 示例（#23）、D-h ADR 收口（#24） |
+| **E 技术债** | E-2 删双 JWT（#26）、E-3 前端 lint 阻塞（#27）、E-4 SDK urlencoding（#28）、E-5 无用 JOIN（#29）、E-7 fmt 门禁+toolchain pin（#34）、E-8 rel=noopener（#63）、E-9 loading 态（#69）、E-10 Retry-After（#70） |
 
-**2026-08-11 批次进展**：11 项动过（8 项完成 / 3 项代码完成待真机验证），
-新发现 3 项（#33 #34 #39）。测试基线 `769 → 786 passed / 0 failed`，
-doc test 从 0 运行变为 2 运行。fmt 偏差保持 9 文件 / 65 处（**零新增**，均为 #34 的既有项）。
-⚠️ 本机无 Docker，PG / Qdrant / Prometheus / promtool 均未起，
-故 B 类三项的真机行为、告警规则的 PromQL 语义均**未验证**。
+### 待处理（13 项）
+
+| 项 | 量级 | 阻塞/前提 |
+|---|---|---|
+| **A-4b** a2a 未挂 auth_middleware（#79） | S/M | 安全项。4/7 测试因缺 `RequestTenantContext` 而 500 |
+| **A-3** open-core feature gating（#7） | M | |
+| **A-5** gRPC + WebSocket 真实化（#9） | L | 需 `.proto` + `build.rs` + tonic server |
+| **A-6** kernel/layers 接真实存储（#10） | L | 动核心数据路径，高风险 |
+| **A-7** eval harness 做成真的（#11） | XL | ADR-0008 的放行前置本身是假的 |
+| **C-3** org 层租户模型（#14） | XL | **等产品方向决策**（ADR-0009 已出，三方案未拍板） |
+| **D-g** 参数被忽略排查（#17） | M | 阻塞于 D-i |
+| **D-i** query 命名统一 + 契约测试（#16） | L | 根因项 |
+| **D-j** SDK 非法枚举示例（#77） | S | |
+| **D-k** 另 6 个 CHECK 约束（#78） | M | 复用 D-a 的模式 |
+| **D-e3** 补摘要 + 向量重算（#71） | M/L | 必须同时重算向量 |
+| **E-1** utoipa 迁移（#25） | L | |
+| **E-6** clippy `-D warnings`（#33） | L | 需先清 628 条存量 |
+| **E-11** 前端 jest 基建（#80） | M | 仓库当前无任何可运行前端测试 |
+
+### C-3 是四项的共同阻塞
+
+A-1、C-1、P0-6、P0-7 都已完成，但**今天的可观测效果都受限**：
+`tenant/context.rs:130` 把 `user_id` 直接当 `tenant_id`，所以每人都是自身
+单用户租户的 Owner，角色检查恒 true。跨租户已被挡住，但同租户内的角色区分
+无从体现。见 `docs/adr/ADR-0009-org-level-tenant-model.md`（Proposed，
+三方案未拍板——A 与 C 的取舍取决于产品是否面向企业多用户）。
+
+### 门禁现状（这一批的主要成果之一）
+
+| 门禁 | 状态 |
+|---|---|
+| `cargo fmt --all -- --check` | ✅ 0 偏差 + toolchain pinned `1.96.1`（此前无 pin，是 65 处偏差能进来的机制） |
+| 前端 `npm run lint` | ✅ exit 0、**0 warning**、**已阻塞**（此前挂 `continue-on-error`，22 个阻塞项在场时那 flag 让门禁不可能失败） |
+| `cargo test --tests` | ✅ **963 passed / 0 failed** |
+| `backend-a2a` job | ✅ 编译门禁 + 按名跑 3 个通过的测试（此前 7 个测试静默编译为空） |
+| `cargo clippy --all` | ⚠️ 仍无 `-D warnings`（#33） |
+| 前端测试 | ⚠️ jest 基建不可用，**无任何可运行测试**（#80） |
+
+⚠️ **未验证的边界**：本机无 Docker / PG / Qdrant / Neo4j / Ollama / promtool。
+审计的落盘→回放整链、对账四类漂移检出、`claim_batch` 的 CTE SQL（运行时
+query 非 `query!` 宏，`cargo check` 不校验）、告警的 PromQL 语义、探针对活服务
+的 200、启动 fail-fast 的 `exit(1)`，均**未实跑**。
 
 ---
 
@@ -155,17 +191,44 @@ handler 边界上的身份-资源绑定。与已修的 P0-2（`db/mm.rs` 租户 
 - （#29）~~`search_knowledge_by_entity_for_tenant` 无用 `LEFT JOIN`~~ → 见上，已完成
 - （#33，**2026-08-11 新发现**）CI clippy 无 `-D warnings`：`ci.yml:102` 是 `cargo clippy --all`，只去掉了 `continue-on-error`，警告一律放行。closeout-summary 称「clippy 改为阻塞」**表述不准**。前提是先清理存量警告（`cargo check` 516 条 / `cargo clippy --all` 628 条）
 - （#34，**2026-08-11 新发现，已完成**）✅ `cargo fmt --all -- --check` 门禁。**我上轮的表述是错的**：我说「CI 显示通过」，但核实后发现**分支从未推送、远端无此分支、CI 从未运行过**——那是我从证据缺失里推出的结论，不是核实的（与 §4.5 同类错误）。真实情况是首次 push 时 CI 必定失败。已修：`cargo fmt --all` 把 65 处偏差清零；并修根因——新增 `rust-toolchain.toml` pin 到 `1.96.1`，`ci.yml` 从 `dtolnay/rust-toolchain@stable` 改为 `@master` + 显式版本。此前无 pin，CI 的 `@stable` 在运行时解析，与贡献者本地 rustfmt 可以不同版本，这正是偏差能被提交进来的机制
+- （#63，**已完成**）✅ E-8 `DocContent` 的 DOMPurify 配置用 `ADD_ATTR: ['target']` 允许 `target` 但未补 `rel="noopener noreferrer"`（反向 tabnabbing，纵深防御而非活漏洞——现代浏览器对 `target=_blank` 已默认 noopener）。已加 `afterSanitizeAttributes` hook，**合并而非覆盖**已有 rel token
+- （#69，**已完成**）✅ E-9 `TaskAnalysis` 提交按钮未接 loading 态。只用 `loading`、**刻意不加 `disabled`**——antd Button 的 loading 已拦截点击，而原生 `disabled` 只来自 `mergedDisabled`，加它会让按钮失焦到 body、结束后不回来
+- （#70，**已完成**）✅ E-10 所有 503 响应带 `Retry-After`。非 503（4xx/500）**不带**并有测试断言——在永久性错误上放该头会误导调用方重试不会好转的失败
+- （#77，**2026-08-11 新发现**）SDK example 用**非法枚举值**：`sdks/rust/src/models.rs` 的 `session_type` 用 `"chat"`、`source_type` 用 `"documentation"`，两者都不在 CHECK 允许集里。D-a 之前 `documentation` 被后端静默改写为 `user_input`、`chat` 撞 CHECK 报 500；D-a 之后都返回 400。**这不是 D-a 引入的回归，而是 D-a 暴露的既有缺陷**——SDK 一直在教用户传错值。另：Python SDK 在**客户端侧**也做静默重映射（`client.py:253-256`），是同一反模式换了个位置
+- （#78，**2026-08-11 新发现**）另有 **6 个 CHECK 约束**以同样方式暴露：STM 消息 `role`、`modality_type`、`relation_type`、`config_type`、`correlation_type`、租户 `role`。应复用 D-a 建立的模式（`models/memory_enums.rs` 的 enum + `ALL` + `include_str!` 读 migration 的防漂移测试），并继承两条约束：**校验放 service 层**（多入口场景下类型层只保护 axum 反序列化那一条）、**enum 不进 row struct**（否则读取历史非法值会失败）
+- （#79，**2026-08-11 新发现，安全项**）**a2a 路由未挂 `auth_middleware`**。`routers/mod.rs:452` 是 `api_router.merge(a2a_router(...))`，没有任何 auth 层——而 `auth_middleware` 正是注入 `Extension<RequestTenantContext>` 的地方。`a2a/streaming.rs:31` 要提取它，没注入就 500。实测 `cargo test --features a2a --test a2a_integration` 得 **3 passed / 4 failed**（4 个全是 500 != 200）。这 7 个测试从写下来到 2026-08-11 一次都没跑过（文件级 `#![cfg(feature = "a2a")]` + CI 无 a2a 通道 = 编译为空、静默消失）。⚠️ **不要只补 extension 注入而不挂 auth** —— 那会留下一组无鉴权的 a2a 端点，比现在的 500 危险得多。这也是 ADR-0007「统一鉴权核心」的又一实现缺口
+- （#80，**2026-08-11 新发现**）**前端 jest 基建整体不可用**：`jest.config.ts` import `@umijs/max/test` 报 `ERR_MODULE_NOT_FOUND`（既有状态，非新引入）。**所以仓库当前没有任何可运行的前端测试。** 另有孤儿快照 `src/pages/user/login/__snapshots__/login.test.tsx.snap` 无对应测试文件。这是「门禁存在但不起作用」的同类：有配置、有快照、有 test script，但一条都跑不了。lint 不能验证行为——E-8 的 rel、E-9 的 loading 都无法用测试固定
+- （#71，**2026-08-11 新发现**）D-e3 补摘要后台任务。查询入口已就绪（`list_entries_pending_summary` + 部分索引），但**必须同时重算向量**：Complete 的向量是 `embed(摘要)`、Pending 的是 `embed(content)`，只填摘要文本会让该条目向量永久停在 content-derived、与语料库其余部分不一致。完整流程需在同一事务内更新 hash 与入队 outbox，否则对账会检出假的 `content_hash_mismatch`
 
 ---
 
-## F. 未合并
+## F. 未推送、未合并
 
-`fix/truthfulness-and-security-remediation` 分支（10 commits）状态仍为
-`ready-for-review`，**尚未合并到 `dev`**。上次拍板的「review 后合并」未执行。
-合并前置见 closeout-summary §6 与「运维前提」：存量库必须先
-`ALTER ROLE aetheris_app WITH LOGIN PASSWORD '<managed-secret>'`。
+`fix/truthfulness-and-security-remediation` **从未推送过**（`git ls-remote` 远端
+无此分支，`git reflog` 无任何 checkout/reset），所以 **CI 一次都没跑过**。
+这一点此前被误述为「CI 显示通过」，见 §E 的 #34。
+
+分支现有 **18 个 commit**：更早会话 10 个 + 2026-08-11 第一批 4 个 + 第二批 4 个。
+仍未合并到 `dev`。
+
+**首次 push 前的注意事项**：
+
+1. `backend-a2a` job 是新增的，会首次拉取 a2a-rs 的 pinned rev（需网络）。
+   它刻意没有 `continue-on-error`，所以若拉取失败会红——但它是独立 job，
+   不会影响 `backend` job 的安全关键套件。
+2. 前端 lint 已成阻塞门禁。本地实测 exit 0 且 0 warning，但 CI 用
+   `npm ci --legacy-peer-deps` 装依赖，版本解析可能与本地 `node_modules` 不同。
+3. `cargo fmt` 门禁依赖 `rust-toolchain.toml` 的 `1.96.1` 与 `ci.yml` 的显式版本
+   一致。改任一处都要同步另一处。
+4. 存量库的运维前提不变：必须先
+   `ALTER ROLE aetheris_app WITH LOGIN PASSWORD '<managed-secret>'`，
+   否则连接报 `password authentication failed`（见 closeout-summary §6）。
+
+**明确不宣称生产就绪。** 本轮关闭了 4 个生产阻塞项与 2 个 P0 跨租户泄漏，
+但仍有 13 项待处理，其中 C-3（org 层租户模型）阻塞着四项已完成工作的实际效果，
+且大量行为**未经真机验证**（本机无 Docker/PG/Qdrant/Neo4j/Ollama）。
 
 ---
 
-**最后更新**：2026-08-11（批量批次：8 项完成 + 3 项代码完成待真机验证 + 新发现 #33 #34 #39）
+**最后更新**：2026-08-11（第二批：28 项完成 / 8 个 commit / 新发现 12 项）
 **更新角色**：tech-lead

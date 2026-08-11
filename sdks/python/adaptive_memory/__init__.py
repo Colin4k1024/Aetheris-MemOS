@@ -6,7 +6,7 @@ A Python SDK for interacting with the Adaptive Memory System.
 
 __version__ = "0.1.0"
 
-from .client import MemoryClient, AsyncMemoryClient
+from .client import MemoryClient, AsyncMemoryClient, MemoryApiError
 from .models import (
     MemoryEntry,
     MemorySearchResult,
@@ -17,6 +17,7 @@ from .models import (
 __all__ = [
     "MemoryClient",
     "AsyncMemoryClient",
+    "MemoryApiError",
     "MemoryEntry",
     "MemorySearchResult",
     "MemoryConfig",

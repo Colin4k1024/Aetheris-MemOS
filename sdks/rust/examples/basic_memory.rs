@@ -26,7 +26,11 @@ async fn main() -> anyhow::Result<()> {
     let first_req = StoreStmRequest {
         user_id: "user-001".to_string(),
         agent_id: "agent-rust-demo".to_string(),
-        session_type: "chat".to_string(),
+        // session_type must be a value the server accepts (conversation / task /
+        // query). An invalid value returns a 400 whose message lists the valid
+        // set — the server is the single source of truth, so the SDK does not
+        // keep its own copy.
+        session_type: "conversation".to_string(),
         role: "user".to_string(),
         content: "Hello! Can you help me learn Rust?".to_string(),
     };
@@ -41,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
     let second_req = StoreStmRequest {
         user_id: "user-001".to_string(),
         agent_id: "agent-rust-demo".to_string(),
-        session_type: "chat".to_string(),
+        session_type: "conversation".to_string(),
         role: "assistant".to_string(),
         content: "Of course! Rust is a systems programming language focused on safety and performance. Where would you like to start?".to_string(),
     };
@@ -55,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
     let third_req = StoreStmRequest {
         user_id: "user-001".to_string(),
         agent_id: "agent-rust-demo".to_string(),
-        session_type: "chat".to_string(),
+        session_type: "conversation".to_string(),
         role: "user".to_string(),
         content: "Let's start with ownership and borrowing concepts.".to_string(),
     };
@@ -72,7 +76,9 @@ async fn main() -> anyhow::Result<()> {
 
     let ltm_req = StoreLtmRequest {
         source_id: "doc-rust-ownership-001".to_string(),
-        source_type: "documentation".to_string(),
+        // source_type must be a value the server accepts (document / api /
+        // database / web / user_input); an invalid value returns a 400.
+        source_type: "document".to_string(),
         content: "Rust ownership rules: (1) Each value has a single owner. \
                   (2) When the owner goes out of scope the value is dropped. \
                   (3) There can be either one mutable reference or any number \
