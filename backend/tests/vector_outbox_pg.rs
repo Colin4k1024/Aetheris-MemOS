@@ -94,7 +94,10 @@ fn filter_by_tenant(
     events: Vec<vector_outbox::OutboxEvent>,
     tenant: &str,
 ) -> Vec<vector_outbox::OutboxEvent> {
-    events.into_iter().filter(|e| e.tenant_id == tenant).collect()
+    events
+        .into_iter()
+        .filter(|e| e.tenant_id == tenant)
+        .collect()
 }
 
 // ── Test 1: insert_event_tx idempotency ────────────────────────────────────
@@ -118,14 +121,24 @@ async fn insert_event_tx_idempotent_duplicate_leaves_one_row() {
 
     let mut tx = pool.begin().await.expect("begin tx");
     let r1 = vector_outbox::insert_event_tx(
-        &mut tx, &tenant, &entry_id, OutboxOperation::Upsert,
-        payload, payload_hash, &idem_key,
+        &mut tx,
+        &tenant,
+        &entry_id,
+        OutboxOperation::Upsert,
+        payload,
+        payload_hash,
+        &idem_key,
     )
     .await
     .expect("first insert");
     let r2 = vector_outbox::insert_event_tx(
-        &mut tx, &tenant, &entry_id, OutboxOperation::Upsert,
-        payload, payload_hash, &idem_key,
+        &mut tx,
+        &tenant,
+        &entry_id,
+        OutboxOperation::Upsert,
+        payload,
+        payload_hash,
+        &idem_key,
     )
     .await
     .expect("second insert (idempotent)");
@@ -142,7 +155,10 @@ async fn insert_event_tx_idempotent_duplicate_leaves_one_row() {
     .await
     .expect("count query");
 
-    assert_eq!(count, 1, "idempotent insert must leave exactly ONE row, got {count}");
+    assert_eq!(
+        count, 1,
+        "idempotent insert must leave exactly ONE row, got {count}"
+    );
 
     let stored_id: String = sqlx::query_scalar(
         "SELECT event_id FROM memory_vector_outbox WHERE tenant_id = $1 AND idempotency_key = $2",
@@ -183,8 +199,13 @@ async fn claim_batch_concurrent_disjoint_sets() {
         let payload = format!(r#"{{"vector":[{i}.0,{i}.1,{i}.2]}}"#);
         let idem_key = format!("vob.claim:{tenant}:{i}");
         let _ = vector_outbox::insert_event_tx(
-            &mut tx, &tenant, &entry_id, OutboxOperation::Upsert,
-            &payload, &format!("hash-{i}"), &idem_key,
+            &mut tx,
+            &tenant,
+            &entry_id,
+            OutboxOperation::Upsert,
+            &payload,
+            &format!("hash-{i}"),
+            &idem_key,
         )
         .await
         .expect("insert");
@@ -253,15 +274,22 @@ async fn mark_applied_excludes_event_from_claim() {
     let entry_id = format!("entry-{tenant}");
     let idem_key = format!("vob.applied:{tenant}:0");
     let event_id = vector_outbox::insert_event_tx(
-        &mut tx, &tenant, &entry_id, OutboxOperation::Upsert,
-        r#"{"vector":[1.0]}"#, "hash-0", &idem_key,
+        &mut tx,
+        &tenant,
+        &entry_id,
+        OutboxOperation::Upsert,
+        r#"{"vector":[1.0]}"#,
+        "hash-0",
+        &idem_key,
     )
     .await
     .expect("insert");
     tx.commit().await.expect("commit");
 
     let claimed = filter_by_tenant(
-        vector_outbox::claim_batch(&pool, "worker-applied", 1).await.expect("claim"),
+        vector_outbox::claim_batch(&pool, "worker-applied", 1)
+            .await
+            .expect("claim"),
         &tenant,
     );
     assert_eq!(claimed.len(), 1, "must claim the single event");
@@ -271,17 +299,18 @@ async fn mark_applied_excludes_event_from_claim() {
         .await
         .expect("mark_applied");
 
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM memory_vector_outbox WHERE event_id = $1",
-    )
-    .bind(&event_id)
-    .fetch_one(&pool)
-    .await
-    .expect("status query");
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM memory_vector_outbox WHERE event_id = $1")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .expect("status query");
     assert_eq!(status, "applied", "event must be in 'applied' status");
 
     let claimed_again = filter_by_tenant(
-        vector_outbox::claim_batch(&pool, "worker-applied-2", 10).await.expect("claim again"),
+        vector_outbox::claim_batch(&pool, "worker-applied-2", 10)
+            .await
+            .expect("claim again"),
         &tenant,
     );
     assert!(
@@ -313,8 +342,13 @@ async fn mark_failed_increments_retry_and_dead_letters_after_max_attempts() {
     let entry_id = format!("entry-{tenant}");
     let idem_key = format!("vob.failed:{tenant}:0");
     let event_id = vector_outbox::insert_event_tx(
-        &mut tx, &tenant, &entry_id, OutboxOperation::Upsert,
-        r#"{"vector":[1.0]}"#, "hash-0", &idem_key,
+        &mut tx,
+        &tenant,
+        &entry_id,
+        OutboxOperation::Upsert,
+        r#"{"vector":[1.0]}"#,
+        "hash-0",
+        &idem_key,
     )
     .await
     .expect("insert");
@@ -339,10 +373,15 @@ async fn mark_failed_increments_retry_and_dead_letters_after_max_attempts() {
 
     assert_eq!(status, "failed", "first failure → status 'failed'");
     assert_eq!(attempt_count, 1, "attempt_count must increment to 1");
-    assert!(retry_in_future, "next_retry_at must be in the future (backoff applied)");
+    assert!(
+        retry_in_future,
+        "next_retry_at must be in the future (backoff applied)"
+    );
 
     let claimed = filter_by_tenant(
-        vector_outbox::claim_batch(&pool, "worker-failed", 10).await.expect("claim after failed"),
+        vector_outbox::claim_batch(&pool, "worker-failed", 10)
+            .await
+            .expect("claim after failed"),
         &tenant,
     );
     assert!(
@@ -370,13 +409,22 @@ async fn mark_failed_increments_retry_and_dead_letters_after_max_attempts() {
     let last_error: String = row.get("last_error");
     let dead_letter_set: bool = row.get("dead_letter_set");
 
-    assert_eq!(status, "dead_letter", "final failure → status 'dead_letter'");
-    assert_eq!(attempt_count, 8, "attempt_count must reach 8 (max_attempts)");
+    assert_eq!(
+        status, "dead_letter",
+        "final failure → status 'dead_letter'"
+    );
+    assert_eq!(
+        attempt_count, 8,
+        "attempt_count must reach 8 (max_attempts)"
+    );
     assert!(
         last_error.contains("error #8"),
         "last_error must contain the final error message, got: {last_error}"
     );
-    assert!(dead_letter_set, "dead_lettered_at must be set when entering dead_letter state");
+    assert!(
+        dead_letter_set,
+        "dead_lettered_at must be set when entering dead_letter state"
+    );
 
     cleanup(&pool, &tenant).await;
 }
@@ -402,8 +450,13 @@ async fn reclaim_stale_recovers_abandoned_events() {
         let entry_id = format!("entry-{tenant}-{i}");
         let idem_key = format!("vob.reclaim:{tenant}:{i}");
         let eid = vector_outbox::insert_event_tx(
-            &mut tx, &tenant, &entry_id, OutboxOperation::Upsert,
-            r#"{"vector":[1.0]}"#, &format!("hash-{i}"), &idem_key,
+            &mut tx,
+            &tenant,
+            &entry_id,
+            OutboxOperation::Upsert,
+            r#"{"vector":[1.0]}"#,
+            &format!("hash-{i}"),
+            &idem_key,
         )
         .await
         .expect("insert");
@@ -412,40 +465,51 @@ async fn reclaim_stale_recovers_abandoned_events() {
     }
 
     let claimed = filter_by_tenant(
-        vector_outbox::claim_batch(&pool, "worker-reclaim", 10).await.expect("claim"),
+        vector_outbox::claim_batch(&pool, "worker-reclaim", 10)
+            .await
+            .expect("claim"),
         &tenant,
     );
     assert_eq!(claimed.len(), 2, "must claim both events");
 
     for eid in &event_ids {
-        let status: String = sqlx::query_scalar(
-            "SELECT status FROM memory_vector_outbox WHERE event_id = $1",
-        )
-        .bind(eid)
-        .fetch_one(&pool)
-        .await
-        .expect("status query");
-        assert_eq!(status, "processing", "event {eid} must be 'processing' after claim");
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM memory_vector_outbox WHERE event_id = $1")
+                .bind(eid)
+                .fetch_one(&pool)
+                .await
+                .expect("status query");
+        assert_eq!(
+            status, "processing",
+            "event {eid} must be 'processing' after claim"
+        );
     }
 
     let reclaimed = vector_outbox::reclaim_stale(&pool, 0)
         .await
         .expect("reclaim_stale stale_secs=0");
-    assert_eq!(reclaimed, 2, "both events must be reclaimed with stale_secs=0");
+    assert_eq!(
+        reclaimed, 2,
+        "both events must be reclaimed with stale_secs=0"
+    );
 
     for eid in &event_ids {
-        let status: String = sqlx::query_scalar(
-            "SELECT status FROM memory_vector_outbox WHERE event_id = $1",
-        )
-        .bind(eid)
-        .fetch_one(&pool)
-        .await
-        .expect("status query after reclaim");
-        assert_eq!(status, "pending", "event {eid} must be 'pending' after reclaim_stale");
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM memory_vector_outbox WHERE event_id = $1")
+                .bind(eid)
+                .fetch_one(&pool)
+                .await
+                .expect("status query after reclaim");
+        assert_eq!(
+            status, "pending",
+            "event {eid} must be 'pending' after reclaim_stale"
+        );
     }
 
     let claimed_again = filter_by_tenant(
-        vector_outbox::claim_batch(&pool, "worker-reclaim-2", 1).await.expect("claim again"),
+        vector_outbox::claim_batch(&pool, "worker-reclaim-2", 1)
+            .await
+            .expect("claim again"),
         &tenant,
     );
     assert_eq!(claimed_again.len(), 1, "must claim one event");
@@ -454,15 +518,17 @@ async fn reclaim_stale_recovers_abandoned_events() {
     let reclaimed_fresh = vector_outbox::reclaim_stale(&pool, 120)
         .await
         .expect("reclaim_stale stale_secs=120");
-    assert_eq!(reclaimed_fresh, 0, "freshly claimed event must NOT be reclaimed (locked_at < 120s ago)");
+    assert_eq!(
+        reclaimed_fresh, 0,
+        "freshly claimed event must NOT be reclaimed (locked_at < 120s ago)"
+    );
 
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM memory_vector_outbox WHERE event_id = $1",
-    )
-    .bind(freshly_claimed)
-    .fetch_one(&pool)
-    .await
-    .expect("status query");
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM memory_vector_outbox WHERE event_id = $1")
+            .bind(freshly_claimed)
+            .fetch_one(&pool)
+            .await
+            .expect("status query");
     assert_eq!(
         status, "processing",
         "freshly claimed event must remain 'processing' after unsuccessful reclaim"

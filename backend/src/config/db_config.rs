@@ -81,6 +81,22 @@ pub struct DbConfig {
     /// explicit error until an operator deliberately configures this.
     #[serde(default)]
     pub admin_url: Option<String>,
+
+    /// Whether an empty [`Self::url`] may silently fall back to a local SQLite
+    /// database.
+    ///
+    /// **Defaults to `false`, and that default is a security control.** SQLite
+    /// has no Row Level Security, so the fallback drops *all* database-layer
+    /// tenant isolation — the multi-tenant guarantee then rests entirely on
+    /// every application query passing the right `tenant_id`. A production
+    /// deployment that loses its `DATABASE_URL` (empty env var, stripped
+    /// config, bad secret injection) must **fail to boot**, not quietly come up
+    /// with weaker isolation than the operator believes it has.
+    ///
+    /// Set to `true` (or `APP_DB_ALLOW_SQLITE_FALLBACK=true`) only for local
+    /// development. Doing so prints a startup banner, mirroring `jwt.disabled`.
+    #[serde(default = "default_false")]
+    pub allow_sqlite_fallback: bool,
 }
 
 fn default_helper_threads() -> usize {

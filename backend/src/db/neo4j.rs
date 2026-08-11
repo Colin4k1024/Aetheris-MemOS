@@ -5,10 +5,12 @@
 use crate::config::Neo4jConfig;
 use crate::AppError;
 use neo4rs::{query, Graph, Node, Relation, Row};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Neo4j connection manager
 pub struct Neo4jManager {
@@ -17,7 +19,16 @@ pub struct Neo4jManager {
 }
 
 impl Neo4jManager {
-    /// Create a new Neo4j manager
+    /// Create a new Neo4j manager.
+    ///
+    /// `Graph::new` only builds a lazy connection pool — it performs no I/O and
+    /// so cannot detect a bad host or wrong credentials. We therefore issue a
+    /// `RETURN 1` probe here so a failure surfaces at connect time (and the
+    /// caller can log the real status) rather than on the first knowledge-graph
+    /// write. NOTE: neo4rs retries a failed query with exponential backoff up to
+    /// its internal 60s `max_elapsed_time`, so this call can block for up to ~60s
+    /// on an unreachable host or wrong password. Callers MUST wrap it in a
+    /// timeout and run it off the startup critical path (see [`spawn_neo4j_init`]).
     pub async fn new(config: &Neo4jConfig) -> Result<Self, AppError> {
         let uri = format!("{}:{}", config.host, config.port);
         info!("Connecting to Neo4j at {}", uri);
@@ -29,7 +40,14 @@ impl Neo4jManager {
                 AppError::Internal(format!("Neo4j connection failed: {}", e))
             })?;
 
-        info!("Successfully connected to Neo4j");
+        // Real connectivity probe — forces the lazy pool to open a connection and
+        // complete the auth handshake, so "connected" reflects reality.
+        graph.run(query("RETURN 1")).await.map_err(|e| {
+            error!("Neo4j connectivity probe failed: {}", e);
+            AppError::Internal(format!("Neo4j connectivity probe failed: {}", e))
+        })?;
+
+        info!("Successfully connected to Neo4j at {}", uri);
 
         Ok(Self {
             graph,
@@ -372,9 +390,129 @@ pub type Neo4jManagerHandle = Arc<RwLock<Option<Neo4jManager>>>;
 /// Global Neo4j manager handle, set by `init_neo4j` at startup.
 static NEO4J_HANDLE: OnceLock<Neo4jManagerHandle> = OnceLock::new();
 
+/// Observable connection status for the optional Neo4j dependency.
+///
+/// Neo4j is initialised off the startup critical path, so the process can be
+/// serving HTTP while the connection attempt is still in flight (or has failed).
+/// This lets callers (health reporting, logs) read the *real* state instead of
+/// trusting an optimistic startup log. It is deliberately NOT wired into
+/// `/readyz`: Neo4j is optional, and failing readiness on its absence would
+/// evict an otherwise-healthy instance from the load balancer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Neo4jStatus {
+    /// Never attempted (e.g. placeholder password rejected before connecting).
+    Disabled = 0,
+    /// Background connect in progress.
+    Connecting = 1,
+    /// Connected and connectivity-probed successfully.
+    Connected = 2,
+    /// Connect attempt failed (unreachable, wrong credentials, or timeout).
+    Failed = 3,
+}
+
+static NEO4J_STATUS: AtomicU8 = AtomicU8::new(Neo4jStatus::Disabled as u8);
+
+fn set_status(status: Neo4jStatus) {
+    NEO4J_STATUS.store(status as u8, Ordering::Relaxed);
+}
+
+/// Current, observable Neo4j connection status.
+pub fn neo4j_status() -> Neo4jStatus {
+    match NEO4J_STATUS.load(Ordering::Relaxed) {
+        2 => Neo4jStatus::Connected,
+        1 => Neo4jStatus::Connecting,
+        3 => Neo4jStatus::Failed,
+        _ => Neo4jStatus::Disabled,
+    }
+}
+
+/// Known placeholder / example Neo4j passwords shipped in the repo or compose
+/// files. Connecting with one of these is pointless (it will never authenticate)
+/// and, before this guard, cost ~60s of blocking backoff per query. Unlike the
+/// JWT secret check (which aborts the process), a placeholder here only *skips*
+/// the Neo4j connection: Neo4j is optional, so the service must still start.
+const PLACEHOLDER_NEO4J_PASSWORDS: &[&str] = &[
+    "REPLACE_WITH_YOUR_NEO4J_PASSWORD",
+    "your-neo4j-password",
+    "password",
+    "neo4j",
+    "change-me",
+    "changeme",
+];
+
+/// Total wall-clock budget for the background connect attempt. neo4rs retries a
+/// failed query with exponential backoff up to its own 60s ceiling; we cap the
+/// whole attempt so a mis-set host/password can never hold a connection slot (or
+/// leak backoff work) indefinitely.
+const NEO4J_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Returns true when `password` is a known placeholder that will never
+/// authenticate. Trimmed and case-insensitive to catch copy-paste variants.
+fn is_placeholder_password(password: &str) -> bool {
+    let pw = password.trim();
+    PLACEHOLDER_NEO4J_PASSWORDS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(pw))
+}
+
 /// Create a new Neo4j manager handle
 pub fn create_neo4j_manager() -> Neo4jManagerHandle {
     Arc::new(RwLock::new(None))
+}
+
+/// Spawn Neo4j connection + index initialisation off the startup critical path.
+///
+/// Returns immediately so the HTTP server can start listening without waiting on
+/// Neo4j (an optional dependency). The actual connect + index creation runs in a
+/// background task, bounded by [`NEO4J_CONNECT_TIMEOUT`]. Idempotent: repeat
+/// calls after the first are no-ops.
+///
+/// A placeholder password (see [`PLACEHOLDER_NEO4J_PASSWORDS`]) is rejected up
+/// front — the service continues without Neo4j and the status is left
+/// [`Neo4jStatus::Disabled`], instead of burning the timeout on an auth attempt
+/// that can never succeed.
+pub fn spawn_neo4j_init(config: &Neo4jConfig) {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    if STARTED.set(()).is_err() {
+        return;
+    }
+
+    if is_placeholder_password(&config.password) {
+        set_status(Neo4jStatus::Disabled);
+        warn!(
+            host = %config.host,
+            port = config.port,
+            "Neo4j password is a placeholder — skipping connection. Knowledge-graph \
+             features are disabled. Set a real password via APP_NEO4J_PASSWORD to enable Neo4j."
+        );
+        return;
+    }
+
+    set_status(Neo4jStatus::Connecting);
+    let config = config.clone();
+    tokio::spawn(async move {
+        match tokio::time::timeout(NEO4J_CONNECT_TIMEOUT, init_neo4j(&config)).await {
+            Ok(Ok(_)) => {
+                set_status(Neo4jStatus::Connected);
+                // Index creation is best-effort and never fatal.
+                let _ = init_neo4j_indexes().await;
+            }
+            Ok(Err(e)) => {
+                set_status(Neo4jStatus::Failed);
+                warn!(
+                    error = %e,
+                    "Neo4j connection failed — continuing without knowledge-graph features"
+                );
+            }
+            Err(_) => {
+                set_status(Neo4jStatus::Failed);
+                warn!(
+                    timeout_secs = NEO4J_CONNECT_TIMEOUT.as_secs(),
+                    "Neo4j connection timed out — continuing without knowledge-graph features"
+                );
+            }
+        }
+    });
 }
 
 /// Initialize Neo4j connection and indexes
@@ -429,4 +567,41 @@ pub async fn init_neo4j_indexes() -> Result<(), AppError> {
 /// Helper function to convert serde_json::Value to a BoltType-compatible value
 fn json_to_bolt(value: serde_json::Value) -> String {
     serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_shipped_placeholder_password() {
+        // The default from config/neo4j_config.rs must be treated as a placeholder.
+        assert!(is_placeholder_password("REPLACE_WITH_YOUR_NEO4J_PASSWORD"));
+    }
+
+    #[test]
+    fn placeholder_check_is_trimmed_and_case_insensitive() {
+        assert!(is_placeholder_password("  password  "));
+        assert!(is_placeholder_password("NEO4J"));
+        assert!(is_placeholder_password("ChangeMe"));
+    }
+
+    #[test]
+    fn accepts_a_real_looking_password() {
+        assert!(!is_placeholder_password("s3cr3t-Aa1!-random-value"));
+        assert!(!is_placeholder_password("passwords")); // not an exact match
+    }
+
+    #[test]
+    fn status_round_trips_through_atomic() {
+        // Default is Disabled before any init.
+        set_status(Neo4jStatus::Connecting);
+        assert_eq!(neo4j_status(), Neo4jStatus::Connecting);
+        set_status(Neo4jStatus::Connected);
+        assert_eq!(neo4j_status(), Neo4jStatus::Connected);
+        set_status(Neo4jStatus::Failed);
+        assert_eq!(neo4j_status(), Neo4jStatus::Failed);
+        set_status(Neo4jStatus::Disabled);
+        assert_eq!(neo4j_status(), Neo4jStatus::Disabled);
+    }
 }

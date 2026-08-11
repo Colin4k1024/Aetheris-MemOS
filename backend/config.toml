@@ -44,6 +44,12 @@ timeout_seconds = 30
 # 注意：qdrant-client 使用 gRPC，需要端口 6334（gRPC），而不是 6333（HTTP REST API）
 host = "localhost"
 port = 6334
+# 一个 collection 只能承载一种 embedding 模型产出的向量空间。
+# 若切换 [embedding].model（例如从 nomic-embed-text/768 换到 text-embedding-v4/1024），
+# 必须同时改 collection_name —— 否则 vector_guard 会检出维度冲突并拒绝启动。
+# 复用同名 collection 的唯一「恢复」方式是丢数据重建，改名则可无损共存。
+# 这也是 local.toml（本地覆盖，已 gitignore）与本文件并存时最容易踩的坑：
+# 两者若都写 "long_term_memory"，切换配置就会碰撞。
 collection_name = "long_term_memory"
 vector_dimension = 768
 # Cosine matches the retrieval layer (higher score = more similar, in [0,1]).

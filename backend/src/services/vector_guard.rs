@@ -90,16 +90,29 @@ pub fn init() -> Result<()> {
                         stored_dimension = stored.dimension,
                         current_model = %current_model,
                         current_dimension,
+                        signature_file = %sig_path.display(),
                         "VECTOR SPACE COLLAPSE DETECTED: dimension mismatch! \
                          The collection was built with a different embedding model. \
-                         Drop the Qdrant collection and re-index to recover."
+                         Recovery needs BOTH steps: (1) drop the Qdrant collection \
+                         '{}' and re-index, and (2) remove its entry from the signature \
+                         file at {}. Dropping the collection alone leaves the old \
+                         signature on disk and this check keeps failing.",
+                        collection_name,
+                        sig_path.display()
                     );
                     bail!(
                         "Vector dimension mismatch for collection '{}': stored={}, current={}. \
-                         The collection must be re-indexed before the server can start.",
+                         Two ways out. NON-DESTRUCTIVE (preferred): point \
+                         qdrant.collection_name at a new name — one collection holds one \
+                         embedding space, so the old vectors stay intact and both models \
+                         can coexist. DESTRUCTIVE: drop + re-index the collection AND \
+                         remove its entry from the signature file at {} (dropping the \
+                         collection alone leaves the stale signature and this check keeps \
+                         failing).",
                         collection_name,
                         stored.dimension,
-                        current_dimension
+                        current_dimension,
+                        sig_path.display()
                     );
                 }
                 if stored.model != current_model {

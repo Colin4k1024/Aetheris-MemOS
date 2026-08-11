@@ -1,0 +1,196 @@
+# Aetheris-MemOS — Prometheus alert rules (LIVE)
+#
+# SCOPE / TRUTHFULNESS NOTE
+# -------------------------
+# Every rule in this file targets a metric that was VERIFIED to be populated by
+# a running code path (setter has a non-test caller wired into main.rs startup).
+# Metrics that are only *registered* (emit a frozen 0 and never move) are NOT
+# alerted on here — a rule on a permanently-zero series is a fake gate. Those are
+# staged, disabled, in ../alerts-staged/aetheris-pending-instrumentation.yml with
+# the exact backend gap for each.
+#
+# Verification method: grep for each setter's callers, excluding the exporter
+# definition and #[cfg(test)] modules. See B-2 report / project memory.
+#
+# Scrape interval: 15s. Evaluation interval: 15s (monitoring/prometheus.yml).
+#
+# Reconciliation timing (drives detection latency, NOT the `for:` windows):
+#   - scan interval default 3600s (min 60s), first scan +60s after boot
+#     (backend/src/services/vector_reconciliation.rs, config/mod.rs)
+#   - default mode = dry_run (read-only): drift is DETECTED but not auto-repaired,
+#     so a non-zero drift gauge persists across scans until an operator acts —
+#     which is exactly what makes these alerts actionable.
+#   - the gauge holds its last value between scans, so `for:` mostly debounces the
+#     brief window right after boot; real detection latency ~= one scan interval.
+
+groups:
+  # ---------------------------------------------------------------------------
+  # Availability — `up` is synthesised by Prometheus for every scrape target,
+  # so it is always present regardless of app-side instrumentation. This is the
+  # single most important alert and the only one that survives a total backend
+  # outage (when app metrics stop being scraped entirely).
+  # ---------------------------------------------------------------------------
+  - name: aetheris_availability
+    rules:
+      - alert: AetherisBackendDown
+        # `up == 0` means Prometheus could not scrape /metrics on the target.
+        expr: up{job="aetheris-backend"} == 0
+        # 2m ~= 8 consecutive failed scrapes at 15s; rides out a single restart
+        # / transient network blip without alert-flapping.
+        for: 2m
+        labels:
+          severity: critical
+          service: aetheris-backend
+        annotations:
+          summary: "Aetheris backend is unreachable (Prometheus cannot scrape /metrics)"
+          description: >
+            Prometheus has failed to scrape {{ $labels.instance }} (job
+            aetheris-backend) for over 2 minutes. All app-level metrics are
+            stale during this window. Check the backend container/process and
+            the /metrics endpoint.
+
+  # ---------------------------------------------------------------------------
+  # Vector reconciliation — PostgreSQL (source of truth) vs Qdrant (vector index)
+  # drift. These 4 gauges are set every scan cycle from a real scan summary
+  # (vector_reconciliation.rs:335-341). ANY non-zero value is a genuine
+  # consistency defect: in dry_run mode nothing repairs it automatically.
+  #
+  # Threshold rationale: `> 0`. Reconciliation already does the hard work of
+  # counting only true drifts (an in-flight outbox event is delivered within
+  # ~seconds by the 2s-poll outbox worker, long before an hourly scan runs), so
+  # there is no "acceptable" steady-state drift to threshold against — the
+  # correct steady state is exactly zero.
+  # ---------------------------------------------------------------------------
+  - name: aetheris_vector_reconciliation
+    rules:
+      - alert: VectorReconciliationTenantMismatch
+        # A Qdrant point whose tenant differs from its PostgreSQL row = a
+        # cross-tenant isolation violation (a search in tenant A could surface
+        # tenant B's vector). Highest severity, shortest debounce.
+        expr: reconciliation_tenant_mismatch_entries > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: aetheris-backend
+          category: data-isolation
+        annotations:
+          summary: "Cross-tenant vector drift detected (tenant mismatch DB↔Qdrant)"
+          description: >
+            {{ $value }} vector(s) have a tenant_id in Qdrant that does not match
+            PostgreSQL. This is a tenant-isolation defect. Inspect the
+            reconciliation report and quarantine affected points.
+
+      - alert: VectorReconciliationMissing
+        # DB entry with no corresponding Qdrant point => the memory exists but is
+        # NOT searchable. Indicates outbox delivery failed / dead-lettered.
+        expr: reconciliation_missing_entries > 0
+        # 15m: require the drift to survive at least one scan-to-alert cycle so an
+        # operator actively repairing does not get paged mid-fix.
+        for: 15m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: data-consistency
+        annotations:
+          summary: "LTM entries missing from Qdrant ({{ $value }})"
+          description: >
+            {{ $value }} PostgreSQL LTM entries have no matching Qdrant point;
+            these memories are not retrievable by vector search. Likely cause:
+            outbox events that never reached Qdrant. Check the outbox worker and
+            Qdrant availability.
+
+      - alert: VectorReconciliationOrphan
+        # Qdrant point with no DB entry => stale/leaked vector; wastes storage and
+        # can surface deleted content in search results.
+        expr: reconciliation_orphan_points > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: data-consistency
+        annotations:
+          summary: "Orphaned Qdrant points with no DB entry ({{ $value }})"
+          description: >
+            {{ $value }} Qdrant points have no matching PostgreSQL row. These are
+            stale/leaked vectors (e.g. a delete that did not propagate). Review
+            and prune via the reconciliation tooling.
+
+      - alert: VectorReconciliationContentHashMismatch
+        # Content hash differs => the indexed vector no longer matches the stored
+        # content (stale/partial update).
+        expr: reconciliation_content_hash_mismatch_entries > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: data-consistency
+        annotations:
+          summary: "Vector content-hash mismatch DB↔Qdrant ({{ $value }})"
+          description: >
+            {{ $value }} entries have a content hash in Qdrant that differs from
+            PostgreSQL — the indexed vector is stale relative to stored content.
+            A re-embed/re-upsert of the affected entries is likely required.
+
+      - alert: VectorReconciliationScannerStalled
+        # The four drift gauges above HOLD their last value between scans, so a
+        # wedged scan loop inside a live process leaves them reading calm — the
+        # backstop would be dead while its metrics looked healthy. This is the
+        # only rule that detects the scanner itself dying.
+        #
+        # reconciliation_last_scan_timestamp_seconds is stamped (a) once when the
+        # scanner starts and (b) after each SUCCESSFUL scan — never on failure.
+        # It therefore covers all three modes: loop wedged, every scan erroring,
+        # and scanner started but never completed a pass. Seeding at startup is
+        # what keeps an unset gauge (0) from firing this on every boot.
+        #
+        # Threshold 7800s = 2x the default 3600s interval + 600s slack. If you
+        # lower reconciliation.interval_seconds, lower this with it or the alert
+        # stops being a meaningful staleness bound.
+        expr: time() - reconciliation_last_scan_timestamp_seconds > 7800
+        for: 15m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: data-consistency
+        annotations:
+          summary: "Vector reconciliation scanner has not completed a scan recently"
+          description: >
+            No successful reconciliation scan for over 7800s (2x the default
+            hourly interval). The four drift gauges are therefore STALE — a calm
+            reading does NOT mean there is no drift. Reconciliation is the only
+            backstop for outbox events that never reached Qdrant, so drift can
+            now accumulate undetected. Check backend logs for "Reconciliation
+            scan failed" and confirm reconciliation.enabled is true.
+
+  # ---------------------------------------------------------------------------
+  # Outbox processing latency — the ONLY live outbox signal. The histogram is
+  # observed in outbox_worker.rs:69 per non-empty batch (up to 32 events).
+  #
+  # This detects SLOW delivery only. It does NOT cover backlog, delivery
+  # failures, or dead-letter growth — those metrics exist but are not
+  # instrumented yet (see ../alerts-staged/). Do not read a quiet latency panel
+  # as "outbox healthy".
+  # ---------------------------------------------------------------------------
+  - name: aetheris_outbox
+    rules:
+      - alert: OutboxProcessingSlow
+        # Histogram buckets top out at 30s for a ≤32-event batch. A p99 above 10s
+        # means per-batch Qdrant/DB delivery is severely degraded (approaching the
+        # top bucket). No data when idle => alert stays silent, which is correct.
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(outbox_processing_duration_seconds_bucket[5m])) by (le)
+          ) > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: outbox
+        annotations:
+          summary: "Outbox batch processing p99 latency > 10s"
+          description: >
+            The 99th percentile of outbox batch processing time exceeded 10s over
+            the last 5m for 10m. Each batch delivers up to 32 events to Qdrant;
+            this points at Qdrant or DB degradation. NOTE: backlog and delivery-
+            failure metrics are not yet instrumented, so this latency signal is
+            the only automated outbox health check today.

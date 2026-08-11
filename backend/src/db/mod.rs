@@ -50,7 +50,7 @@ pub mod vector_reconciliation;
 pub mod weights;
 pub mod workflow_lifecycle;
 pub use kg::KGRepository;
-pub use neo4j::{init_neo4j, init_neo4j_indexes};
+pub use neo4j::{init_neo4j, init_neo4j_indexes, neo4j_status, spawn_neo4j_init, Neo4jStatus};
 pub use stm::{SessionListResponse, SessionMessage};
 
 /// Database pool - either PostgreSQL or SQLite
@@ -402,6 +402,10 @@ pub async fn init_storage(config: &StorageConfig) -> Result<(), DbInitError> {
         enforce_tls: false,
         auto_migrate: false,
         admin_url: None,
+        // Irrelevant here: the backend is already resolved from `StorageConfig`
+        // and `url` is non-empty, so the empty-url fallback in `config::init`
+        // cannot trigger off this struct.
+        allow_sqlite_fallback: false,
     };
     init(&db_config).await
 }

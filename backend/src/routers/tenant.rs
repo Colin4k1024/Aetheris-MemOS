@@ -2,14 +2,14 @@
 //!
 //! API endpoints for multi-tenant management.
 
-use axum::extract::Path;
+use axum::extract::{Extension, Path};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
 
 use crate::services::rbac::{get_rbac_service, Role, UserRole};
-use crate::tenant::{TenantContext, TenantId};
+use crate::tenant::{RequestTenantContext, TenantContext, TenantId};
 use crate::{json_ok, JsonResult};
 
 /// Create tenant request
@@ -104,7 +104,11 @@ pub async fn create_tenant(Json(req): Json<CreateTenantRequest>) -> JsonResult<T
 }
 
 /// Get tenant info
-pub async fn get_tenant(Path(tenant_id): Path<String>) -> JsonResult<TenantResponse> {
+pub async fn get_tenant(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(tenant_id): Path<String>,
+) -> JsonResult<TenantResponse> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Getting tenant: {}", tenant_id);
 
     let tenants = get_tenants().read().unwrap();
@@ -121,7 +125,11 @@ pub async fn get_tenant(Path(tenant_id): Path<String>) -> JsonResult<TenantRespo
 }
 
 /// Get tenant quota
-pub async fn get_tenant_quota(Path(tenant_id): Path<String>) -> JsonResult<TenantQuotaResponse> {
+pub async fn get_tenant_quota(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(tenant_id): Path<String>,
+) -> JsonResult<TenantQuotaResponse> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Getting quota for tenant: {}", tenant_id);
 
     let tenants = get_tenants().read().unwrap();
@@ -145,9 +153,11 @@ pub async fn get_tenant_quota(Path(tenant_id): Path<String>) -> JsonResult<Tenan
 
 /// Update tenant quota
 pub async fn update_tenant_quota(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(tenant_id): Path<String>,
     Json(req): Json<UpdateQuotaRequest>,
 ) -> JsonResult<TenantQuotaResponse> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Updating quota for tenant: {}", tenant_id);
 
     let mut tenants = get_tenants().write().unwrap();
@@ -183,7 +193,11 @@ pub async fn update_tenant_quota(
 }
 
 /// Reset tenant memory (clear all memory entries)
-pub async fn reset_tenant_memory(Path(tenant_id): Path<String>) -> JsonResult<serde_json::Value> {
+pub async fn reset_tenant_memory(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(tenant_id): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Resetting memory for tenant: {}", tenant_id);
 
     // In a real implementation, this would delete all memory entries for the tenant
@@ -200,9 +214,11 @@ pub async fn reset_tenant_memory(Path(tenant_id): Path<String>) -> JsonResult<se
 
 /// Assign role to user
 pub async fn assign_role(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(tenant_id): Path<String>,
     Json(req): Json<AssignRoleRequest>,
 ) -> JsonResult<UserRoleResponse> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     req.validate()?;
     info!(
         "Assigning role {} to user {} in tenant {}",
@@ -222,8 +238,10 @@ pub async fn assign_role(
 
 /// Get user's role
 pub async fn get_user_role(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path((tenant_id, user_id)): Path<(String, String)>,
 ) -> JsonResult<Option<String>> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Getting role for user {} in tenant {}", user_id, tenant_id);
 
     let role = get_rbac_service().get_role(&tenant_id, &user_id).await;
@@ -232,7 +250,11 @@ pub async fn get_user_role(
 }
 
 /// List all roles in tenant
-pub async fn list_roles(Path(tenant_id): Path<String>) -> JsonResult<RoleListResponse> {
+pub async fn list_roles(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(tenant_id): Path<String>,
+) -> JsonResult<RoleListResponse> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Listing roles for tenant {}", tenant_id);
 
     let roles = get_rbac_service().list_roles(&tenant_id).await;

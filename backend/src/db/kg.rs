@@ -428,7 +428,7 @@ impl KGRepository {
 
         // 搜索与该实体相关的知识条目
         // 通过关系表找到相关的 source/target 实体，然后搜索知识条目
-        // RLS: this joins entities + relations + knowledge_entries, all RLS-protected;
+        // RLS: this joins entities + relations, both RLS-protected;
         // run inside a tenant-scoped tx so the GUC is set and every joined table
         // resolves to this tenant's rows instead of fail-closing to zero.
         let mut tx = begin_tenant_tx(pool, tenant_id).await?;
@@ -439,7 +439,6 @@ impl KGRepository {
                    e.popularity_score, e.relation_count, e.mention_count, e.status
             FROM entities e
             LEFT JOIN relations r ON e.entity_id = r.source_entity_id OR e.entity_id = r.target_entity_id
-            LEFT JOIN knowledge_entries ke ON ke.content LIKE '%' || e.entity_name || '%'
             WHERE e.entity_id LIKE $2
               AND (
                    e.entity_name LIKE '%' || $1 || '%'

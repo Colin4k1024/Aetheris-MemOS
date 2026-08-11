@@ -43,10 +43,7 @@ fn scope_prefixed_id(tenant_id: &str, value: &str, scope: Option<&str>) -> Strin
     }
 }
 
-fn merge_content_metadata(
-    content_metadata: &str,
-    tenant_id: &str,
-) -> Result<String, AppError> {
+fn merge_content_metadata(content_metadata: &str, tenant_id: &str) -> Result<String, AppError> {
     let mut metadata = serde_json::from_str::<Value>(content_metadata)
         .unwrap_or_else(|_| Value::Object(Default::default()));
 

@@ -110,6 +110,10 @@ async fn main() {
         crate::services::audit_writer::init_audit_writer();
         // ADR-0002: durable LTM↔Qdrant outbox consumer (PG only).
         crate::services::outbox_worker::init_outbox_worker();
+        // W1.1: periodic PG↔Qdrant drift scanner — the backstop for outbox
+        // events that never reach Qdrant. Read-only (dry_run) unless
+        // reconciliation.mode is explicitly set to "repair".
+        crate::services::vector_reconciliation::init_reconciliation_scanner(&config.reconciliation);
     }
 
     // P1 governance: register the enterprise hooks (RBAC/quota/audit) singleton that
@@ -133,14 +137,13 @@ async fn main() {
     // Issue #61: initialize distributed epoch manager and interrupt propagator
     crate::axum_routers::distributed::init_distributed();
 
-    tracing::info!("Initializing Neo4j connection");
-    let _ = crate::db::init_neo4j(&config.neo4j).await;
-    tracing::info!("Neo4j connection initialized successfully");
-
-    tracing::info!("Initializing Neo4j indexes and constraints");
-    crate::db::init_neo4j_indexes()
-        .await
-        .expect("Failed to initialize Neo4j indexes");
+    // Neo4j is an OPTIONAL dependency. Its connect path can block for up to ~60s
+    // per query under neo4rs' internal backoff (a wrong password authenticates
+    // never), so it must not sit on the startup critical path. spawn_neo4j_init
+    // returns immediately and runs connect + index creation in a bounded
+    // background task; the HTTP server starts listening regardless. Real status
+    // is observable via crate::db::neo4j_status(), not an optimistic log line.
+    crate::db::spawn_neo4j_init(&config.neo4j);
 
     tracing::info!("log level: {}", &config.log.filter_level);
 
@@ -192,10 +195,13 @@ async fn main() {
         let listener = tokio::net::TcpListener::bind(&config.listen_addr)
             .await
             .expect("failed to bind listener");
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-            .expect("axum server failed");
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("axum server failed");
     }
 }
 

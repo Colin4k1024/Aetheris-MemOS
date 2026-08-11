@@ -17,6 +17,17 @@ pub struct QdrantTenantBackfillEntry {
     pub source_id: String,
 }
 
+/// Minimal projection of an LTM entry whose LLM summary was deferred and still
+/// needs backfill (`summary_status = 'pending'`). Kept separate from
+/// `KnowledgeEntry` so this lookup does not force the full `FromRow` column set.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct PendingSummaryEntry {
+    pub entry_id: String,
+    pub source_id: String,
+    /// Raw content stored in place of a summary; feed this to the LLM on backfill.
+    pub content: String,
+}
+
 /// 知识条目列表响应
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct KnowledgeEntryListResponse {
@@ -81,6 +92,9 @@ impl LTMRepository {
             embedding_model,
             embedding_dimension,
             quality_score,
+            // Generic entry point: summaries are the LTM store path's concern
+            // (D-e). Nothing to defer here.
+            None,
         )
         .await
     }
@@ -98,6 +112,7 @@ impl LTMRepository {
         embedding_model: &str,
         embedding_dimension: i32,
         quality_score: Option<f64>,
+        summary_status: Option<&str>,
     ) -> Result<String, AppError> {
         let entry_id = entry_id.unwrap_or_else(|| Ulid::new().to_string());
         let pool = pool();
@@ -118,6 +133,7 @@ impl LTMRepository {
             embedding_model,
             embedding_dimension,
             quality_score,
+            summary_status,
         )
         .await?;
 
@@ -149,6 +165,7 @@ impl LTMRepository {
         embedding_model: &str,
         embedding_dimension: i32,
         quality_score: Option<f64>,
+        summary_status: Option<&str>,
     ) -> Result<String, AppError> {
         let entry_id = entry_id.unwrap_or_else(|| Ulid::new().to_string());
         let content_hash = crate::services::information_guard::compute_sha256(content);
@@ -163,8 +180,8 @@ impl LTMRepository {
             INSERT INTO knowledge_entries (
                 entry_id, source_id, source_type, title, content, content_type, content_hash,
                 embedding_vector, embedding_model, embedding_dimension,
-                quality_score, status, tenant_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12)
+                quality_score, status, tenant_id, summary_status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12, $13)
             "#,
         )
         .bind(&entry_id)
@@ -179,6 +196,7 @@ impl LTMRepository {
         .bind(embedding_dimension)
         .bind(quality_score)
         .bind(tenant_id.as_str())
+        .bind(summary_status)
         .execute(&mut **tx)
         .await
         .map_err(|e| {
@@ -505,6 +523,55 @@ impl LTMRepository {
             error!("Failed to list Qdrant tenant backfill entries: {}", e);
             AppError::Internal(format!("Database error: {}", e))
         })
+    }
+
+    /// List active LTM entries whose LLM summary was deferred
+    /// (`summary_status = 'pending'`) and still needs backfill, oldest first.
+    ///
+    /// This is the queryable surface for a future summary-backfill job or manual
+    /// ops. The backfill worker itself is intentionally a separate work item and
+    /// is NOT built here (backlog D-e: degrade + queryable pending entries only).
+    ///
+    /// ⚠️ A pending entry's vector was computed from its raw `content`, not from
+    /// a summary (see `embed_and_store_text` in `services/memory_storage.rs`). A
+    /// backfill that fills the summary MUST also recompute the embedding from the
+    /// new summary and enqueue a `memory_vector_outbox` upsert — otherwise the
+    /// vector stays content-derived and drifts from the summary-derived rest of
+    /// the corpus. This projection returns `content` precisely so backfill has
+    /// the text to re-summarise and re-embed.
+    pub async fn list_entries_pending_summary(
+        pool: &sqlx::PgPool,
+        tenant_id: &TenantId,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<PendingSummaryEntry>, AppError> {
+        let prefix = tenant_id.prefix();
+        let tenant_pattern = format!("{}%", prefix);
+
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
+        let entries = sqlx::query_as::<_, PendingSummaryEntry>(
+            r#"
+            SELECT entry_id, source_id, content
+            FROM knowledge_entries
+            WHERE source_id LIKE $1
+              AND status = 'active'
+              AND summary_status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(tenant_pattern)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| {
+            error!("Failed to list entries pending summary: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })?;
+        tx.commit().await.ok();
+
+        Ok(entries)
     }
 
     // ============ Bi-temporal Tracking Methods (租户隔离) ============

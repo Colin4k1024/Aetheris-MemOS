@@ -8,6 +8,31 @@ use tracing::{error, info, instrument};
 
 use crate::config;
 
+/// Error classification for embedding generation, so the LTM write path can map
+/// a failure to the right HTTP status (D-e2): a genuinely unreachable/erroring
+/// backend is `503` (dependency unavailable, retryable), while a reachable
+/// backend that returns unusable output is `500` (a real error that must
+/// surface, not be silently masked). Mirrors `llm::LlmError`.
+///
+/// This is carried inside `anyhow::Error` (via `anyhow::Error::new`), so it is
+/// downcastable at the call site WITHOUT changing `generate_embedding`'s
+/// `anyhow::Result<Vec<f32>>` signature — `probe()` and other callers are
+/// unaffected.
+#[derive(Debug, thiserror::Error)]
+pub enum EmbeddingError {
+    /// Backend could not be reached (connection refused, DNS, timeout).
+    #[error("embedding backend unavailable: {0}")]
+    Unavailable(String),
+    /// Backend was reached but returned a non-success HTTP status.
+    #[error("embedding backend returned error status {status}")]
+    Upstream { status: u16 },
+    /// Backend responded, but the payload was unparseable / had the wrong shape
+    /// / wrong dimension. Indicates a real bug or model/config mismatch, NOT a
+    /// transient outage.
+    #[error("embedding response could not be used: {0}")]
+    Malformed(String),
+}
+
 /// 嵌入服务，用于生成文本向量
 pub struct EmbeddingService {
     client: Client,
@@ -74,6 +99,42 @@ impl EmbeddingService {
         })
     }
 
+    /// 轻量可达性探测：只确认 embedding 后端在线，**不做推理**。
+    ///
+    /// 用于 readiness 探针（`/readyz`）。embedding 是硬依赖——向量在 LTM 写入与
+    /// 检索的热路径上生成，后端不可达则这两条路径都不可用，所以实例应被摘出
+    /// 负载均衡。
+    ///
+    /// 刻意**不**调用 [`Self::generate_embedding`]：kubelet 会按秒级频率轮询
+    /// readiness，用真实推理做探针会给 embedding 后端持续施加负载，而推理延迟
+    /// （常在 100ms–1s）也会让探针超时率显著上升。这里只打后端的模型列表端点，
+    /// 那是 O(1) 的元数据查询。
+    ///
+    /// 探测**不**消耗 [`Self::cache`]，也不写入它。
+    pub async fn probe(&self) -> Result<()> {
+        // Ollama: GET /api/tags；OpenAI 兼容: GET /models。两者都只返回模型元数据。
+        let url = if self.api_type == "openai" {
+            format!("{}/models", self.base_url)
+        } else {
+            format!("{}/api/tags", self.base_url)
+        };
+
+        let mut request = self.client.get(&url).timeout(self.timeout);
+        if let Some(key) = &self.api_key {
+            request = request.bearer_auth(key);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("embedding backend unreachable at {url}: {e}"))?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("embedding backend at {url} returned {}", response.status());
+        }
+        Ok(())
+    }
+
     /// 生成文本的向量嵌入
     #[instrument(skip(self))]
     pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
@@ -101,11 +162,11 @@ impl EmbeddingService {
                 self.dimension,
                 embedding.len()
             );
-            return Err(anyhow::anyhow!(
-                "Embedding dimension mismatch: expected {}, got {}",
+            return Err(anyhow::Error::new(EmbeddingError::Malformed(format!(
+                "dimension mismatch: expected {}, got {}",
                 self.dimension,
                 embedding.len()
-            ));
+            ))));
         }
 
         // 将生成的嵌入存入缓存
@@ -134,7 +195,7 @@ impl EmbeddingService {
             .await
             .map_err(|e| {
                 error!("Failed to send request to Ollama embeddings API: {}", e);
-                anyhow::anyhow!("Failed to generate embedding: {}", e)
+                anyhow::Error::new(EmbeddingError::Unavailable(e.to_string()))
             })?;
 
         if !response.status().is_success() {
@@ -144,15 +205,14 @@ impl EmbeddingService {
                 "Ollama embeddings API returned error: status={}, body={}",
                 status, error_text
             );
-            return Err(anyhow::anyhow!(
-                "Ollama embeddings API error: status={}",
-                status
-            ));
+            return Err(anyhow::Error::new(EmbeddingError::Upstream {
+                status: status.as_u16(),
+            }));
         }
 
         let ollama_response: OllamaEmbeddingResponse = response.json().await.map_err(|e| {
             error!("Failed to parse Ollama embedding response: {}", e);
-            anyhow::anyhow!("Failed to parse embedding response: {}", e)
+            anyhow::Error::new(EmbeddingError::Malformed(e.to_string()))
         })?;
 
         Ok(ollama_response.embedding)
@@ -178,7 +238,7 @@ impl EmbeddingService {
                 "Failed to send request to OpenAI-compatible embeddings API: {}",
                 e
             );
-            anyhow::anyhow!("Failed to generate embedding: {}", e)
+            anyhow::Error::new(EmbeddingError::Unavailable(e.to_string()))
         })?;
 
         if !response.status().is_success() {
@@ -188,10 +248,9 @@ impl EmbeddingService {
                 "OpenAI-compatible embeddings API returned error: status={}, body={}",
                 status, error_text
             );
-            return Err(anyhow::anyhow!(
-                "OpenAI-compatible embeddings API error: status={}",
-                status
-            ));
+            return Err(anyhow::Error::new(EmbeddingError::Upstream {
+                status: status.as_u16(),
+            }));
         }
 
         let openai_response: OpenAIEmbeddingResponse = response.json().await.map_err(|e| {
@@ -199,14 +258,18 @@ impl EmbeddingService {
                 "Failed to parse OpenAI-compatible embedding response: {}",
                 e
             );
-            anyhow::anyhow!("Failed to parse embedding response: {}", e)
+            anyhow::Error::new(EmbeddingError::Malformed(e.to_string()))
         })?;
 
         openai_response
             .data
             .first()
             .map(|d| d.embedding.clone())
-            .ok_or_else(|| anyhow::anyhow!("No embedding data in response"))
+            .ok_or_else(|| {
+                anyhow::Error::new(EmbeddingError::Malformed(
+                    "no embedding data in response".to_string(),
+                ))
+            })
     }
 
     /// 批量生成文本向量

@@ -9,7 +9,6 @@
 //! - `execute(ptr: i32, len: i32) -> i32` — execute with JSON input at `ptr:len`,
 //!   return pointer to null-terminated JSON output string
 
-use crate::AppError;
 use serde_json::Value as JsonValue;
 use std::collections::HashSet;
 use thiserror::Error;
@@ -104,12 +103,6 @@ impl CapabilityPolicy {
             "sandbox capability denied"
         );
     }
-}
-
-/// Trait for tools that can be executed inside a sandbox.
-pub trait SandboxedTool: Send + Sync {
-    /// Executes the tool with the given input.
-    fn execute(&self, input: JsonValue) -> Result<JsonValue, SandboxError>;
 }
 
 /// WasmSandbox wraps a wasmtime runtime for executing WebAssembly modules
@@ -291,5 +284,81 @@ mod tests {
         };
 
         assert!(!policy.is_permitted(Capability::NetworkAccess));
+    }
+
+    // --- Real wasmtime execution ----------------------------------------- //
+    //
+    // These are the first tests that actually *run* `execute_wasm`. Before this,
+    // the wasmtime path compiled but was never exercised — "code exists" is not
+    // "code works". A minimal module (bump allocator + constant JSON output) is
+    // enough to prove the full host↔guest round-trip and that the capability
+    // policy is enforced before any module bytes are touched.
+
+    /// Minimal valid module exporting `memory`, `alloc`, and `execute`.
+    /// `execute` ignores its input and returns a pointer to a constant,
+    /// null-terminated JSON string stored in a data segment.
+    const ECHO_MODULE_WAT: &str = r#"
+        (module
+          (memory (export "memory") 1)
+          (global $bump (mut i32) (i32.const 1024))
+          (func (export "alloc") (param $size i32) (result i32)
+            (local $p i32)
+            (local.set $p (global.get $bump))
+            (global.set $bump (i32.add (global.get $bump) (local.get $size)))
+            (local.get $p))
+          (data (i32.const 64) "{\"echoed\":true}\00")
+          (func (export "execute") (param $ptr i32) (param $len i32) (result i32)
+            (i32.const 64)))
+    "#;
+
+    fn allow_all() -> CapabilityPolicy {
+        CapabilityPolicy::allow([
+            Capability::NetworkAccess,
+            Capability::FilesystemRead,
+            Capability::FilesystemWrite,
+            Capability::EnvVars,
+        ])
+    }
+
+    #[test]
+    fn execute_wasm_runs_real_module_and_returns_output() {
+        let sandbox = WasmSandbox::new();
+        let out = sandbox
+            .execute_wasm(
+                ECHO_MODULE_WAT.as_bytes(),
+                serde_json::json!({ "ignored": "input" }),
+                &allow_all(),
+            )
+            .expect("module should execute");
+        assert_eq!(out, serde_json::json!({ "echoed": true }));
+    }
+
+    #[test]
+    fn execute_wasm_denies_before_touching_module_when_capability_missing() {
+        // Deny-by-default: an empty policy blocks execution, and the capability
+        // check runs *before* the module is parsed — so even bogus bytes are
+        // rejected with CapabilityDenied, not a parse error.
+        let sandbox = WasmSandbox::new();
+        let err = sandbox
+            .execute_wasm(
+                b"not-even-wasm",
+                serde_json::json!({}),
+                &CapabilityPolicy::new(),
+            )
+            .expect_err("empty policy must deny");
+        assert!(matches!(err, SandboxError::CapabilityDenied(_)));
+    }
+
+    #[test]
+    fn execute_wasm_rejects_invalid_module_when_capabilities_granted() {
+        let sandbox = WasmSandbox::new();
+        let err = sandbox
+            .execute_wasm(
+                b"\x00\x01\x02 not wasm",
+                serde_json::json!({}),
+                &allow_all(),
+            )
+            .expect_err("garbage bytes must fail");
+        assert!(matches!(err, SandboxError::InvalidModule(_)));
     }
 }

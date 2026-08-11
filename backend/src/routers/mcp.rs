@@ -13,13 +13,16 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-use crate::hoops::enterprise::{try_enterprise_hooks, HookContext, HookDecision, HookResult, Operation};
+use crate::hoops::enterprise::{
+    try_enterprise_hooks, HookContext, HookDecision, HookResult, Operation,
+};
 use crate::hoops::governance::governance_middleware;
 use crate::hoops::jwt::auth_middleware;
 use crate::mcp::capability;
 use crate::mcp::signing::{
     verify_component, verify_unsigned, ComponentSignature, SigningError, TrustedKeyBundle,
 };
+use crate::mcp::{CapabilityPolicy, ProxyError, SandboxProxy};
 
 use crate::db::audit::AuditEvent;
 use crate::db::kg::KGRepository;
@@ -44,6 +47,9 @@ pub struct McpState {
     pub server_name: String,
     pub server_version: String,
     pub component_registry: Arc<McpComponentRegistry>,
+    /// Plane B executor (ADR-0004): runs untrusted extension tools inside a
+    /// wasmtime sandbox. The registry is empty in production today.
+    pub sandbox_proxy: Arc<SandboxProxy>,
 }
 
 impl Default for McpState {
@@ -52,6 +58,7 @@ impl Default for McpState {
             server_name: "adaptive-memory-system".to_string(),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             component_registry: Arc::new(McpComponentRegistry::new()),
+            sandbox_proxy: Arc::new(SandboxProxy::new()),
         }
     }
 }
@@ -250,6 +257,50 @@ fn tool_to_operation(tool_name: &str) -> Option<Operation> {
     }
 }
 
+/// MCP execution plane (ADR-0004 dual-plane model).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Plane {
+    /// Trusted first-party memory tool — runs natively under Plane A guards.
+    FirstParty,
+    /// Untrusted extension tool — runs inside the wasmtime sandbox (Plane B).
+    Extension,
+    /// Neither a first-party tool nor a registered extension — rejected.
+    Unknown,
+}
+
+/// Returns `true` for the five trusted first-party memory tools.
+///
+/// Their names are reserved: a first-party name always classifies as Plane A,
+/// even if an extension were registered under the same name.
+fn is_first_party_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        TOOL_MEMORY_WRITE
+            | TOOL_MEMORY_SEARCH
+            | TOOL_MEMORY_RECALL
+            | TOOL_MEMORY_FORGET
+            | TOOL_MEMORY_LIST
+    )
+}
+
+/// Classify a tool into its execution plane (ADR-0004).
+///
+/// This runs **before** Plane A capability authorization on purpose.
+/// `capability::authorize` is deny-by-default over the *first-party* tool set,
+/// so if it ever saw an extension tool it would reject it as "unknown" and
+/// Plane B could never be entered. Classifying first keeps each plane's
+/// authorization independent: first-party names → Plane A; registered
+/// extensions → Plane B; everything else → Unknown (rejected deny-by-default).
+fn classify_plane(sandbox_proxy: &SandboxProxy, tool_name: &str) -> Plane {
+    if is_first_party_tool(tool_name) {
+        Plane::FirstParty
+    } else if sandbox_proxy.is_registered(tool_name) {
+        Plane::Extension
+    } else {
+        Plane::Unknown
+    }
+}
+
 /// Call MCP tool
 async fn call_tool(
     State(state): State<McpState>,
@@ -257,6 +308,38 @@ async fn call_tool(
     Json(params): Json<ToolCallParams>,
 ) -> JsonResult<ToolCallResponse> {
     info!("MCP tool call: {}", params.name);
+
+    // --- Plane dispatch (ADR-0004 dual-plane model) ---
+    // Classify before any Plane A guard runs. Extension and unknown tools are
+    // peeled off here so the first-party signing + capability pipeline below
+    // only ever sees Plane A tools. See `classify_plane` for why this ordering
+    // is required (the Plane A `authorize` is deny-by-default over the
+    // first-party set and would otherwise swallow Plane B).
+    match classify_plane(&state.sandbox_proxy, &params.name) {
+        Plane::FirstParty => { /* fall through to the Plane A pipeline below */ }
+        Plane::Extension => {
+            return call_extension_tool(&state, &tenant_ctx, params).await;
+        }
+        Plane::Unknown => {
+            warn!(
+                component_id = %params.name,
+                "MCP tool call rejected: unknown tool (no execution plane)"
+            );
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "outcome": "denied",
+                        "reason": "unknown_tool",
+                    })),
+            );
+            return Err(AppError::BadRequest(format!(
+                "Unknown tool: {}",
+                params.name
+            )));
+        }
+    }
 
     // --- Step a: Verify tool call signature (D-01, D-03) ---
     // Re-verify the signature at invocation time using MCP_TOOL_SIGNATURES (same
@@ -306,16 +389,22 @@ async fn call_tool(
     }
 
     // --- Step b: Capability authorization (deny-by-default) ---
-    // Plane A trusted first-party path: grant [Read, Write, Delete].
-    // authorize() rejects unknown tools regardless of granted capabilities.
-    let granted = [
-        capability::MemoryCapability::Read,
-        capability::MemoryCapability::Write,
-        capability::MemoryCapability::Delete,
-    ];
+    // Plane A trusted first-party path. The granted set is derived from the
+    // caller's RBAC role rather than hardcoded, so a Reader cannot invoke
+    // memory_write / memory_forget over MCP. authorize() additionally rejects
+    // unknown tools regardless of granted capabilities.
+    //
+    // Falling back to Reader (the least-privileged role) when no role is on
+    // record is deliberate: an unknown subject must not inherit write access.
+    let role = crate::services::rbac::get_rbac_service()
+        .get_role(tenant_ctx.tenant_id.as_str(), &tenant_ctx.user_id)
+        .await
+        .unwrap_or(crate::services::rbac::Role::Reader);
+    let granted = capability::capabilities_for_role(role);
     if let Err(authz_err) = capability::authorize(&granted, &params.name) {
         warn!(
             component_id = %params.name,
+            role = %role,
             error = %authz_err,
             "MCP tool call rejected: capability authorization failed"
         );
@@ -451,6 +540,103 @@ async fn call_tool(
                     })),
             );
             Err(AppError::Internal(e.to_string()))
+        }
+    }
+}
+
+/// Execute an untrusted Plane B extension tool inside the wasmtime sandbox.
+///
+/// Plane B tools run under a **deny-by-default** capability policy: until a
+/// capability-grant model for extension tools exists (deferred per ADR-0004),
+/// no host capabilities are granted, so a registered tool could only run pure
+/// computation. The production registry is empty, so today this returns
+/// `ToolNotFound` for every tool — the branch exists so that when an extension
+/// surface is opened, untrusted code is sandboxed by construction rather than
+/// bolted on afterwards.
+async fn call_extension_tool(
+    state: &McpState,
+    tenant_ctx: &RequestTenantContext,
+    params: ToolCallParams,
+) -> JsonResult<ToolCallResponse> {
+    // Deny-by-default: extension tools are granted no capabilities yet.
+    let policy = CapabilityPolicy::new();
+    let input = params.arguments.clone().unwrap_or(serde_json::Value::Null);
+
+    match state
+        .sandbox_proxy
+        .execute_tool(&params.name, input, &policy)
+    {
+        Ok((output, log)) => {
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "plane": "B",
+                        "outcome": "success",
+                        "execution_id": log.execution_id,
+                        "capabilities_used": log.capabilities_used,
+                    })),
+            );
+            json_ok(ToolCallResponse {
+                content: vec![crate::protocol::mcp::ToolContent::Text(output.to_string())],
+                is_error: Some(false),
+            })
+        }
+        Err(ProxyError::ToolNotFound(_)) => {
+            warn!(
+                component_id = %params.name,
+                "Plane B tool rejected: not a registered extension"
+            );
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "plane": "B",
+                        "outcome": "denied",
+                        "reason": "extension_not_registered",
+                    })),
+            );
+            Err(AppError::Forbidden(format!(
+                "Tool not authorized: {}",
+                params.name
+            )))
+        }
+        Err(ProxyError::RbacDenied(reason)) => {
+            warn!(
+                component_id = %params.name,
+                %reason,
+                "Plane B tool rejected: capability denied"
+            );
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "plane": "B",
+                        "outcome": "denied",
+                        "reason": "capability_denied",
+                        "detail": reason,
+                    })),
+            );
+            Err(AppError::Forbidden(format!(
+                "Tool not authorized: capability denied ({reason})"
+            )))
+        }
+        Err(ProxyError::ExecutionFailed(e)) => {
+            error!("Plane B tool execution failed: {}", e);
+            audit_writer::record_audit(
+                AuditEvent::new("mcp.call_tool", "mcp_tool")
+                    .tenant(tenant_ctx.tenant_id.as_str())
+                    .with_metadata(&serde_json::json!({
+                        "tool": params.name,
+                        "plane": "B",
+                        "outcome": "error",
+                        "error": e,
+                    })),
+            );
+            Err(AppError::Internal(e))
         }
     }
 }
@@ -675,12 +861,9 @@ async fn handle_memory_search(
         }
         "mm" => {
             // Search in multimodal memories by modality type
-            let entries = MMRepository::get_entries_by_modality(
-                "text",
-                Some(limit),
-                tenant_id.as_str(),
-            )
-            .await?;
+            let entries =
+                MMRepository::get_entries_by_modality("text", Some(limit), tenant_id.as_str())
+                    .await?;
             // Filter by query if possible
             let results_json: Vec<serde_json::Value> = entries
                 .iter()
@@ -1116,8 +1299,7 @@ async fn read_resource(
         "mm" => {
             // Multimodal resources
             if let Some(entry_id) = id {
-                let entry =
-                    MMRepository::get_entry_by_id(&entry_id, tenant_id.as_str()).await?;
+                let entry = MMRepository::get_entry_by_id(&entry_id, tenant_id.as_str()).await?;
 
                 match entry {
                     Some(e) => {
@@ -1166,8 +1348,7 @@ async fn read_resource(
             } else {
                 // List all entries
                 let response =
-                    MMRepository::list_entries(None, Some(20), Some(0), tenant_id.as_str())
-                        .await?;
+                    MMRepository::list_entries(None, Some(20), Some(0), tenant_id.as_str()).await?;
 
                 serde_json::json!({
                     "entries": response.entries.iter().map(|e| {
@@ -1205,10 +1386,7 @@ mod tests {
 
     #[test]
     fn memory_write_maps_to_store() {
-        assert_eq!(
-            tool_to_operation(TOOL_MEMORY_WRITE),
-            Some(Operation::Store)
-        );
+        assert_eq!(tool_to_operation(TOOL_MEMORY_WRITE), Some(Operation::Store));
     }
 
     #[test]
@@ -1237,10 +1415,7 @@ mod tests {
 
     #[test]
     fn memory_list_maps_to_search() {
-        assert_eq!(
-            tool_to_operation(TOOL_MEMORY_LIST),
-            Some(Operation::Search)
-        );
+        assert_eq!(tool_to_operation(TOOL_MEMORY_LIST), Some(Operation::Search));
     }
 
     #[test]
@@ -1265,5 +1440,53 @@ mod tests {
                 "known tool {tool} must map to an operation"
             );
         }
+    }
+
+    // --- Plane classification (ADR-0004 dual-plane dispatch) ------------- //
+
+    #[test]
+    fn first_party_tools_classify_as_plane_a() {
+        let proxy = SandboxProxy::new();
+        for tool in [
+            TOOL_MEMORY_WRITE,
+            TOOL_MEMORY_SEARCH,
+            TOOL_MEMORY_RECALL,
+            TOOL_MEMORY_FORGET,
+            TOOL_MEMORY_LIST,
+        ] {
+            assert!(is_first_party_tool(tool), "{tool} must be first-party");
+            assert_eq!(
+                classify_plane(&proxy, tool),
+                Plane::FirstParty,
+                "{tool} must dispatch to Plane A"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_tool_classifies_as_unknown_when_registry_empty() {
+        // Production reality: the extension registry is empty, so anything that
+        // is not a first-party tool is Unknown and gets rejected.
+        let proxy = SandboxProxy::new();
+        assert!(!is_first_party_tool("some_extension"));
+        assert_eq!(classify_plane(&proxy, "some_extension"), Plane::Unknown);
+        assert_eq!(classify_plane(&proxy, ""), Plane::Unknown);
+        assert_eq!(classify_plane(&proxy, "memory_exfiltrate"), Plane::Unknown);
+    }
+
+    #[test]
+    fn registered_extension_classifies_as_plane_b() {
+        let mut proxy = SandboxProxy::new();
+        // Classification only checks presence, so dummy bytes suffice here.
+        proxy.register_tool("ext_tool", vec![0u8]);
+        assert_eq!(classify_plane(&proxy, "ext_tool"), Plane::Extension);
+    }
+
+    #[test]
+    fn first_party_name_takes_precedence_over_registered_extension() {
+        // A first-party name must never be shadowed by an extension registration.
+        let mut proxy = SandboxProxy::new();
+        proxy.register_tool(TOOL_MEMORY_WRITE, vec![0u8]);
+        assert_eq!(classify_plane(&proxy, TOOL_MEMORY_WRITE), Plane::FirstParty);
     }
 }

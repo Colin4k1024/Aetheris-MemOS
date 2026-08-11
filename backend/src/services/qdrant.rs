@@ -69,6 +69,19 @@ impl QdrantClient {
         })
     }
 
+    /// 轻量健康探测：向 Qdrant 发一次 gRPC `health_check`。
+    ///
+    /// 用于 readiness 探针（`/readyz`）。不读取任何 collection 数据，因此
+    /// 可以按探针频率调用；不要用 `scroll_point_ids` 之类的方法做健康检查，
+    /// 那会随数据量增长而变慢。
+    pub async fn probe(&self) -> Result<()> {
+        self.client
+            .health_check()
+            .await
+            .map(|_| ())
+            .map_err(|e| anyhow::anyhow!("Qdrant health check failed: {}", e))
+    }
+
     /// 确保集合存在，如果不存在则创建
     #[instrument(skip(self))]
     pub async fn ensure_collection(&self) -> Result<()> {

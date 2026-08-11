@@ -201,7 +201,8 @@ impl RbacHookImpl {
         user_id: &str,
         permission: Permission,
     ) -> bool {
-        self.rbac.blocking_has_permission(tenant_id, user_id, permission)
+        self.rbac
+            .blocking_has_permission(tenant_id, user_id, permission)
     }
 }
 
@@ -741,18 +742,19 @@ mod tests {
         let quota_manager = Arc::new(QuotaManager::new());
         let quota_hook = Arc::new(TenantQuotaHookImpl::new(quota_manager.clone()));
         let audit: Arc<dyn Fn(AuditEvent) + Send + Sync> = Arc::new(|_| {});
-        let governance = GovernanceHookImpl::new(
-            Arc::new(RbacHookImpl::new(rbac)),
-            quota_hook,
-            audit,
-        );
+        let governance =
+            GovernanceHookImpl::new(Arc::new(RbacHookImpl::new(rbac)), quota_hook, audit);
         (quota_manager, governance)
     }
 
     #[test]
     fn post_store_success_increments_memory_entries_by_one() {
         let (quota_manager, governance) = make_test_governance();
-        let ctx = HookContext::new("tenant-a".to_string(), Operation::Store, "/test".to_string());
+        let ctx = HookContext::new(
+            "tenant-a".to_string(),
+            Operation::Store,
+            "/test".to_string(),
+        );
 
         governance.post_store(&ctx, &HookResult::success());
 
@@ -766,7 +768,11 @@ mod tests {
     #[test]
     fn post_store_failure_does_not_increment() {
         let (quota_manager, governance) = make_test_governance();
-        let ctx = HookContext::new("tenant-b".to_string(), Operation::Store, "/test".to_string());
+        let ctx = HookContext::new(
+            "tenant-b".to_string(),
+            Operation::Store,
+            "/test".to_string(),
+        );
 
         // Seed a quota so we can observe that it stays unchanged.
         let mut seed = ResourceQuota::default();
@@ -785,7 +791,11 @@ mod tests {
     #[test]
     fn search_does_not_increment_memory_entries() {
         let (quota_manager, governance) = make_test_governance();
-        let ctx = HookContext::new("tenant-c".to_string(), Operation::Search, "/test".to_string());
+        let ctx = HookContext::new(
+            "tenant-c".to_string(),
+            Operation::Search,
+            "/test".to_string(),
+        );
 
         governance.post_search(&ctx, &HookResult::success());
 

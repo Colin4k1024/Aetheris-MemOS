@@ -61,6 +61,11 @@ pub struct StoreLTMResponse {
     /// `"pending"` when the vector index is delivered via outbox; `"ready"` when written synchronously.
     #[serde(rename = "indexStatus")]
     pub index_status: String,
+    /// `"complete"` when the LLM summary was generated; `"pending"` when the LLM
+    /// backend was unavailable and the summary was deferred for later backfill
+    /// (the write still succeeded).
+    #[serde(rename = "summaryStatus")]
+    pub summary_status: String,
 }
 
 /// 手动转移请求
@@ -169,6 +174,7 @@ pub async fn store_ltm(
     json_ok(StoreLTMResponse {
         entry_id: result.entry_id,
         index_status: result.index_status,
+        summary_status: result.summary_status,
     })
 }
 

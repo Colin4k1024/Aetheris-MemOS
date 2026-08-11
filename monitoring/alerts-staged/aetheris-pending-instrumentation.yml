@@ -1,0 +1,108 @@
+# Aetheris-MemOS — STAGED alert rules, PENDING BACKEND INSTRUMENTATION
+#
+# ############################################################################
+# #  DO NOT ADD THIS FILE TO prometheus.yml `rule_files:`.                    #
+# #  Every metric referenced below is REGISTERED but NEVER SET in production  #
+# #  (its setter has no non-test caller). Loading these rules would create    #
+# #  FAKE GATES: they can only ever evaluate against a frozen 0 (scalar) or   #
+# #  an absent series (…Vec), so they would never fire no matter how bad the  #
+# #  real backlog/failure/quota situation gets.                               #
+# #                                                                           #
+# #  This file exists so the rules are ready to activate the moment the       #
+# #  backend wiring lands — at which point: move it into monitoring/alerts/   #
+# #  and delete the corresponding `# BLOCKED:` note.                          #
+# #                                                                           #
+# #  It lives in monitoring/alerts-staged/ which is intentionally NOT mounted #
+# #  into the Prometheus container (see docker-compose.yml).                  #
+# ############################################################################
+#
+# Verified DEAD as of this writing (grep of setter callers, excluding tests):
+#   outbox_pending_total                 -> set_outbox_pending: no prod caller
+#   outbox_dead_letter_total             -> inc_outbox_dead_letter: no prod caller
+#   outbox_qdrant_upsert_success_total   -> inc_..._success: no prod caller
+#   outbox_qdrant_upsert_failure_total   -> inc_..._failure: no prod caller
+#   tenant_quota_usage_ratio (GaugeVec)  -> set_tenant_quota_usage: no prod caller
+
+groups:
+  - name: aetheris_outbox_pending_STAGED
+    rules:
+      # BLOCKED: outbox_pending_total is never updated. The gauge stays at 0.
+      # To activate: have the outbox worker periodically publish the pending
+      # depth, e.g. SELECT count(*) FROM memory_vector_outbox WHERE status='pending'
+      # -> exporter.set_outbox_pending(n) each loop in outbox_worker.rs.
+      - alert: OutboxBacklogHigh
+        expr: outbox_pending_total > 500
+        for: 10m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: outbox
+        annotations:
+          summary: "Outbox backlog high ({{ $value }} pending events)"
+          description: >
+            Pending outbox events exceeded 500 for 10m. Threshold rationale: the
+            worker claims batches of 32 every 2s (~960/min drain), so a sustained
+            backlog >500 means delivery is not keeping up with ingestion.
+
+  - name: aetheris_outbox_deadletter_STAGED
+    rules:
+      # BLOCKED: outbox_dead_letter_total is never incremented. To activate:
+      # call exporter.inc_outbox_dead_letter() where the worker abandons an event
+      # after MAX_ATTEMPTS (the mark_failed-at-max path in outbox_worker.rs).
+      - alert: OutboxDeadLetterGrowing
+        expr: increase(outbox_dead_letter_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: aetheris-backend
+          category: outbox
+        annotations:
+          summary: "Outbox dead-letters accumulating ({{ $value }} in last 1h)"
+          description: >
+            Events are being permanently abandoned after exhausting retries;
+            those memories will never reach Qdrant without manual replay.
+
+  - name: aetheris_outbox_failure_rate_STAGED
+    rules:
+      # BLOCKED: neither outbox_qdrant_upsert_success_total nor
+      # outbox_qdrant_upsert_failure_total is incremented. To activate: bracket
+      # the deliver_one() success/failure arms in outbox_worker.rs with
+      # exporter.inc_outbox_qdrant_upsert_success()/_failure().
+      - alert: OutboxDeliveryFailureRateHigh
+        expr: >
+          sum(rate(outbox_qdrant_upsert_failure_total[5m]))
+          /
+          clamp_min(
+            sum(rate(outbox_qdrant_upsert_success_total[5m]))
+            + sum(rate(outbox_qdrant_upsert_failure_total[5m])),
+            1
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: outbox
+        annotations:
+          summary: "Outbox → Qdrant delivery failure rate > 10%"
+          description: >
+            More than 10% of Qdrant upsert attempts failed over 5m. Check Qdrant
+            health and the outbox worker logs.
+
+  - name: aetheris_tenant_quota_STAGED
+    rules:
+      # BLOCKED: tenant_quota_usage_ratio is a GaugeVec that emits NO series until
+      # set_tenant_quota_usage(tenant, ratio) is called — which never happens in
+      # prod. To activate: publish the ratio from the quota-enforcement path
+      # (tenant quota manager) whenever usage is evaluated.
+      - alert: TenantQuotaNearLimit
+        expr: tenant_quota_usage_ratio > 0.9
+        for: 15m
+        labels:
+          severity: warning
+          service: aetheris-backend
+          category: tenancy
+        annotations:
+          summary: "Tenant {{ $labels.tenant }} quota usage > 90%"
+          description: >
+            Tenant {{ $labels.tenant }} has used {{ $value | humanizePercentage }}
+            of its quota for 15m. Writes will start being rejected at 100%.

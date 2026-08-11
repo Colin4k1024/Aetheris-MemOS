@@ -1,11 +1,15 @@
 //! Persistent audit repository (P1 子项 b).
 //!
 //! Writes structured audit events to the `memory_audit_events` table created by
-//! `migrations/20260706000100_memory_storage_tenant_foundation.sql`. Two entry
+//! `migrations/20260706000100_memory_storage_tenant_foundation.sql`. Three entry
 //! points are provided:
 //!
 //! - [`insert_event`] — write one event on the global pool (used by the async
-//!   [`crate::services::audit_writer`] background writer for best-effort audit).
+//!   [`crate::services::audit_writer`] background writer; failures there spill to disk
+//!   for startup replay, so the overall audit path is lossless, not best-effort).
+//! - [`insert_event_idempotent`] — same, but `ON CONFLICT (event_id) DO NOTHING`, used
+//!   exclusively by the writer's spill-replay path so re-inserting a spilled event
+//!   never duplicates a row.
 //! - [`insert_tx`] — write one event inside an existing transaction, so a mutation
 //!   and its audit record commit atomically (used by 子项 a's single-transaction LTM
 //!   write path when strong audit consistency is required).
@@ -106,7 +110,7 @@ impl AuditEvent {
     }
 }
 
-/// Column list / placeholders shared by both insert paths so they can never drift.
+/// Column list / placeholders shared by every insert path so they can never drift.
 const INSERT_AUDIT_SQL: &str = r#"
     INSERT INTO memory_audit_events (
         event_id, tenant_id, actor_id, event_type, resource_type,
@@ -114,13 +118,28 @@ const INSERT_AUDIT_SQL: &str = r#"
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 "#;
 
-/// Bind and execute the insert against any Postgres executor (`&PgPool` or a
-/// transaction connection), keeping the bind order in exactly one place.
-async fn exec_insert<'e, E>(executor: E, event: &AuditEvent) -> Result<(), AppError>
+/// Idempotent variant used by the [`crate::services::audit_writer`] spill-replay
+/// path. `event_id` is a globally unique ULID generated once at event creation, so
+/// a conflict can only mean "this exact event is already persisted" — i.e. a replay
+/// of a spilled event that in fact committed before the process saw the error. In
+/// that case `DO NOTHING` suppresses the duplicate instead of surfacing a spurious
+/// unique-violation. It is deliberately NOT used by the hot-path / atomic writers,
+/// where a conflict would be a genuine bug worth surfacing.
+const INSERT_AUDIT_SQL_IDEMPOTENT: &str = r#"
+    INSERT INTO memory_audit_events (
+        event_id, tenant_id, actor_id, event_type, resource_type,
+        resource_id, correlation_id, metadata_json
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (event_id) DO NOTHING
+"#;
+
+/// Bind and execute `sql` against any Postgres executor (`&PgPool` or a transaction
+/// connection), keeping the bind order in exactly one place across every insert path.
+async fn exec_insert_with<'e, E>(executor: E, event: &AuditEvent, sql: &str) -> Result<(), AppError>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query(INSERT_AUDIT_SQL)
+    sqlx::query(sql)
         .bind(&event.event_id)
         .bind(event.tenant_id.as_deref())
         .bind(event.actor_id.as_deref())
@@ -140,7 +159,17 @@ where
 
 /// Persist one audit event using the global connection pool.
 pub async fn insert_event(pool: &PgPool, event: &AuditEvent) -> Result<(), AppError> {
-    exec_insert(pool, event).await
+    exec_insert_with(pool, event, INSERT_AUDIT_SQL).await
+}
+
+/// Persist one audit event idempotently (`ON CONFLICT (event_id) DO NOTHING`).
+///
+/// Used exclusively by the audit spill-replay path so that re-inserting a spilled
+/// event that had actually committed (or replaying the same spill file twice after a
+/// crash mid-replay) never produces a duplicate audit row or a spurious error. See
+/// [`INSERT_AUDIT_SQL_IDEMPOTENT`].
+pub async fn insert_event_idempotent(pool: &PgPool, event: &AuditEvent) -> Result<(), AppError> {
+    exec_insert_with(pool, event, INSERT_AUDIT_SQL_IDEMPOTENT).await
 }
 
 /// Persist one audit event inside an existing transaction, so the event commits (or
@@ -149,7 +178,7 @@ pub async fn insert_tx(
     tx: &mut Transaction<'_, Postgres>,
     event: &AuditEvent,
 ) -> Result<(), AppError> {
-    exec_insert(&mut **tx, event).await
+    exec_insert_with(&mut **tx, event, INSERT_AUDIT_SQL).await
 }
 
 #[cfg(test)]
@@ -211,5 +240,28 @@ mod tests {
         assert_eq!(back.event_type, ev.event_type);
         assert_eq!(back.resource_type, ev.resource_type);
         assert_eq!(back.metadata_json, ev.metadata_json);
+    }
+
+    #[test]
+    fn idempotent_insert_sql_shares_columns_and_adds_on_conflict() {
+        // The two SQL strings must stay column-for-column identical so the shared
+        // bind order in `exec_insert_with` can never drift; only the idempotent one
+        // carries the ON CONFLICT clause. `event_id` is the audit table's PRIMARY KEY
+        // (see the foundation migration), which is what makes replay dedupe safe.
+        let base = INSERT_AUDIT_SQL.trim_end();
+        assert!(
+            INSERT_AUDIT_SQL_IDEMPOTENT
+                .trim_start()
+                .starts_with(base.trim_start()),
+            "idempotent SQL must be the base insert plus a suffix"
+        );
+        assert!(
+            INSERT_AUDIT_SQL_IDEMPOTENT.contains("ON CONFLICT (event_id) DO NOTHING"),
+            "replay insert must dedupe on the event_id primary key"
+        );
+        assert!(
+            !INSERT_AUDIT_SQL.contains("ON CONFLICT"),
+            "the hot-path insert must NOT swallow conflicts — a clash there is a real bug"
+        );
     }
 }

@@ -70,7 +70,6 @@ pub mod strategy_mutator;
 #[allow(dead_code)]
 pub mod usage_tracker;
 pub mod vector_guard;
-#[allow(dead_code)]
 pub mod vector_reconciliation;
 #[allow(dead_code)]
 pub mod weight_adjuster;

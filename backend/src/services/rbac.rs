@@ -379,10 +379,7 @@ mod tests {
 
         // Verify the role was actually persisted.
         let roles = rbac.roles.read().unwrap();
-        let role = roles
-            .get("user42")
-            .and_then(|r| r.get("user42"))
-            .copied();
+        let role = roles.get("user42").and_then(|r| r.get("user42")).copied();
         assert_eq!(role, Some(Role::Owner));
     }
 

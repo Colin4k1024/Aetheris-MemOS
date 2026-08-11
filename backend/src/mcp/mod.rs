@@ -8,7 +8,7 @@ pub mod sandbox_proxy;
 pub mod signing;
 
 pub use capability::{authorize, required_capabilities, AuthzError, MemoryCapability};
-pub use sandbox::{Capability, CapabilityPolicy, SandboxError, SandboxedTool, WasmSandbox};
+pub use sandbox::{Capability, CapabilityPolicy, SandboxError, WasmSandbox};
 pub use sandbox_proxy::{ProxyError, SandboxProxy, ToolExecutionLog};
 
 pub use signing::{

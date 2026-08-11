@@ -1,0 +1,531 @@
+{
+  "__comment": "Aetheris-MemOS overview dashboard. Provisioned (file provider). LIVE panels chart verified-populated metrics; the 'PENDING INSTRUMENTATION' row charts registered-but-unwired metrics that currently read flat zero (see monitoring/alerts-staged/ and the B-2 report). Datasource is bound by fixed uid 'aetheris-prometheus'.",
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "Prometheus scrape health for the backend target. 1 = scraped OK, 0 = unreachable. Always present regardless of app instrumentation.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 }, "1": { "text": "UP", "color": "green", "index": 1 } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "up{job=\"aetheris-backend\"}",
+          "legendFormat": "backend",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Backend Up",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "Number of entries scanned by the most recent reconciliation cycle (set from the scan summary). LIVE on PostgreSQL with reconciliation.enabled=true.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "reconciliation_scanned_entries",
+          "legendFormat": "scanned",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Last Reconciliation Scan (entries)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "Sum of all four reconciliation drift gauges. Healthy steady state is exactly 0 (dry_run detects but does not repair).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "reconciliation_missing_entries + reconciliation_orphan_points + reconciliation_tenant_mismatch_entries + reconciliation_content_hash_mismatch_entries",
+          "legendFormat": "total drift",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Total Vector Drift",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "99th percentile outbox batch processing duration over 5m. No data when the outbox is idle.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 10 } ] },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum(rate(outbox_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Outbox p99 Batch Latency",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 },
+      "id": 10,
+      "panels": [],
+      "title": "Vector Reconciliation (LIVE — PostgreSQL ↔ Qdrant)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "Drift counts between PostgreSQL (source of truth) and Qdrant, set every scan cycle (default hourly). Any non-zero value is a real consistency defect. tenant_mismatch is a tenant-isolation violation.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 5 },
+      "id": 11,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "reconciliation_missing_entries",
+          "legendFormat": "missing (DB has, Qdrant lacks)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "reconciliation_orphan_points",
+          "legendFormat": "orphan (Qdrant has, DB lacks)",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "reconciliation_tenant_mismatch_entries",
+          "legendFormat": "tenant mismatch (ISOLATION)",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "reconciliation_content_hash_mismatch_entries",
+          "legendFormat": "content-hash mismatch",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Vector Drift by Type",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "id": 20,
+      "panels": [],
+      "title": "Outbox Processing (LIVE — latency only)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "Outbox batch processing duration quantiles from the histogram observed per non-empty batch. Covers latency ONLY — backlog/failure/dead-letter are not instrumented yet.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "id": 21,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum(rate(outbox_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.9, sum(rate(outbox_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p90",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum(rate(outbox_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Outbox Batch Processing Duration",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 30,
+      "panels": [],
+      "title": "⚠ PENDING INSTRUMENTATION — panels below read FLAT ZERO (metrics registered but never set)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 23 },
+      "id": 31,
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
+        "content": "### ⚠ These metrics are NOT wired yet — the panels below are flat zero, not \"healthy\"\n\nThe following metrics are **registered** in `prometheus_exporter.rs` (so they scrape as `0`) but their setter has **no production caller**. Do **not** read a flat line as \"all good\":\n\n| Metric | Gap | Alert (staged) |\n|---|---|---|\n| `outbox_pending_total` | `set_outbox_pending` never called | `OutboxBacklogHigh` |\n| `outbox_dead_letter_total` | `inc_outbox_dead_letter` never called | `OutboxDeadLetterGrowing` |\n| `outbox_qdrant_upsert_success_total` / `_failure_total` | never incremented in `deliver_one` | `OutboxDeliveryFailureRateHigh` |\n| `tenant_quota_usage_ratio` | `set_tenant_quota_usage` never called (emits no series) | `TenantQuotaNearLimit` |\n\nStaged (disabled) alerts live in `monitoring/alerts-staged/aetheris-pending-instrumentation.yml`. **Auth-failure has no metric at all** and cannot be dashboarded until one is added. Activate each panel/alert once the backend setter is wired.",
+        "mode": "markdown"
+      },
+      "pluginVersion": "10.4.3",
+      "title": "Read me before trusting the panels below",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "NOT WIRED: set_outbox_pending has no production caller. Flat zero until instrumented.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 29 },
+      "id": 32,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "outbox_pending_total",
+          "legendFormat": "pending (NOT WIRED)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Outbox Pending [NOT WIRED]",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "NOT WIRED: inc_outbox_dead_letter has no production caller. Flat zero until instrumented.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 29 },
+      "id": 33,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "increase(outbox_dead_letter_total[1h])",
+          "legendFormat": "dead-letters/1h (NOT WIRED)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Outbox Dead-letter Growth [NOT WIRED]",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "NOT WIRED: inc_outbox_qdrant_upsert_success/_failure have no production callers. Flat zero until instrumented.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 36 },
+      "id": 34,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "sum(rate(outbox_qdrant_upsert_success_total[5m]))",
+          "legendFormat": "success/s (NOT WIRED)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "sum(rate(outbox_qdrant_upsert_failure_total[5m]))",
+          "legendFormat": "failure/s (NOT WIRED)",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Outbox Qdrant Upsert Rate [NOT WIRED]",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+      "description": "NOT WIRED: set_tenant_quota_usage has no production caller. This GaugeVec emits NO series until first set, so the panel will show 'No data'.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.9 } ] },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 36 },
+      "id": 35,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "aetheris-prometheus" },
+          "editorMode": "code",
+          "expr": "tenant_quota_usage_ratio",
+          "legendFormat": "{{tenant}} (NOT WIRED)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Tenant Quota Usage Ratio [NOT WIRED]",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["aetheris", "memory-system"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Aetheris-MemOS Overview",
+  "uid": "aetheris-overview",
+  "version": 1,
+  "weekStart": ""
+}

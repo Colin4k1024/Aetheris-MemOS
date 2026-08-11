@@ -17,6 +17,7 @@ use thiserror::Error;
 use crate::protocol::mcp::{
     TOOL_MEMORY_FORGET, TOOL_MEMORY_LIST, TOOL_MEMORY_RECALL, TOOL_MEMORY_SEARCH, TOOL_MEMORY_WRITE,
 };
+use crate::services::rbac::{Permission, Role};
 
 /// Minimal capability scope required to invoke a first-party memory tool (Plane A).
 ///
@@ -88,6 +89,35 @@ fn capabilities_for_tool(tool_name: &str) -> Option<&'static [MemoryCapability]>
 /// treating them as "requires nothing".
 pub fn required_capabilities(tool_name: &str) -> &'static [MemoryCapability] {
     capabilities_for_tool(tool_name).unwrap_or(&[])
+}
+
+/// Derive the capability set granted to a caller holding `role`.
+///
+/// Single source of truth: each `MemoryCapability` is granted iff the role holds
+/// the corresponding [`Permission`]. Deriving rather than hardcoding means a
+/// change to [`Role::has_permission`] cannot silently desynchronise the MCP
+/// plane from the REST plane.
+///
+/// Today's effect, stated plainly: `Reader` is the only role that loses
+/// anything — it gets `[Read]` and can therefore no longer invoke
+/// `memory_write` / `memory_forget` over MCP. `Owner`, `Admin` and `Member` all
+/// hold Read+Write+Delete, so for them this is identical to the previous
+/// hardcoded grant. And because every user is presently the `Owner` of their own
+/// single-user tenant (see backlog C-3 — `tenant_id` is not yet decoupled from
+/// `user_id`), the observable behaviour is unchanged until a real org-level
+/// tenant model lands. What changes now is that the grant is *derived from the
+/// subject* instead of being a constant, so role separation takes effect the
+/// moment roles can actually differ.
+pub fn capabilities_for_role(role: Role) -> Vec<MemoryCapability> {
+    [
+        (Permission::Read, MemoryCapability::Read),
+        (Permission::Write, MemoryCapability::Write),
+        (Permission::Delete, MemoryCapability::Delete),
+    ]
+    .into_iter()
+    .filter(|(permission, _)| role.has_permission(permission))
+    .map(|(_, capability)| capability)
+    .collect()
 }
 
 /// Authorizes a `call_tool` dispatch under Plane A.
@@ -246,5 +276,102 @@ mod tests {
         assert_eq!(MemoryCapability::Read.to_string(), "Read");
         assert_eq!(MemoryCapability::Write.to_string(), "Write");
         assert_eq!(MemoryCapability::Delete.to_string(), "Delete");
+    }
+
+    // --- Subject-derived grants ------------------------------------------ //
+
+    /// The point of deriving grants from the subject: a `Reader` must not be
+    /// able to mutate memory over MCP. Previously `granted` was hardcoded to
+    /// `[Read, Write, Delete]` for every caller, so this was reachable.
+    #[test]
+    fn reader_cannot_write_or_forget() {
+        let granted = capabilities_for_role(Role::Reader);
+        assert_eq!(granted, vec![MemoryCapability::Read]);
+
+        assert!(authorize(&granted, TOOL_MEMORY_SEARCH).is_ok());
+        assert!(authorize(&granted, TOOL_MEMORY_RECALL).is_ok());
+        assert!(authorize(&granted, TOOL_MEMORY_LIST).is_ok());
+
+        assert_eq!(
+            authorize(&granted, TOOL_MEMORY_WRITE).unwrap_err(),
+            AuthzError::MissingCapabilities {
+                tool: TOOL_MEMORY_WRITE.to_string(),
+                missing: vec![MemoryCapability::Write],
+            }
+        );
+        assert_eq!(
+            authorize(&granted, TOOL_MEMORY_FORGET).unwrap_err(),
+            AuthzError::MissingCapabilities {
+                tool: TOOL_MEMORY_FORGET.to_string(),
+                missing: vec![MemoryCapability::Delete],
+            }
+        );
+    }
+
+    #[test]
+    fn owner_admin_member_hold_all_memory_capabilities() {
+        for role in [Role::Owner, Role::Admin, Role::Member] {
+            let granted = capabilities_for_role(role);
+            assert_eq!(
+                granted,
+                vec![
+                    MemoryCapability::Read,
+                    MemoryCapability::Write,
+                    MemoryCapability::Delete
+                ],
+                "role {role:?} should hold all three memory capabilities"
+            );
+            for tool in [
+                TOOL_MEMORY_SEARCH,
+                TOOL_MEMORY_RECALL,
+                TOOL_MEMORY_LIST,
+                TOOL_MEMORY_WRITE,
+                TOOL_MEMORY_FORGET,
+            ] {
+                assert!(
+                    authorize(&granted, tool).is_ok(),
+                    "role {role:?} should be able to invoke {tool}"
+                );
+            }
+        }
+    }
+
+    /// Anti-drift guard: the MCP capability grant is *derived* from
+    /// `Role::has_permission`, so the two planes cannot diverge. If someone
+    /// changes the role→permission table, this test pins that the MCP grant
+    /// follows rather than silently keeping a stale copy.
+    #[test]
+    fn grant_tracks_role_permission_table() {
+        for role in [Role::Owner, Role::Admin, Role::Member, Role::Reader] {
+            let granted = capabilities_for_role(role);
+            assert_eq!(
+                granted.contains(&MemoryCapability::Read),
+                role.has_permission(&Permission::Read),
+                "Read grant must track Permission::Read for {role:?}"
+            );
+            assert_eq!(
+                granted.contains(&MemoryCapability::Write),
+                role.has_permission(&Permission::Write),
+                "Write grant must track Permission::Write for {role:?}"
+            );
+            assert_eq!(
+                granted.contains(&MemoryCapability::Delete),
+                role.has_permission(&Permission::Delete),
+                "Delete grant must track Permission::Delete for {role:?}"
+            );
+        }
+    }
+
+    /// Deny-by-default must survive the subject-derived path too: an unknown
+    /// tool is rejected even for the most privileged role.
+    #[test]
+    fn unknown_tool_denied_for_every_role() {
+        for role in [Role::Owner, Role::Admin, Role::Member, Role::Reader] {
+            let granted = capabilities_for_role(role);
+            assert!(
+                authorize(&granted, "memory_exfiltrate").is_err(),
+                "unknown tool must be denied for {role:?}"
+            );
+        }
     }
 }

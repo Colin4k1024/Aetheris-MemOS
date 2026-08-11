@@ -154,14 +154,23 @@ impl RuntimeAdapter for LangChainAdapter {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use langchain_rust::ChatOllama;
-/// use langchain_rust::chain::Chain;
+/// ```
+/// use std::sync::Arc;
+/// use backend::agent::memory_agent::MemoryAgent;
+/// use backend::runtime::LangChainMemoryTool;
 ///
-/// let memory_tool = LangChainMemoryTool::new(memory_agent);
-/// let tool = memory_tool.into_tool();
+/// // `agent` is built elsewhere from a DB-backed memory kernel; wrap it as a
+/// // memory tool that LLM agents can call.
+/// fn build_tool(agent: Arc<MemoryAgent>) -> LangChainMemoryTool {
+///     LangChainMemoryTool::new(agent)
+/// }
 ///
-/// // Use with LangChain
+/// // The tool's JSON schema is available without a running agent:
+/// let schema = LangChainMemoryTool::tool_definition();
+/// assert_eq!(schema["name"], "memory");
+///
+/// // At runtime, drive it with a JSON action string, e.g.:
+/// //   tool.execute(r#"{"action":"search","query":"design docs"}"#).await
 /// ```
 #[derive(Clone)]
 pub struct LangChainMemoryTool {

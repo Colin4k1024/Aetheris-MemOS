@@ -324,11 +324,7 @@ mod tests {
     #[test]
     fn empty_allowlist_ignores_spoofed_xff() {
         // Attacker sends a spoofed XFF — with empty allowlist it must be ignored.
-        let key = client_key(
-            peer("10.0.0.5"),
-            Some("1.2.3.4"),
-            &[],
-        );
+        let key = client_key(peer("10.0.0.5"), Some("1.2.3.4"), &[]);
         assert_eq!(key, "10.0.0.5");
     }
 
@@ -342,11 +338,7 @@ mod tests {
     fn untrusted_peer_ignores_xff() {
         let proxies = vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))];
         // Peer is 10.0.0.5, not in the proxy list.
-        let key = client_key(
-            peer("10.0.0.5"),
-            Some("1.2.3.4"),
-            &proxies,
-        );
+        let key = client_key(peer("10.0.0.5"), Some("1.2.3.4"), &proxies);
         assert_eq!(key, "10.0.0.5");
     }
 
@@ -354,11 +346,7 @@ mod tests {
     fn trusted_peer_with_single_xff_entry() {
         let proxies = vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))];
         // Peer is the trusted proxy, XFF has a single client entry.
-        let key = client_key(
-            peer("10.0.0.1"),
-            Some("1.2.3.4"),
-            &proxies,
-        );
+        let key = client_key(peer("10.0.0.1"), Some("1.2.3.4"), &proxies);
         assert_eq!(key, "1.2.3.4");
     }
 
@@ -384,11 +372,7 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
         ];
-        let key = client_key(
-            peer("10.0.0.1"),
-            Some("10.0.0.2, 10.0.0.1"),
-            &proxies,
-        );
+        let key = client_key(peer("10.0.0.1"), Some("10.0.0.2, 10.0.0.1"), &proxies);
         assert_eq!(key, "10.0.0.1");
     }
 
@@ -432,11 +416,7 @@ mod tests {
     #[test]
     fn trusted_peer_prefers_rightmost_valid_over_forged_left() {
         let proxy: IpAddr = "10.0.0.1".parse().unwrap();
-        let key = client_key(
-            peer("10.0.0.1"),
-            Some("garbage-abc, 203.0.113.7"),
-            &[proxy],
-        );
+        let key = client_key(peer("10.0.0.1"), Some("garbage-abc, 203.0.113.7"), &[proxy]);
         assert_eq!(key, "203.0.113.7");
     }
 }

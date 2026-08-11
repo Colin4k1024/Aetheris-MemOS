@@ -30,6 +30,7 @@ mod multi_tenant_router;
 mod multimodal;
 #[allow(dead_code)]
 mod planner;
+mod probes;
 mod procedural;
 mod security;
 #[allow(dead_code)]
@@ -300,7 +301,12 @@ pub fn root() -> Router {
         .route(
             "/agents/{agent_id}/complete",
             get(agent::get_agent_complete),
-        );
+        )
+        // Backlog C-1: agent identity/self-model CRUD is privileged (ManageAgents).
+        // Gate it like /kg and /mm — governance is the inner layer; auth is applied
+        // as the outer layer on protected_api_router (auth runs first, governance
+        // second).
+        .route_layer(governance_layer.clone());
 
     let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))
@@ -356,7 +362,10 @@ pub fn root() -> Router {
                     "/{tenant_id}/sessions",
                     get(multi_tenant_router::tenant_sessions),
                 )
-                .route("/access/check", post(multi_tenant_router::check_access)),
+                .route("/access/check", post(multi_tenant_router::check_access))
+                // Backlog C-1: tenant administration is privileged (ManageTenant /
+                // DeleteTenant). Gate it like /kg and /mm.
+                .route_layer(governance_layer.clone()),
         )
         .nest(
             "/v1/security",
@@ -454,6 +463,11 @@ pub fn root() -> Router {
         .route("/scalar/", get(scalar_ui))
         .route("/favicon.ico", get(favicon))
         .route("/metrics", get(prometheus_exporter::metrics_handler))
+        // Orchestrator probes: root path, unauthenticated (a kubelet cannot
+        // present a JWT). /livez checks nothing external on purpose — see
+        // routers/probes.rs for why probing dependencies there would turn a
+        // dependency outage into a restart storm.
+        .merge(probes::router())
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(TraceLayer::new_for_http())
         .fallback(not_found)

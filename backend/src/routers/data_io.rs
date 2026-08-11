@@ -128,13 +128,9 @@ async fn export_as_json(layer: &str, limit: i32) -> JsonResult<serde_json::Value
 
     match layer {
         "mm" | "all" => {
-            let response = MMRepository::list_entries(
-                None,
-                Some(limit),
-                Some(0),
-                default_tenant.as_str(),
-            )
-            .await?;
+            let response =
+                MMRepository::list_entries(None, Some(limit), Some(0), default_tenant.as_str())
+                    .await?;
             data["mm"] = serde_json::json!({
                 "entries": response.entries,
                 "count": response.entries.len()
@@ -213,8 +209,7 @@ async fn export_as_markdown(layer: &str, limit: i32) -> JsonResult<serde_json::V
     if layer == "mm" || layer == "all" {
         content.push_str("## Multimodal Memory (MM)\n\n");
         let response =
-            MMRepository::list_entries(None, Some(limit), Some(0), default_tenant.as_str())
-                .await?;
+            MMRepository::list_entries(None, Some(limit), Some(0), default_tenant.as_str()).await?;
         for entry in response.entries {
             content.push_str(&format!(
                 "### {} ({})\nType: {}\nQuality: {:.2}\n\n",
