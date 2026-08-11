@@ -180,12 +180,17 @@ impl MemoryStorageService {
         let session_id = if let Some(sid) = existing_session_id {
             sid.to_string()
         } else {
-            // 创建新会话
+            // 创建新会话：仅在此分支 session_type 才会写入 DB 并撞上
+            // `CHECK (session_type IN (...))`。校验放在写入前的边界，返回 400 并列出
+            // 合法值（backlog D-a），避免 DB check 约束以 500「内部错误」暴露给调用方。
+            // 追加到既有会话时 session_type 不参与写入，故不校验（见任务的既有数据说明）。
+            let session_type = crate::models::memory_enums::SessionType::parse(session_type)
+                .map_err(AppError::BadRequest)?;
             STMRepository::create_session(
                 tenant_id,
                 user_id,
                 agent_id,
-                session_type,
+                session_type.as_str(),
                 max_context_length,
                 retention_hours,
             )
@@ -243,31 +248,19 @@ impl MemoryStorageService {
         content: &str,
         title: Option<&str>,
     ) -> Result<StoreLtmResult, AppError> {
-        // 验证和规范化 source_type
-        // 数据库约束只允许：'document', 'api', 'database', 'web', 'user_input'
-        let normalized_source_type = match source_type {
-            "document" | "api" | "database" | "web" | "user_input" => source_type,
-            "test" | "testing" => {
-                warn!(
-                    "source_type '{}' is not allowed, mapping to 'user_input'",
-                    source_type
-                );
-                "user_input"
-            }
-            _ => {
-                warn!(
-                    "Unknown source_type '{}', mapping to 'user_input'",
-                    source_type
-                );
-                "user_input"
-            }
-        };
+        // 校验 source_type（backlog D-a）。
+        // 合法值的单一真相源是 `models::memory_enums::SourceType`（与 migration 的
+        // `CHECK (source_type IN (...))` 由防漂移测试锁定一致）。此前这里把未知值
+        // 静默重映射为 'user_input'——那会把调用方的笔误当成合法来源存进库，无人可知；
+        // 现在改为在边界拒绝并返回 400，错误消息列出全部合法值，集成方可据此自查。
+        let source_type = crate::models::memory_enums::SourceType::parse(source_type)
+            .map_err(AppError::BadRequest)?;
+        let normalized_source_type = source_type.as_str();
 
         info!(
-            "Storing LTM: source_id={}, source_type={} (normalized from {}), content_length={}",
+            "Storing LTM: source_id={}, source_type={}, content_length={}",
             source_id,
             normalized_source_type,
-            source_type,
             content.len()
         );
 
