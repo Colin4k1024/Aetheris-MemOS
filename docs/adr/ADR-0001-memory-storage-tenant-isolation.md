@@ -4,11 +4,31 @@
 
 - 编号：ADR-0001
 - 决策标题：Memory storage 采用显式 `tenant_id` + PostgreSQL RLS + 应用层 TenantId 校验
-- 状态：Proposed
-- 日期：2026-07-06
+- 状态：Accepted
+- 实现状态：部分落地 —— RLS 四表 + 非 BYPASSRLS 应用角色（`aetheris_app`）+ GUC keystone（`begin_tenant_tx`）已落地；尚缺 SQLite 无 DB 层隔离 / `db.url` 空静默降级（backlog C-4）、org 层租户模型 tenant≠user 解耦（C-3）、两条路径需 BYPASSRLS 连接（E-5）与专用受限角色的隔离渗透测试证据。
+- 日期：2026-07-06（提出）；2026-08-11（按实现核实收口状态）
 - Owner：architect / backend-engineer
+- 收口责任人：tech-lead（Design Review Board 收口，2026-08-11）
 - 关联需求：`docs/artifacts/2026-07-06-memory-storage-reliability/prd.md`
 - 关联架构：`docs/architecture/memory-storage-reliability.md`
+
+## 实现核实与缺口（2026-08-11 收口）
+
+按代码核实，本 ADR 的三层隔离模型（显式 `tenant_id` + PostgreSQL RLS + 应用层 TenantId）**核心已落地**，故收口为 `Accepted`，但存在两处已知缺口，需继续挂 backlog 跟踪。
+
+**已落地：**
+
+- 显式 `tenant_id` schema + backfill + NOT NULL：`backend/migrations/20260706000100_memory_storage_tenant_foundation.rs` 建立 tenant 基础；`20260716000100_rls_ltm.sql` 完成 `knowledge_entries` 的 backfill（`split_part(source_id,':',2)`）→ NOT NULL → RLS 的单事务切片。
+- PostgreSQL RLS 默认拒绝：`knowledge_entries`(LTM)、STM、KG、MM 四张 memory-owned 表均 `ENABLE ROW LEVEL SECURITY` + `FORCE` + fail-closed tenant policy，policy 读 `current_setting('aetheris.tenant_id', true)`（`migrations/20260716000100..000400_rls_{ltm,stm,kg,mm}.sql`）。P3 的 `training_samples` 也已随基线加 RLS（`20260803000100_p3_training_samples.sql`）。
+- 非 BYPASSRLS 应用角色（RLS 生效的关键前提）：`migrations/20260810000000_create_app_role.sql` 建 `aetheris_app`（`NOSUPERUSER NOBYPASSRLS`）。**注意**：stock dev 镜像用 `memory`（superuser）连接时 RLS 是 NO-OP，生产必须用 `aetheris_app` 连接，见迁移文件部署前置说明。
+- GUC keystone：所有 memory 表访问经 `backend/src/db/tenant_scope.rs::begin_tenant_tx` 设置 transaction-local `aetheris.tenant_id`；`db/ltm.rs`、`db/mm.rs`、`db/stm.rs`、`db/kg.rs`、`services/memory_fusion.rs`、`services/memory_search.rs` 的生产查询路径均已路由经此（`rg begin_tenant_tx` 命中数十处）。GUC 未设时 policy fail-close 到 0 行。
+
+**尚未落地 / 缺口（对应 backlog C-4、C-3、E-5、D-a）：**
+
+1. **SQLite 无 DB 层隔离，`db.url` 空时静默降级**（backlog C-4）：RLS 仅在 PG 生效；SQLite/dev 路径无等价 DB policy，隔离退化为纯应用层，且 `db.url` 空时降级路径缺显式护栏。
+2. **两条已知路径需 BYPASSRLS/owner 连接**（迁移文件自述）：`db/ltm.rs::list_qdrant_tenant_backfill_entries`（全租户扫描）与 `db/kg.rs::search_knowledge_by_entity_for_tenant`（vestigial LEFT JOIN，backlog E-5 已改；RLS 开启后该 JOIN 停止修复/关联）。
+3. **RLS 隔离的证明依赖专用受限角色的渗透测试**：迁移注释要求 provision 独立 restricted role 证明隔离，此项属 ADR-0003 运维准入证据，尚未在仓内留下执行证据。
+4. **org 层租户模型**（backlog C-3）：当前 MVP `tenant_id == user_id`（见 `tenant/context.rs`），ADR 未涉及但企业多租户需 tenant/user 解耦，作为后续演进。
 
 ## 背景与约束
 

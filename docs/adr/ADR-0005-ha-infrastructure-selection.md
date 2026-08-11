@@ -4,15 +4,35 @@
 
 - 编号：ADR-0005
 - 决策标题：三大数据存储（PostgreSQL / Qdrant / Neo4j）的高可用能力**优先采用托管/成熟基建交付，禁止自研分布式底座**
-- 状态：Proposed
-- 日期：2026-07-16
+- 状态：Accepted
+- 实现状态：已完整落地 —— 本 ADR 交付的是选型 / 红线决策，代码红线已被遵守（`distributed/` 是进程内协调原语、无自研共识/复制/分片）；托管 provisioning、RPO/RTO 定档、恢复演练本就是部署期动作（见「非目标」），不构成代码实现缺口。
+- 日期：2026-07-16（提出）；2026-08-11（按实现核实收口状态）
 - Owner：devops-engineer / architect
+- 收口责任人：tech-lead（红线与选型方向已于 2026-07-16 仲裁，2026-08-11 按代码核实收口决策轴）
 - 关联需求：`docs/artifacts/2026-07-16-enterprise-productionization/delivery-plan.md`（P1 地基 · 可靠性）
 - 关联 ADR：ADR-0001（租户隔离）、ADR-0002（向量 outbox 与对账）、ADR-0003（存储运维就绪 gate）、ADR-0004（MCP 沙箱执行模型）
 - 关联部署上下文：`docs/artifacts/2026-07-06-memory-storage-reliability/deployment-context.md`、`release-plan.md`
 - 评审记录：tech-lead 于 2026-07-16 仲裁通过两点——(a)"托管优先、operator 自管为合规回落"的表述；(b) operator 管理的集群不违反"不自建 Raft"红线（红线为"不手写共识/复制/分片"）。
 
 ---
+
+## 实现核实与缺口（2026-08-11 收口）
+
+本 ADR 是**基建选型 / 红线决策**（「HA 走托管、禁止自研分布式底座」），核实的是「代码是否遵守红线」而非「托管集群是否已开通」（后者属部署期动作，不在代码仓内）。
+
+**已核实与决策一致（故 `Accepted`）：**
+
+- **红线被遵守**：`backend/src/distributed/` 是**进程内**协调原语（epoch 取消、中断传播、lease、workflow signaling），**没有**自研 Raft / Paxos / 复制 / 分片。这与本 ADR「不手写共识」及 CLAUDE.md「NOT a distributed cluster — HA delegated to managed infrastructure」一致。
+- **应用连接角色已为托管/隔离铺垫**：`migrations/20260810000000_create_app_role.sql` 建 `aetheris_app`（NOSUPERUSER），迁移文件明确要求生产密码来自 secrets manager、禁默认口令——与本 ADR「密钥入 secret manager、禁默认口令」一致。
+
+**部署期 follow-up（缺口，属正常——本 ADR 明确「不在本 ADR 内实现集群或执行演练」）：**
+
+1. 托管平台确认与 provisioning、RPO/RTO 定档、选型闸门（pgvector / APOC / Qdrant Cloud 区域）、成本对比——均为「后续动作」表列项，尚未闭合，取决于合规与采购。
+2. HA 告警项（replica lag / failover / backup age / snapshot age / cluster health / PITR window）尚未接入 `monitoring/`（当前 alert 规则覆盖 backend down / reconciliation / outbox，尚无 HA 专项）。
+3. 恢复演练证据（restore / failover / rebuild）未归档——与 ADR-0003 的 blocked 门禁互为依赖。
+4. 需同步修订 2026-07-06 `deployment-context.md` / `release-plan.md` 与 delivery-plan 的「PG 自建 HA」→「托管优先」（本 ADR 结论先行第 5 点自陈的 follow-up）。
+
+> 说明：这些 follow-up 不阻碍本 ADR 收口为 `Accepted`——本 ADR 交付的是**选型决策**，决策方向已定且代码红线被遵守；provisioning 与演练本就被划为部署期动作（见「非目标」与「后续动作」）。
 
 ## 结论先行
 

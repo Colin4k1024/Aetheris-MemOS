@@ -5,10 +5,32 @@
 - 编号：ADR-0006
 - 决策标题：企业集群能力（leader 选举 / 集群成员 / 记忆分片路由 / 许可分级）用**成熟协调原语**实现真实版，**不自建 Raft/Paxos**；协调状态落 PostgreSQL，多节点选主用 PG advisory lock（可演进到 etcd/Consul）
 - 状态：Proposed
-- 日期：2026-07-16
+- 实现状态：未落地 —— 现状仍是 `services/enterprise.rs` 内存假 Raft（`become_leader` 自增内存 term）+ 假分片；无 PG advisory lock、无 `cluster_nodes`/`memory_shards`/`tenant_licenses` 迁移；前置条件未满足前不得推进。
+- 日期：2026-07-16（提出）；2026-08-11（按实现核实确认仍未落地）
 - Owner：architect
+- 收口责任人：待 tech-lead 主持 Design Review Board 收口（后续动作首项，仍 open）
 - 关联：`delivery-plan.md`；`ADR-0005-ha-infrastructure-selection.md`（数据存储 HA 走托管，不自建）；用户决策「必须实现真实的 enterprise」+「成熟协调原语」
 - 取代：`services/enterprise.rs` 的内存假 Raft/假分片（P0 曾建议删除，用户决定改为做真）
+
+## 实现核实与前置条件（2026-08-11 收口）
+
+按代码核实，本 ADR 主张的 PG advisory lock 选主 + `cluster_nodes` 成员表 + 一致性哈希分片 + `tenant_licenses` 许可**一项都未落地**，因此保持 `Proposed`。**现状仍是本 ADR 结论先行第 1 点自述的「假集群」。**
+
+**核实证据（现状 = 未落地）：**
+
+- **仍是内存假 Raft**：`backend/src/services/enterprise.rs:48-143` 的 `ClusterManager` 用 `Arc<RwLock<HashMap>>` 存节点，`become_leader`（`:115-143`）直接 `leader.term += 1` 自增内存 term——正是本 ADR 要取代的假实现。`EnterpriseShardManager`（`:202+`）同为内存 HashMap 假分片。
+- **无 PG advisory lock**：`rg "advisory_lock|pg_try_advisory" src/` **零命中**。
+- **无迁移**：`rg "cluster_nodes|memory_shards|tenant_licenses" migrations/` **零命中**——三张表都不存在。
+- **端点仍读内存假状态**：`backend/src/routers/enterprise.rs:17-27` 用 `OnceLock<ClusterManager>` + `ClusterManager::new("node_1")` 硬编码单节点，`become_leader`（`:94-97`）仍走假实现。
+
+**前置条件 / 阻塞原因（对应 backlog；本 ADR 结论先行第 6 点自陈）：**
+
+1. **需真实 PG + 多实例环境**：advisory lock / 心跳 / 迁移 / 选主接管 / 分片 re-balance 都需真 PG 与多实例集成测试，离线单会话不可完成。
+2. **依赖 ADR-0001 RLS 基线**：`tenant_licenses` 等表需随 P1 RLS 基线加租户隔离。
+3. **许可门控依赖治理 hooks 接线**：LicenseTier 门控 + 配额需接入治理 hooks（与 backlog C-1 治理层覆盖、C-2 配额生效联动）。
+4. **Design Review Board 尚未收口本 ADR**（后续动作首项仍 open）。
+
+> 诚实收口口径：`enterprise.rs` 假集群挂在 9 个活端点并对外宣传，属「文档/端点声称 > 实现」。在本 ADR 落地前，这些端点返回的是单进程内存玩具结果——保持 `Proposed` 并显式标注「尚未落地」，避免误判为已采纳。
 
 ## 结论先行
 

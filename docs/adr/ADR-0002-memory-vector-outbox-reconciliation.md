@@ -4,11 +4,29 @@
 
 - 编号：ADR-0002
 - 决策标题：LTM 与 Qdrant 采用 durable outbox + async worker + reconciliation
-- 状态：Proposed
-- 日期：2026-07-06
+- 状态：Accepted
+- 实现状态：部分落地 —— durable outbox + async worker + 对账扫描器已落地并在 `main.rs` 启动；尚缺 outbox/drift 指标写入（当前恒为 0，backlog B-5，已接 outbox 部分）、`claim_batch` 租户公平性调度（C-2）、worker crash/retry/drift 端到端演练证据。
+- 日期：2026-07-06（提出）；2026-08-11（按实现核实收口状态）
 - Owner：architect / backend-engineer
+- 收口责任人：tech-lead（Design Review Board 收口，2026-08-11）
 - 关联需求：`docs/artifacts/2026-07-06-memory-storage-reliability/prd.md`
 - 关联架构：`docs/architecture/memory-storage-reliability.md`
+
+## 实现核实与缺口（2026-08-11 收口）
+
+按代码核实，PostgreSQL durable outbox + async worker + reconciliation 模型**已落地**，故收口为 `Accepted`，剩余缺口在可观测性（metrics）与部分测试证据。
+
+**已落地：**
+
+- durable outbox：`backend/src/db/vector_outbox.rs`（transactional outbox 表 + `claim_batch` 用 `FOR UPDATE SKIP LOCKED`，有 5 个行为测试含并发验证）。
+- async worker：`backend/src/services/outbox_worker.rs`，在 `backend/src/main.rs:112` 通过 `init_outbox_worker()` 启动（PG only）。
+- reconciliation 扫描器：`backend/src/services/vector_reconciliation.rs`，在 `backend/src/main.rs:116` 通过 `init_reconciliation_scanner(&config.reconciliation)` 接线（W1.1，作为 outbox 的兜底 drift 扫描）。
+
+**尚未落地 / 缺口（对应 backlog B-5、C-2）：**
+
+1. **outbox / drift metrics 恒为 0**（backlog B-5）：本 ADR 后续动作要求「增加 outbox backlog 和 drift metrics，Prometheus 可采集并有告警规则」。`outbox_pending` gauge、outbox `dead_letter` counter、qdrant upsert success/failure 等指标虽已注册但**从未写入**，需完成 instrumentation（backlog B-5 及其子项）。相关告警已放在 `monitoring/alerts-staged/aetheris-pending-instrumentation.yml` 待接线。
+2. **`claim_batch` 无租户公平性调度**（backlog C-2）：当前批量领取不做跨租户公平性，单租户大量积压可能饿死其他租户。
+3. **worker crash / retry / drift E2E**：后续动作要求 reliability E2E 有执行证据；当前有 outbox 单元/行为测试，但完整 crash/retry/drift 端到端演练证据仍归 ADR-0003 运维准入范畴，尚未在仓内留下证据。
 
 ## 背景与约束
 

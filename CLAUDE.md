@@ -132,13 +132,22 @@ This is a **monorepo** with two main components:
 
 ### Health & System Endpoints
 
-> There is **no** root `/health` and no liveness/readiness probe. The only real
-> dependency check is `/api/v1/memory/health` (`SELECT 1` against the DB pool).
+> There is still **no** root `/health`. Orchestrator probes live at `/livez` and
+> `/readyz` (`backend/src/routers/probes.rs`), unauthenticated at the root next
+> to `/metrics` — a kubelet cannot present a JWT.
+>
+> `/livez` checks **nothing external on purpose**: a failing liveness probe
+> restarts the container, and restarting cannot fix a down database, so probing
+> dependencies there would turn a dependency blip into a restart storm.
+> `/readyz` is the one that probes dependencies, because failing it only drains
+> the instance from the load balancer.
 
 | Method | Endpoint                    | Description                                      |
 | ------ | --------------------------- | ------------------------------------------------ |
+| GET    | `/livez`                    | Process liveness — always 200 while serving, checks no dependency |
+| GET    | `/readyz`                   | Readiness — round-trips PostgreSQL (`SELECT 1`) + Qdrant (gRPC `health_check`); `503` + per-dependency detail on failure |
 | GET    | `/api/v1/memory/health`     | Real DB probe (`SELECT 1`), returns `degraded` on failure |
-| GET    | `/api/v1/memory/v1/health`  | Self-healing status — **returns hardcoded values, not a real probe** |
+| GET    | `/api/v1/memory/v1/health`  | In-process memory-layer status — **not a dependency probe**; carries `is_dependency_probe: false`. Layer backends are in-memory stubs (see A-6), so `latency_ms` is `null` rather than fabricated |
 | GET    | `/metrics`                  | Prometheus metrics (unauthenticated)             |
 
 ## Key Patterns
@@ -176,7 +185,29 @@ Repository queries are scoped by `tenant_id` at the **application layer** today.
 
 ### MCP Sandbox
 
-Tool *listing* is signature-verified (`backend/src/mcp/signing.rs`, HMAC-SHA256). **Tool execution is not yet sandboxed**: `backend/src/mcp/sandbox.rs` is currently a mock (returns input unchanged) and is not wired into the call path — `call_tool` runs the first-party memory tools natively under tenant isolation. Real WASM isolation, call-time signing, and capability authorization are planned; see `docs/adr/ADR-0004-mcp-sandbox-execution-model.md`.
+Two planes, per `docs/adr/ADR-0004-mcp-sandbox-execution-model.md`. `call_tool`
+classifies the requested tool into a plane **before** any Plane A guard runs —
+that ordering matters, because Plane A's capability check is deny-by-default
+over the first-party tool set and would reject every extension tool as
+`UnknownTool` if it ran first.
+
+- **Plane A — trusted first-party** (the 5 `memory_*` tools): signature-verified
+  (`mcp/signing.rs`, HMAC-SHA256) at both listing and call time, then capability
+  authorization derived from the caller's RBAC role
+  (`mcp::capability::capabilities_for_role`), then governance, then **native**
+  execution under tenant isolation. Deliberately *not* run through WASM: these
+  tools need privileged DB access, so sandboxing them would force wide-open host
+  functions — no isolation gain, plus fuel limits and new failure modes.
+- **Plane B — untrusted extensions**: routed through `mcp/sandbox_proxy.rs` into
+  `mcp/sandbox.rs`, which is a **real wasmtime sandbox** (fuel limits, capability
+  policy). The path is wired and tested, but the extension **registry is empty in
+  production** — there is no first-party mechanism to register third-party tools
+  yet. Unknown tools are rejected and audited.
+
+Still open (see backlog A-2): the production registration source for extension
+tools, Plane B signing, and the capability→host-function grant model.
+`execute_wasm`'s current capability check requires *all* capabilities to run any
+module, which is a placeholder rather than a real least-privilege model.
 
 ## Environment Requirements
 
@@ -185,3 +216,4 @@ Tool *listing* is signature-verified (`backend/src/mcp/signing.rs`, HMAC-SHA256)
 - PostgreSQL 14+ (via Docker)
 - Qdrant (via Docker)
 - Neo4j (optional, for knowledge graph)
+- Ollama — or any OpenAI-compatible LLM/embedding endpoint (`config.llm` / `config.embedding`). **Not fully optional.** The **embedding** backend is a *hard* dependency on the LTM write and search paths — vectors are generated on the hot path, so LTM writes/search fail if the embedding backend is unreachable. Startup **fails fast** on deterministic embedding misconfiguration (empty `base_url`/`model`, `dimension == 0`, placeholder OpenAI key) via `validate_embedding_config` in `config/mod.rs`; reachability is checked at runtime by `/readyz`, not at startup. The **LLM summary** is degradable: when the LLM backend is unreachable or returns an error status, an LTM write still succeeds with an empty summary marked `summaryStatus: "pending"` for later backfill; *malformed* LLM output is surfaced (500), not silently degraded. See `store_ltm_for_tenant` in `services/memory_storage.rs`.

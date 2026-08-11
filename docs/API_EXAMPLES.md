@@ -3558,7 +3558,11 @@ NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_neo4j_password
 
-# Ollama LLM Service (optional, for embeddings and LLM)
+# Ollama, or any OpenAI-compatible endpoint. NOT fully optional:
+# - Embeddings are REQUIRED — vectors are generated on the LTM write/search hot
+#   path, so those paths fail if the embedding backend is unreachable.
+# - The LLM *summary* is degradable — if the LLM is unreachable, LTM writes still
+#   succeed with an empty summary marked summaryStatus="pending" for later backfill.
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama2
 

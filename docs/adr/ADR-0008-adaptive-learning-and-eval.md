@@ -5,8 +5,10 @@
 - 编号：ADR-0008
 - 决策标题：把"自适应记忆调度"从**启发式 + 写死常量 + 死代码**改为**真学习闭环**——先以**离线批量拟合可解释模型**起步（明确特征 / 标签 / 数据管线），由**eval harness 证明自适应显著优于静态最优配置**后才放行；效果不达标则**诚实降级**为"启发式配置选择"；在线学习 / bandit 作为已验证后的演进项，不作为起点。
 - 状态：Proposed
-- 日期：2026-07-16
+- 实现状态：未落地 —— 真学习闭环三件事（predictor 实测拟合 / scheduler 候选选优 / eval 门禁）均未落地：`TrainablePredictor` 只有 trait 声明无 impl、`monitor.rs:269` 仍写死 `response_time_ms:850`、scheduler 无候选比较；且放行前置本身失真——`eval_harness.rs:104-107` 硬编码 `passed:true`/`coherence:1.0`。须先把 eval harness 做真（backlog A-7）。
+- 日期：2026-07-16（提出）；2026-08-11（按实现核实确认仍未落地）
 - Owner：architect / ML engineer
+- 收口责任人：待 tech-lead 主持 Design Review Board 收口（后续动作首项，仍 open）
 - 关联：
   - `docs/artifacts/2026-07-16-enterprise-productionization/delivery-plan.md`（P3 阶段 + 放行标准："eval 证明自适应策略在离线基准上**显著优于**静态最优配置；predictor 置信度有真实依据；无写死常量喂决策"）
   - `docs/artifacts/2026-07-16-backend-serviceization-remediation/execute-log.md`（审查结论："自适应·自进化名实不符"）
@@ -19,6 +21,26 @@
   - `services/strategy_mutator.rs` 伪进化 + 零消费死产物（`:5-7`、`:241-263`、`:266`；P0 已停用）
 
 ---
+
+## 实现核实与前置条件（2026-08-11 收口）
+
+按代码核实，本 ADR 主张的真学习闭环（predictor 从实测拟合 → scheduler 候选选优 → eval 门禁）**尚未落地**，因此保持 `Proposed`。更关键的是：**本 ADR 自设的放行前置条件（eval harness 证明自适应 > 静态最优）本身尚不成立**——eval harness 是假的。
+
+**核实证据（现状 = 未落地）：**
+
+- **predictor 无训练、trait 只有声明**：`backend/src/services/predictor.rs:297-306` 的 `TrainablePredictor::{update_from_sample, fit_from_samples}` **只有 trait 声明，全仓无任何 `impl`**（`rg "impl TrainablePredictor" src/` 零命中）。predictor 仍是写死系数的闭式组合。
+- **monitor 仍写死延迟喂决策**：`backend/src/services/monitor.rs:269` `response_time_ms: 850`——本 ADR 要修掉的伪造数仍在决策链上。
+- **scheduler 未做候选比较**：`rg "argmax|candidate|archetype" src/services/scheduler.rs` 零命中；本 ADR「没有候选比较就不叫自适应选择」的要求未满足。
+- **eval harness 前置条件是假的**：`backend/src/services/eval_harness.rs:104-107` 硬编码 `passed: true`、`actual_coherence: 1.0`、`duration_ms: 0`，从不真正调用 scheduler 对比静态最优。**本 ADR 依赖它证明「自适应显著优于静态最优」，但它当前无法证明任何东西**——放行前置本身失真。
+
+**前置条件 / 阻塞原因（对应 backlog A-7；本 ADR 结论先行第 6 点自陈）：**
+
+1. **先把 eval harness 做成真的**（backlog A-7 的第一步）：在 eval harness 能真实对比自适应 vs 静态最优、且无数据泄漏、可复现之前，P3 放行判定无法进行。
+2. **需真 PG + 基准数据集 + 离线训练任务**：`training_samples` 表虽已建（`migrations/20260803000100_p3_training_samples.sql`，含 RLS），但特征/标签管线、全因子离线基准、离线批训练、模型注册表均未落地，需真环境与多轮实测，离线单会话不完成。
+3. **标签独立性未切断自证**：本 ADR 硬要求标签来自独立测量（LLM-judge / oracle），且不得由 predictor 输出回填；该切断尚未实施。
+4. **Design Review Board 尚未收口本 ADR**（后续动作首项仍 open）。
+
+> 诚实收口口径：「自适应 / 自学习 / 自进化」是对外核心卖点，但实现是规则 + 常量 + 死代码。在本 ADR 落地或诚实降级前，保持 `Proposed` 并显式标注「尚未落地 + 前置条件失真」，与本 ADR「未经 eval 证明不得宣称自适应」的诚实性红线一致。
 
 ## 结论先行
 

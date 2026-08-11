@@ -2,13 +2,35 @@
 
 ## 决策信息
 
-- 编号：ADR-0004（Proposed；由 tech-lead 于 Design Review Board 收口后转 Accepted）
+- 编号：ADR-0004
 - 决策标题：MCP 工具执行采用「可信第一方平面 + 不可信扩展平面」双平面模型；第一方平面强制 call_tool 验签 + capability 授权 + 审计，不可信平面采用 wasmtime 真沙箱
-- 状态：Proposed
-- 日期：2026-07-16
+- 状态：Accepted
+- 实现状态：部分落地 —— Plane A（call_tool 验签 + capability 按角色授权 + 结构化审计）已落地并接入 live 路径（backlog A-1 已完成）；Plane B 未接线 —— `sandbox.rs` 虽是真 wasmtime 实现，但除 `mod.rs` re-export 外请求链路上零调用，`call_tool` 仍原生执行第一方工具（backlog A-2）。
+- 日期：2026-07-16（提出）；2026-08-11（按实现核实收口状态）
 - Owner：architect
+- 收口责任人：tech-lead（Design Review Board 收口，2026-08-11；原提出时状态字段自述「由 tech-lead 于 Design Review Board 收口后转 Accepted」，此次即为该收口动作）
 - 关联需求 / 命令入口：`docs/artifacts/2026-07-16-enterprise-productionization/delivery-plan.md`（P1「MCP wasmtime 真沙箱执行 + capability 强制 + call_tool 验签」）
 - 关联 ADR：`docs/adr/ADR-0001-memory-storage-tenant-isolation.md`（租户隔离，call_tool 已复用其 tenant context）
+
+## 实现核实与缺口（2026-08-11 收口）
+
+双平面模型的**方向已采纳**，故收口为 `Accepted`。但两个平面落地程度不同：**Plane A（可信第一方）已完整落地并接入 live 路径；Plane B（不可信扩展）代码存在但零接线，请求链路上仍是死代码。**
+
+**Plane A — 已落地（对应 backlog A-1，已完成）：**
+
+- call_tool 调用侧验签：`backend/src/routers/mcp.rs:264-265` 注释 + `:200` 起用 `verify_component` / `verify_unsigned`（复用 `mcp/signing.rs` 的 HMAC-SHA256 + trusted key bundle），与 list_tools 同源，消除「列举验签、调用不验签」的不一致。
+- capability 按主体最小权限授权：`routers/mcp.rs:322-323` 用 `mcp::capability::capabilities_for_role(role)` 按调用方 RBAC 角色派生授予集合，`capability::authorize` deny-by-default（`:403` 注释「rejects unknown tools deny-by-default」），不再硬编码 `[Read,Write,Delete]`。
+- 结构化审计：`routers/mcp.rs` 多处（`:296/:330/:381/:404/:437/:452`）调 `services::audit_writer::record_audit`（真实实现，`services/audit_writer.rs:70`），修复了原「`capabilities_used` 恒空、仅打 log」的问题。
+
+**Plane B — 未接线（对应 backlog A-2，未完成）：**
+
+- `backend/src/mcp/sandbox.rs` **已是真 wasmtime 实现**（`use wasmtime::{Engine, Linker, Memory, Module, Store}`；`:131-134` `config.consume_fuel(true)` + 建 Engine；`:164` `set_fuel(MAX_FUEL)`；`execute_wasm` 不再是「原样返回输入」的 mock）。
+- `backend/src/mcp/sandbox_proxy.rs` 的 `SandboxProxy` 存在并持有 `WasmSandbox`。
+- **但两者除 `mcp/mod.rs` re-export 外，在请求链路上零调用点**（`rg WasmSandbox|SandboxProxy` 命中仅 sandbox_proxy.rs 自身与测试）。`call_tool` 仍原生执行 5 个第一方记忆工具——本 ADR 主张的「Plane B 不可信工具经 wasmtime 真沙箱执行」**尚未接线**，因为当前产品尚未开放不可信 / 自带工具。
+
+**待 tech-lead 裁决的范围点（本 ADR 结论先行第 4 点，仍 open）：**
+
+- delivery-plan P1 放行标准「MCP 工具在沙箱内执行且越权被拒」是否**强制要求完整 Plane B 进入 P1**，取决于「支持不可信 / 自带工具」是否为已承诺售卖点。当前 Plane A 已满足「越权被拒（针对今天真实执行的工具）」；Plane B 是否落地由该裁决决定（backlog A-2）。CLAUDE.md 目前已如实描述该现状（sandbox.rs 是真 wasmtime 但未接线，call_tool 原生执行），无「声明 > 实现」残留。
 
 ## 结论先行
 
