@@ -321,3 +321,74 @@ async fn test_streaming_endpoint() {
         "text/event-stream"
     );
 }
+
+// E-12 end-to-end lock: the streaming endpoint must return the handler's *real*
+// task identity, not a hardcoded envelope reusing the provisional working id.
+// Like `test_rest_send_message`, driving the SSE body runs the handler through a
+// live memory backend (the search path hits the embedding service), so it can
+// only pass under e2e infra — hence `#[ignore]`. The CI-level lock for the same
+// bug is the `success_payload` unit test in `src/a2a/router.rs`, which needs no
+// backend. Note the *existing* `test_streaming_endpoint` above deliberately does
+// NOT read the body: `oneshot().await` returns the SSE response head before the
+// stream is polled, so it never touches a backend.
+#[tokio::test]
+#[ignore = "drives the A2A handler through a live memory backend (embedding+DB): the SSE body only materialises once the stream is polled and the handler runs a real search; run with --ignored under e2e infra. CI lock is the success_payload unit test in src/a2a/router.rs"]
+async fn test_streaming_returns_real_task_identity() {
+    let app = create_test_router();
+
+    let request_body = json!({
+        "message": {
+            "messageId": "test-stream-2",
+            "role": "ROLE_USER",
+            "parts": [
+                {
+                    "text": "Search for memories about AI"
+                }
+            ]
+        }
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/a2a/rest/messages/stream")
+                .header("content-type", "application/json")
+                .header("accept", "text/event-stream")
+                .header(header::AUTHORIZATION, auth_header())
+                .body(Body::from(serde_json::to_string(&request_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Polling the body to completion is what actually runs the handler.
+    let body_bytes = body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+    // Pull the taskId out of each SSE `data:` line (working event, then the
+    // terminal completed event).
+    let task_ids: Vec<String> = body
+        .lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .filter_map(|data| serde_json::from_str::<Value>(data.trim()).ok())
+        .filter_map(|v| v["taskId"].as_str().map(str::to_string))
+        .collect();
+
+    // The regression guard: the terminal event must carry the handler's own
+    // task id, which differs from the provisional working id. The buggy version
+    // reused the provisional id for both, so this would be `[x, x]`.
+    assert!(
+        task_ids.len() >= 2,
+        "expected a working + terminal event, got body: {body}"
+    );
+    assert_ne!(
+        task_ids.first(),
+        task_ids.last(),
+        "terminal event must carry the handler's real task id, not the provisional working id; body: {body}"
+    );
+}

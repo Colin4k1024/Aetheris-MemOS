@@ -14,7 +14,6 @@ use crate::tenant::RequestTenantContext;
 
 use super::agent_card::create_agent_card;
 use super::handler::A2AHandler;
-use super::streaming::streaming_router;
 
 #[derive(Clone)]
 pub struct A2AState {
@@ -218,6 +217,47 @@ async fn handle_list_tasks(State(_state): State<A2AState>) -> Json<Value> {
     }))
 }
 
+/// One server-sent event as plain data — its optional SSE `event:` name and its
+/// `data:` JSON line. Kept separate from axum's opaque `Event` (which exposes no
+/// getters) so the response→payload mapping in `success_payload` stays
+/// unit-testable without spinning up a handler or a memory backend.
+struct StreamPayload {
+    event: Option<&'static str>,
+    data: String,
+}
+
+/// Map a successful handler reply to the terminal SSE payload the caller receives.
+///
+/// This is the fix for E-12. The streaming endpoint used to bind the handler's
+/// `Ok(response)` and then ignore it, always emitting a hardcoded "completed"
+/// that carried a *freshly minted* task id — so every SSE client got the same
+/// empty envelope no matter what the agent produced. We now surface a `Task`
+/// reply under its own id/context and forward a bare `Message` reply verbatim,
+/// matching the non-streaming `/a2a/rest/messages` handler.
+fn success_payload(response: a2a::types::SendMessageResponse) -> StreamPayload {
+    match response {
+        a2a::types::SendMessageResponse::Task(task) => {
+            let completed_event = json!({
+                "taskId": task.id,
+                "contextId": task.context_id,
+                "status": {
+                    "state": "completed",
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                },
+                "final": true
+            });
+            StreamPayload {
+                event: None,
+                data: completed_event.to_string(),
+            }
+        }
+        a2a::types::SendMessageResponse::Message(msg) => StreamPayload {
+            event: Some("message"),
+            data: serde_json::to_string(&msg).unwrap_or_default(),
+        },
+    }
+}
+
 async fn handle_stream_message(
     State(state): State<A2AState>,
     Extension(tenant_ctx): Extension<RequestTenantContext>,
@@ -226,17 +266,19 @@ async fn handle_stream_message(
     impl futures::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
 > {
     use axum::response::sse::Event;
-    use futures::stream::StreamExt;
 
     let handler = state.handler.clone();
 
     let stream = async_stream::stream! {
-        // Send initial working status
+        // Emit an immediate "working" status so the caller sees the task was
+        // accepted before the (potentially slow) handler runs. These ids are
+        // provisional — the terminal event below carries the handler's real
+        // task identity.
         let task_id = uuid::Uuid::new_v4().to_string();
         let context_id = request.message.context_id.clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-        let working_event = serde_json::json!({
+        let working_event = json!({
             "taskId": task_id,
             "contextId": context_id,
             "status": {
@@ -248,23 +290,19 @@ async fn handle_stream_message(
 
         yield Ok(Event::default().data(working_event.to_string()));
 
-        // Process the message with real tenant context
+        // Process the message with the real tenant context, then stream back
+        // whatever the handler actually produced (see `success_payload`).
         match handler.handle_message(request, &tenant_ctx).await {
             Ok(response) => {
-                let completed_event = serde_json::json!({
-                    "taskId": task_id,
-                    "contextId": context_id,
-                    "status": {
-                        "state": "completed",
-                        "timestamp": chrono::Utc::now().to_rfc3339()
-                    },
-                    "final": true
-                });
-
-                yield Ok(Event::default().data(completed_event.to_string()));
+                let payload = success_payload(response);
+                let mut event = Event::default();
+                if let Some(name) = payload.event {
+                    event = event.event(name);
+                }
+                yield Ok(event.data(payload.data));
             }
             Err(e) => {
-                let error_event = serde_json::json!({
+                let error_event = json!({
                     "taskId": task_id,
                     "contextId": context_id,
                     "status": {
@@ -281,4 +319,69 @@ async fn handle_stream_message(
     };
 
     axum::response::Sse::new(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use a2a::types::{Message, Part, Role, SendMessageResponse, Task, TaskState, TaskStatus};
+
+    // E-12 regression lock. The streaming success branch used to discard the
+    // handler's response and emit a hardcoded "completed" with a fabricated
+    // task id. These tests pin the response→payload mapping so a regression to
+    // "ignore the response" fails here. They need no memory backend — unlike an
+    // end-to-end stream test, whose Ok path requires a reachable embedding/DB
+    // backend (see the #[ignore] test in tests/a2a_integration.rs).
+
+    #[test]
+    fn success_payload_task_preserves_handler_task_identity() {
+        let task = Task {
+            id: "real-task-id".to_string(),
+            context_id: "real-context-id".to_string(),
+            status: TaskStatus {
+                state: TaskState::Completed,
+                message: None,
+                timestamp: None,
+            },
+            artifacts: None,
+            history: None,
+            metadata: None,
+        };
+
+        let payload = success_payload(SendMessageResponse::Task(task));
+
+        // Default (unnamed) event carrying the task's OWN id/context — not the
+        // provisional working-event uuid the buggy version re-emitted.
+        assert!(payload.event.is_none());
+        let data: Value = serde_json::from_str(&payload.data).unwrap();
+        assert_eq!(data["taskId"], "real-task-id");
+        assert_eq!(data["contextId"], "real-context-id");
+        assert_eq!(data["status"]["state"], "completed");
+        assert_eq!(data["final"], true);
+    }
+
+    #[test]
+    fn success_payload_message_is_forwarded_verbatim() {
+        let msg = Message {
+            message_id: "msg-42".to_string(),
+            context_id: Some("ctx-1".to_string()),
+            task_id: None,
+            role: Role::Agent,
+            parts: vec![Part::text("hello from agent".to_string())],
+            metadata: None,
+            extensions: None,
+            reference_task_ids: None,
+        };
+
+        let payload = success_payload(SendMessageResponse::Message(msg));
+
+        // A bare Message reply reaches the client under the `message` event with
+        // the serialized body — the buggy version dropped it entirely.
+        assert_eq!(payload.event, Some("message"));
+        assert!(
+            payload.data.contains("hello from agent"),
+            "serialized message must carry the agent's text, got: {}",
+            payload.data
+        );
+    }
 }
