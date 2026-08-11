@@ -744,14 +744,24 @@ async fn handle_memory_write(
             )])
         }
         "mm" => {
-            let modality_type = args["modality_type"].as_str().unwrap_or("text");
+            // Validate at this boundary, mirroring `routers/multimodal.rs::store_mm`.
+            // `multimodal_entries.modality_type` carries a DB CHECK constraint, so an
+            // unvalidated value surfaced to the caller as a 500 "internal error" with
+            // no hint about what was wrong. This is the second of two live write paths
+            // into that column; the shared narrow point is `db/mm.rs::create_entry`,
+            // but a repository layer is the wrong place to decide an HTTP status, so
+            // both callers validate instead.
+            let modality_type = crate::models::memory_enums::ModalityType::parse(
+                args["modality_type"].as_str().unwrap_or("text"),
+            )
+            .map_err(crate::AppError::BadRequest)?;
             let session_id = session_id.or(Some("mcp_session".to_string()));
             let source_id = format!("mcp_{}", ulid::Ulid::new());
 
             let entry_id = MMRepository::create_entry(
                 session_id.as_deref(),
                 &source_id,
-                modality_type,
+                modality_type.as_str(),
                 "{}",
                 Some(&content),
                 None,
@@ -766,7 +776,7 @@ async fn handle_memory_write(
                     "success": true,
                     "layer": "mm",
                     "entryId": entry_id,
-                    "modalityType": modality_type
+                    "modalityType": modality_type.as_str()
                 })
                 .to_string(),
             )])
