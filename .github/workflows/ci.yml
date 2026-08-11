@@ -17,6 +17,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      sdk-rust: ${{ steps.filter.outputs.sdk-rust }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -28,6 +29,9 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            sdk-rust:
+              - 'sdks/rust/**'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -83,11 +87,15 @@ jobs:
       - name: Cache cargo
         uses: actions/cache@v4
         with:
+          # `backend/target`, not `target`: `actions/cache` resolves paths against
+          # the workspace root, while this job's `working-directory: backend` only
+          # affects `run:` steps. Caching bare `target` therefore archived a
+          # non-existent root directory and the compile cache never hit.
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/sqlx
-            target
+            backend/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
@@ -179,10 +187,12 @@ jobs:
       - name: Cache cargo
         uses: actions/cache@v4
         with:
+          # `backend/target` for the same reason as the `backend` job: cache paths
+          # resolve against the workspace root, not this job's working-directory.
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            backend/target
           # Separate key from `backend`: the a2a feature set produces different
           # artifacts and pulls the a2a-rs git dep the main cache never populates.
           # The restore-keys fallback still warms the crate registry from that cache.
@@ -226,6 +236,68 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
 
+  # Rust SDK crate (`sdks/rust`). A SEPARATE job because it is a STANDALONE crate,
+  # not a member of the backend workspace: there is no root Cargo.toml, backend's
+  # Cargo.toml declares no `[workspace]`, and sdks/rust ships its own Cargo.lock.
+  # The `backend` job runs everything under `working-directory: backend`, so its
+  # `cargo fmt --all` / `clippy` / `test` NEVER reached this crate — the whole SDK
+  # was invisible to CI. That gap is exactly how fmt drift accumulated here while
+  # backend stayed clean (backlog E-7b): the same "門禁存在但不覆盖" pattern as the
+  # frontend lint flag, one directory over.
+  #
+  # No Postgres/Qdrant and no SQLX_OFFLINE: this is a thin reqwest HTTP client with
+  # no sqlx dependency, so it builds and tests fully offline. The tests are the
+  # `.query()` URL-construction suite from E-4/#28.
+  #
+  # `cargo clippy --all-targets` (not plain `--all`) is deliberate: it type-checks
+  # the examples too, which plain `cargo test`/`clippy` skip. That guards against
+  # the D-j/#77 class of bug — an SDK example compiled with an illegal enum value —
+  # from silently rotting. Plain `cargo test` already covers doctests, so no
+  # separate doc-test step is needed.
+  sdk-rust:
+    needs: changes
+    if: needs.changes.outputs.sdk-rust == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/rust
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        # Pinned, NOT @stable — same reason as the `backend` job: `cargo fmt --all
+        # -- --check` below is a blocking gate and rustfmt's formatting changes
+        # between releases. The repo-root rust-toolchain.toml (1.96.1) already
+        # applies to this crate (rustup walks up the tree), but pin explicitly here
+        # too so the gate does not silently depend on file-resolution order.
+        # Keep in sync with /rust-toolchain.toml and the backend jobs.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.1"
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            sdks/rust/target
+          key: ${{ runner.os }}-cargo-sdk-rust-${{ hashFiles('sdks/rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-sdk-rust-
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets
+
+      - name: Test
+        run: cargo test
+
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -260,5 +332,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # NOT wiring `npm test` here yet (backlog E-11b, deferred).
+      #
+      # The jest suite does run on Node 24 (E-11/#80 fixed the infra), but an
+      # independent re-check on Node 20 — the version THIS job pins — failed with
+      # `Jest: Failed to parse the TypeScript config file jest.config.ts /
+      # Parse config file failed: [config/config.ts]`, not the 6-passing run a
+      # prior verification reported. Until that discrepancy is resolved on Node
+      # 20 specifically, adding the step would either red the pipeline or invite
+      # a `continue-on-error` — and a suite that cannot fail is not a gate, which
+      # is the exact anti-pattern the lint flag above was removed for.
       - name: Build
         run: npm run build

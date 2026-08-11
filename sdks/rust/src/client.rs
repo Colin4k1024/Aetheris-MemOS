@@ -10,7 +10,10 @@ pub enum Error {
     #[error("Request failed: {0}")]
     Request(#[from] reqwest::Error),
     #[error("API error: {status} - {message}")]
-    Api { status: reqwest::StatusCode, message: String },
+    Api {
+        status: reqwest::StatusCode,
+        message: String,
+    },
 }
 
 /// Adaptive Memory client
@@ -38,7 +41,11 @@ impl Client {
 
     /// Build URL from path
     fn build_url(&self, path: &str) -> String {
-        format!("{}/api/{}", self.base_url.trim_end_matches('/'), path.trim_start_matches('/'))
+        format!(
+            "{}/api/{}",
+            self.base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
     }
 
     /// Build a request (without sending it), applying auth, optional query
@@ -104,12 +111,14 @@ impl Client {
 
     /// Store content in STM
     pub async fn store_stm(&self, req: StoreStmRequest) -> Result<StoreStmResponse, Error> {
-        self.request(reqwest::Method::POST, "v1/memory/storage/stm", Some(req)).await
+        self.request(reqwest::Method::POST, "v1/memory/storage/stm", Some(req))
+            .await
     }
 
     /// Store content in LTM
     pub async fn store_ltm(&self, req: StoreLtmRequest) -> Result<StoreLtmResponse, Error> {
-        self.request(reqwest::Method::POST, "v1/memory/storage/ltm", Some(req)).await
+        self.request(reqwest::Method::POST, "v1/memory/storage/ltm", Some(req))
+            .await
     }
 
     // === Search ===
@@ -176,12 +185,14 @@ impl Client {
 
     /// Initialize MCP
     pub async fn initialize_mcp(&self) -> Result<serde_json::Value, Error> {
-        self.request(reqwest::Method::POST, "initialize", None::<&()>).await
+        self.request(reqwest::Method::POST, "initialize", None::<&()>)
+            .await
     }
 
     /// List MCP tools
     pub async fn list_mcp_tools(&self) -> Result<serde_json::Value, Error> {
-        self.request(reqwest::Method::GET, "mcp/tools", None::<&()>).await
+        self.request(reqwest::Method::GET, "mcp/tools", None::<&()>)
+            .await
     }
 
     /// Call MCP tool
@@ -222,9 +233,7 @@ impl Client {
         self.request(
             reqwest::Method::POST,
             "v1/memory/adaptive/select",
-            Some(SelectRequest {
-                task_description,
-            }),
+            Some(SelectRequest { task_description }),
         )
         .await
     }
@@ -233,7 +242,8 @@ impl Client {
 
     /// Health check
     pub async fn health_check(&self) -> Result<serde_json::Value, Error> {
-        self.request(reqwest::Method::GET, "v1/memory/health", None::<&()>).await
+        self.request(reqwest::Method::GET, "v1/memory/health", None::<&()>)
+            .await
     }
 }
 
