@@ -15,8 +15,8 @@ const DocToc: React.FC<DocTocProps> = ({ markdown }) => {
   const headings = useMemo(() => {
     const items: TocItem[] = [];
     const regex = /^(#{2,3})\s+(.+)$/gm;
-    let match;
-    while ((match = regex.exec(markdown)) !== null) {
+    let match = regex.exec(markdown);
+    while (match !== null) {
       const level = match[1].length;
       const text = match[2].replace(/[`*_~]/g, '').trim();
       const id = text
@@ -24,6 +24,7 @@ const DocToc: React.FC<DocTocProps> = ({ markdown }) => {
         .replace(/[^\w\s-]/g, '')
         .replace(/\s+/g, '-');
       items.push({ id, text, level });
+      match = regex.exec(markdown);
     }
     return items;
   }, [markdown]);

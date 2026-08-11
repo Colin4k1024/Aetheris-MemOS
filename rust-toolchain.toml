@@ -1,0 +1,12 @@
+# Pinned toolchain.
+#
+# Why pin: `cargo fmt --all -- --check` is a blocking CI gate, but rustfmt's
+# line-collapsing heuristics change between releases. Without a pin, CI resolves
+# `stable` at run time while contributors run whatever their local stable is, so
+# formatting that passes locally can fail CI (and vice versa). That drift is how
+# 65 formatting violations across 9 files reached this branch unnoticed.
+#
+# Keep this in sync with the toolchain named in .github/workflows/ci.yml.
+[toolchain]
+channel = "1.96.1"
+components = ["rustfmt", "clippy"]

@@ -6,9 +6,9 @@ import {
   ProFormText,
 } from '@ant-design/pro-components';
 import { useIntl, useRequest } from '@umijs/max';
-import { Col, Descriptions, message, Row, Tabs, Tag } from 'antd';
+import { Descriptions, message, Tabs, Tag } from 'antd';
 import { useState } from 'react';
-import { ChartCard, MemoryWeightBadge } from '@/components/MemorySystem';
+import { ChartCard } from '@/components/MemorySystem';
 import { CHART_HEIGHT } from '@/config/appConfig';
 import { analyzeTaskCharacteristics } from '@/services/memory';
 

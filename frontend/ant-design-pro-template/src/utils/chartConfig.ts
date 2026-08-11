@@ -2,7 +2,7 @@
  * Common chart configurations
  */
 
-import { MEMORY_LAYER_COLORS, CHART_COLORS } from '@/config/appConfig';
+import { CHART_COLORS } from '@/config/appConfig';
 
 // ==================== Base Chart Config ====================
 
@@ -12,7 +12,7 @@ import { MEMORY_LAYER_COLORS, CHART_COLORS } from '@/config/appConfig';
 export const commonAxisConfig = {
   label: {
     formatter: (text: string) => {
-      const date = new Date(parseInt(text));
+      const date = new Date(parseInt(text, 10));
       return `${date.getHours().toString().padStart(2, '0')}:${date
         .getMinutes()
         .toString()

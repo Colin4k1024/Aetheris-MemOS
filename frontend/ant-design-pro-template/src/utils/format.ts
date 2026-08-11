@@ -6,7 +6,7 @@
  * Format timestamp to time string (HH:mm)
  */
 export const formatTime = (timestamp: number | string): string => {
-  const date = new Date(parseInt(String(timestamp)));
+  const date = new Date(parseInt(String(timestamp), 10));
   return `${date.getHours().toString().padStart(2, '0')}:${date
     .getMinutes()
     .toString()
@@ -17,23 +17,23 @@ export const formatTime = (timestamp: number | string): string => {
  * Format timestamp to datetime string (YYYY-MM-DD HH:mm:ss)
  */
 export const formatDateTime = (timestamp: number | string): string => {
-  const date = new Date(parseInt(String(timestamp)));
+  const date = new Date(parseInt(String(timestamp), 10));
   return `${date.getFullYear()}-${(date.getMonth() + 1)
     .toString()
     .padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date
-  .getHours()
-  .toString()
-  .padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date
-  .getSeconds()
-  .toString()
-  .padStart(2, '0')}`;
+    .getHours()
+    .toString()
+    .padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date
+    .getSeconds()
+    .toString()
+    .padStart(2, '0')}`;
 };
 
 /**
  * Format timestamp to date string (YYYY-MM-DD)
  */
 export const formatDate = (timestamp: number | string): string => {
-  const date = new Date(parseInt(String(timestamp)));
+  const date = new Date(parseInt(String(timestamp), 10));
   return `${date.getFullYear()}-${(date.getMonth() + 1)
     .toString()
     .padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
@@ -54,7 +54,7 @@ export const formatBytes = (bytes: number, decimals: number = 2): string => {
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${sizes[i]}`;
+  return `${parseFloat((bytes / k ** i).toFixed(decimals))} ${sizes[i]}`;
 };
 
 /**
@@ -63,7 +63,8 @@ export const formatBytes = (bytes: number, decimals: number = 2): string => {
 export const formatDuration = (ms: number): string => {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
+  if (ms < 3600000)
+    return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
   return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
 };
 

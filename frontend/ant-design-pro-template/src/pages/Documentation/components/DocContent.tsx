@@ -100,6 +100,7 @@ const DocContent: React.FC<DocContentProps> = ({
     <div
       ref={containerRef}
       className="doc-content-body"
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: `html` is markdown rendered by marked then passed through DOMPurify.sanitize() in the useMemo above (see the `const html` block), which strips <script>/on* handlers and rejects javascript: URIs; markdown is the sole HTML source, so it is sanitized before render.
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

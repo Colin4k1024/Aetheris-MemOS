@@ -1,6 +1,5 @@
 import {
   ApartmentOutlined,
-  ArrowRightOutlined,
   ClusterOutlined,
   DashboardOutlined,
   GithubOutlined,
@@ -12,11 +11,9 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { history } from '@umijs/max';
-import { Button, Card, Col, Row, Space, Typography } from 'antd';
+import { Button, Card, Col, Row, Space } from 'antd';
 import React from 'react';
 import useStyles from './style';
-
-const { Title, Paragraph } = Typography;
 
 const features = [
   {

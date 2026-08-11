@@ -12,7 +12,7 @@ import { CHART_HEIGHT, POLLING_INTERVALS } from '@/config/appConfig';
 import usePolling from '@/hooks/usePolling';
 import { getMemoryStatus, healthCheck } from '@/services/memory';
 import { CHART_DEFAULTS, CHART_PALETTE } from '@/theme/tokens';
-import { formatPercent, formatTime } from '@/utils/formatters';
+import { formatTime } from '@/utils/formatters';
 
 export default function DashboardPage() {
   const [status, setStatus] = useState<API.MemoryStatusResponse | null>(null);
