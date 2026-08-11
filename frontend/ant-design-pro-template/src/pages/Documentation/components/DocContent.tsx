@@ -34,6 +34,23 @@ renderer.heading = ({ text, depth }: Tokens.Heading): string => {
 
 marked.use({ renderer, gfm: true, breaks: false });
 
+// Reverse-tabnabbing hardening (defense-in-depth): the sanitize config below keeps
+// the `target` attribute (ADD_ATTR: ['target']), but DOMPurify does not add `rel` on
+// its own, so a `target="_blank"` link could reach the opener via `window.opener`.
+// Modern browsers already imply noopener for target=_blank; this covers older/edge
+// engines. DOMPurify is a singleton used only here, so a module-level hook is safe.
+// Existing rel tokens are preserved.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A' && node.getAttribute('target') === '_blank') {
+    const rel = new Set(
+      (node.getAttribute('rel') ?? '').split(/\s+/).filter(Boolean),
+    );
+    rel.add('noopener');
+    rel.add('noreferrer');
+    node.setAttribute('rel', Array.from(rel).join(' '));
+  }
+});
+
 const DocContent: React.FC<DocContentProps> = ({
   markdown,
   loading,
