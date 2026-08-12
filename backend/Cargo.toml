@@ -100,3 +100,5 @@ uuid = { version = "1", features = ["v4"] }
 
 # Redis support (enabled by redis-stm feature)
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], optional = true }
+[build-dependencies]
+tonic-build = "0.12"

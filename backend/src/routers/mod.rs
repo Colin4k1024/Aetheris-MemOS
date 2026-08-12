@@ -361,9 +361,15 @@ pub fn root() -> Router {
         // second).
         .route_layer(governance_layer.clone());
 
+    let ws_state = crate::protocol::websocket::WsHandlerState::default();
+
     let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))
         .route("/auth/switch-org", post(auth::switch_org))
+        .route(
+            "/ws",
+            get(crate::protocol::websocket::ws_upgrade_handler).with_state(ws_state),
+        )
         .merge(user_routes)
         .nest("/v1", agent_routes)
         .nest("/v1/workflows", workflow_evidence_routes)
