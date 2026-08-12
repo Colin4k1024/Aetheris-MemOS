@@ -198,6 +198,10 @@ pub fn root() -> Router {
                     "/qdrant/backfill-tenant-metadata",
                     post(memory_storage::backfill_qdrant_tenant_metadata),
                 )
+                .route(
+                    "/backfill-summaries",
+                    post(memory_storage::backfill_pending_summaries),
+                )
                 .route("/compress/session", post(memory_storage::compress_session))
                 .route(
                     "/compress/messages",
