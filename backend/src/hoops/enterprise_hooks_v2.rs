@@ -601,7 +601,27 @@ impl Default for FeatureGate {
 // Complete Enterprise Hooks with Billing & Audit
 // ============================================================================
 
-/// Extended enterprise hook set with billing and audit
+/// Extended enterprise hook set with billing and audit.
+///
+/// ## ⚠️ Dormant, and its `rbac` field is a fork — do not treat as an authz path
+///
+/// Nothing in production constructs this type: the live hook set is
+/// `enterprise_impl::create_enterprise_hook_set()`, registered at `main.rs:123`.
+/// Two things make this one actively misleading rather than merely unused
+/// (backlog C-3 / PR-1, recorded rather than fixed because it is off the
+/// authorization path today):
+///
+/// 1. `query_audit` / `export_audit` are documented as "RBAC protected" but
+///    **perform no check at all** — see the comment inside `query_audit`.
+/// 2. [`create_enterprise_hooks_v2`] builds a **fresh `RbacService::new()`**
+///    instead of the `get_rbac_service()` singleton every real consumer shares.
+///    So even if the checks above were implemented, they would consult an empty,
+///    unrelated role map and silently allow everything.
+///
+/// Point 2 gets worse once roles move to `tenant_members` (C-3 / PR-2b): a
+/// second `RbacService` would then be a second *storage-backed* authority whose
+/// answers could diverge from the real one. If this type is ever revived it must
+/// take the singleton, not construct its own.
 pub struct EnterpriseHooksV2 {
     billing: Arc<dyn BillingHook>,
     audit: Arc<dyn AuditHook>,
@@ -637,19 +657,29 @@ impl EnterpriseHooksV2 {
         self.audit.log(entry);
     }
 
-    /// Query audit logs (RBAC protected)
+    /// Query audit logs.
+    ///
+    /// ⚠️ The "(RBAC protected)" this was previously labelled with is **not true**:
+    /// there is no check here, and `self.rbac` is a fork of the real service (see
+    /// the type-level doc). Left as-is because nothing constructs this type; the
+    /// label was removed so the next reader does not take it on trust.
     pub fn query_audit(
         &self,
         filter: AuditQueryFilter,
         _user_id: &str,
     ) -> Result<Vec<AuditLogEntry>, String> {
-        // RBAC check: for now, allow all.
-        // In production, use self.rbac.blocking_has_permission(...) with Permission::Manage.
+        // No RBAC check. Reviving this type means consulting the shared
+        // `get_rbac_service()` singleton with Permission::Manage — NOT self.rbac,
+        // which create_enterprise_hooks_v2 builds empty and unshared.
 
         Ok(self.audit.query(&filter))
     }
 
-    /// Export audit logs (RBAC protected)
+    /// Export audit logs.
+    ///
+    /// ⚠️ Same as [`Self::query_audit`]: the "(RBAC protected)" label this
+    /// previously carried was false — `_user_id` is accepted and ignored, and no
+    /// permission is consulted.
     pub fn export_audit(
         &self,
         filter: AuditQueryFilter,
