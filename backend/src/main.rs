@@ -192,6 +192,24 @@ async fn main() {
             "🔑 Login Page: http://{}/login",
             config.listen_addr.replace("0.0.0.0", "127.0.0.1")
         );
+        // gRPC server on port 50051 (separate from the HTTP surface).
+        // Uses the same auth interceptor as the REST middleware — ADR-0007 transport parity.
+        tokio::spawn(async {
+            let grpc_addr: SocketAddr = "0.0.0.0:50051".parse().unwrap();
+            let svc = tonic::transport::Server::builder()
+                .add_service(
+                    crate::protocol::grpc_service::pb::memory_service_server::MemoryServiceServer::with_interceptor(
+                        crate::protocol::grpc_service::MemoryServiceImpl,
+                        crate::protocol::grpc::grpc_auth_interceptor,
+                    ),
+                )
+                .serve(grpc_addr);
+            info!("🔌 gRPC listening on {grpc_addr}");
+            if let Err(e) = svc.await {
+                tracing::error!("gRPC server error: {e}");
+            }
+        });
+
         let listener = tokio::net::TcpListener::bind(&config.listen_addr)
             .await
             .expect("failed to bind listener");

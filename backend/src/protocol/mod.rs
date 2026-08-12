@@ -3,6 +3,7 @@
 //! This module defines the Memory Protocol for client-server communication.
 
 pub mod grpc;
+pub mod grpc_service;
 pub mod mcp;
 pub mod websocket;
 

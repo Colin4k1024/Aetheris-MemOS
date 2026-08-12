@@ -198,6 +198,10 @@ pub fn root() -> Router {
                     "/qdrant/backfill-tenant-metadata",
                     post(memory_storage::backfill_qdrant_tenant_metadata),
                 )
+                .route(
+                    "/backfill-summaries",
+                    post(memory_storage::backfill_pending_summaries),
+                )
                 .route("/compress/session", post(memory_storage::compress_session))
                 .route(
                     "/compress/messages",
@@ -357,8 +361,15 @@ pub fn root() -> Router {
         // second).
         .route_layer(governance_layer.clone());
 
+    let ws_state = crate::protocol::websocket::WsHandlerState::default();
+
     let protected_api_router = Router::new()
         .route("/currentUser", get(auth::get_current_user))
+        .route("/auth/switch-org", post(auth::switch_org))
+        .route(
+            "/ws",
+            get(crate::protocol::websocket::ws_upgrade_handler).with_state(ws_state),
+        )
         .merge(user_routes)
         .nest("/v1", agent_routes)
         .nest("/v1/workflows", workflow_evidence_routes)
@@ -412,6 +423,12 @@ pub fn root() -> Router {
                     get(multi_tenant_router::tenant_sessions),
                 )
                 .route("/access/check", post(multi_tenant_router::check_access))
+                // Role management (C-3): preserved from routers/tenant.rs, now mounted.
+                .route(
+                    "/{tenant_id}/roles",
+                    get(tenant::list_roles).post(tenant::assign_role),
+                )
+                .route("/{tenant_id}/roles/{user_id}", get(tenant::get_user_role))
                 // Backlog C-1: tenant administration is privileged (ManageTenant /
                 // DeleteTenant). Gate it like /kg and /mm.
                 .route_layer(governance_layer.clone()),

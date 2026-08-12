@@ -1,0 +1,94 @@
+// Aetheris MemOS gRPC service definition (ADR-0007, backlog A-5).
+//
+// Mirrors the REST memory-storage and memory-search API surface for transport
+// parity. Auth uses the same JWT token via the `authorization` metadata key;
+// the grpc_auth_interceptor extracts it before any handler runs.
+
+syntax = "proto3";
+
+package aetheris.memory.v1;
+
+// Core memory operations — mirrors POST /api/v1/memory/storage/* and
+// POST /api/v1/memory/search/*.
+service MemoryService {
+  // Store content into Long-Term Memory. Triggers LLM summary + embedding.
+  rpc StoreLtm(StoreLtmRequest) returns (StoreLtmResponse);
+
+  // Search LTM via semantic + keyword hybrid retrieval.
+  rpc SearchLtm(SearchLtmRequest) returns (SearchLtmResponse);
+
+  // Store a message into Short-Term Memory (conversation context).
+  rpc StoreStm(StoreStmRequest) returns (StoreStmResponse);
+
+  // Health check — same semantics as GET /readyz.
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ─── LTM Store ───
+
+message StoreLtmRequest {
+  string source_id = 1;
+  string source_type = 2;
+  string content = 3;
+  optional string title = 4;
+}
+
+message StoreLtmResponse {
+  string entry_id = 1;
+  // "pending" (outbox delivery) or "ready" (synchronous write).
+  string index_status = 2;
+  // "complete" or "pending" (LLM unavailable, deferred backfill).
+  string summary_status = 3;
+}
+
+// ─── LTM Search ───
+
+message SearchLtmRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchLtmResponse {
+  repeated SearchResult results = 1;
+}
+
+message SearchResult {
+  string entry_id = 1;
+  string source_layer = 2;
+  float score = 3;
+  string content = 4;
+  map<string, string> metadata = 5;
+}
+
+// ─── STM Store ───
+
+message StoreStmRequest {
+  string user_id = 1;
+  string agent_id = 2;
+  string session_type = 3;
+  string role = 4;
+  string content = 5;
+  int32 max_context_length = 6;
+  int32 retention_hours = 7;
+  optional string session_id = 8;
+}
+
+message StoreStmResponse {
+  string session_id = 1;
+  string message_id = 2;
+}
+
+// ─── Health ───
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  repeated DependencyStatus dependencies = 2;
+}
+
+message DependencyStatus {
+  string name = 1;
+  bool ready = 2;
+  int64 latency_ms = 3;
+}

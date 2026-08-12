@@ -375,3 +375,19 @@ pub async fn compress_messages(
             .await?;
     crate::json_ok(result)
 }
+
+/// Trigger summary backfill for entries stored with deferred summaries (D-e3).
+pub async fn backfill_pending_summaries(
+    Extension(tenant_ctx): Extension<crate::tenant::RequestTenantContext>,
+    Json(req): Json<BackfillSummaryRequest>,
+) -> JsonResult<crate::services::memory_storage::SummaryBackfillReport> {
+    let batch_size = req.batch_size.unwrap_or(50).clamp(1, 200);
+    let report =
+        MemoryStorageService::backfill_pending_summaries(&tenant_ctx.tenant_id, batch_size).await?;
+    json_ok(report)
+}
+
+#[derive(serde::Deserialize)]
+pub struct BackfillSummaryRequest {
+    pub batch_size: Option<i32>,
+}

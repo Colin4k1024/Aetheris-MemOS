@@ -13,6 +13,11 @@ use crate::AppError;
 pub struct JwtClaims {
     pub uid: String,
     pub exp: i64,
+    /// The org (tenant) this token is scoped to. `None` means the caller's
+    /// personal org (`tenant_id = uid`), which is the backward-compatible default
+    /// for tokens issued before the org claim existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,7 +62,8 @@ pub fn authenticate(token: &str) -> Result<(JwtClaims, RequestTenantContext), Ap
         return Err(AppError::Unauthorized("Token has expired".to_string()));
     }
 
-    let tenant_ctx = RequestTenantContext::new(&claims.uid);
+    let tenant_id = claims.org.clone().unwrap_or_else(|| claims.uid.clone());
+    let tenant_ctx = RequestTenantContext::from_authenticated(tenant_id, claims.uid.clone());
     Ok((claims, tenant_ctx))
 }
 
@@ -113,9 +119,13 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, A
         let claims = JwtClaims {
             uid: "anonymous".to_string(),
             exp: i64::MAX,
+            org: None,
         };
         req.extensions_mut().insert(claims);
-        let tenant_ctx = RequestTenantContext::new("anonymous");
+        let tenant_ctx = RequestTenantContext::from_authenticated(
+            "anonymous".to_string(),
+            "anonymous".to_string(),
+        );
         req.extensions_mut().insert(tenant_ctx);
         return Ok(next.run(req).await);
     }
@@ -147,10 +157,13 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, A
     Ok(next.run(req).await)
 }
 
-pub fn get_token(uid: impl Into<String>) -> Result<(String, i64)> {
+/// Mint a JWT. `org` is the tenant this token is scoped to; pass `None` for the
+/// caller's personal org (= their user id, the backward-compatible default).
+pub fn get_token(uid: impl Into<String>, org: Option<String>) -> Result<(String, i64)> {
     let exp = OffsetDateTime::now_utc() + Duration::seconds(config::get().jwt.expiry);
     let claim = JwtClaims {
         uid: uid.into(),
+        org,
         exp: exp.unix_timestamp(),
     };
     let token: String = jsonwebtoken::encode(

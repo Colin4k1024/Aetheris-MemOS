@@ -37,7 +37,8 @@ fn ensure_config() {
 /// `config.toml` default), the token is what gets the request past auth.
 fn auth_header() -> String {
     ensure_config();
-    let (token, _) = backend::hoops::jwt::get_token("a2a-test-agent").expect("generate test JWT");
+    let (token, _) =
+        backend::hoops::jwt::get_token("a2a-test-agent", None).expect("generate test JWT");
     format!("Bearer {token}")
 }
 
@@ -391,4 +392,49 @@ async fn test_streaming_returns_real_task_identity() {
         task_ids.last(),
         "terminal event must carry the handler's real task id, not the provisional working id; body: {body}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JWT org claim backward compatibility (C-3 / PR-3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn jwt_without_org_claim_falls_back_to_personal_org() {
+    ensure_config();
+    let (token, _) = backend::hoops::jwt::get_token("user-42", None).expect("mint");
+    let (claims, ctx) = backend::hoops::jwt::authenticate(&token).expect("auth");
+    assert_eq!(claims.org, None);
+    assert_eq!(ctx.tenant_id.as_str(), "user-42", "no org → tenant = uid");
+    assert_eq!(ctx.user_id, "user-42");
+}
+
+#[tokio::test]
+async fn jwt_with_org_claim_scopes_to_that_org() {
+    ensure_config();
+    let (token, _) =
+        backend::hoops::jwt::get_token("user-42", Some("org-acme".to_string())).expect("mint");
+    let (claims, ctx) = backend::hoops::jwt::authenticate(&token).expect("auth");
+    assert_eq!(claims.org.as_deref(), Some("org-acme"));
+    assert_eq!(ctx.tenant_id.as_str(), "org-acme");
+    assert_eq!(ctx.user_id, "user-42");
+}
+
+#[tokio::test]
+async fn old_token_format_without_org_field_still_decodes() {
+    ensure_config();
+    // Simulate a token minted by code before the org claim existed.
+    let old_claims = serde_json::json!({
+        "uid": "legacy-user",
+        "exp": (time::OffsetDateTime::now_utc() + time::Duration::seconds(3600)).unix_timestamp()
+    });
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &old_claims,
+        &jsonwebtoken::EncodingKey::from_secret(backend::config::get().jwt.secret.as_bytes()),
+    )
+    .expect("encode old-format token");
+
+    let (claims, ctx) = backend::hoops::jwt::authenticate(&token).expect("must decode");
+    assert_eq!(claims.org, None);
+    assert_eq!(ctx.tenant_id.as_str(), "legacy-user");
 }

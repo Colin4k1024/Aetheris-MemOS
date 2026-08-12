@@ -641,6 +641,154 @@ impl MemoryStorageService {
 
         Ok(report)
     }
+
+    /// Backfill summaries for entries stored with `summary_status = 'pending'`.
+    ///
+    /// For each entry: call LLM for summary + structured extraction, re-generate
+    /// the embedding vector from the new summary text, update the row's `content` +
+    /// `content_hash` + `summary_status`, and enqueue a fresh outbox event so
+    /// Qdrant is re-indexed with the correct vector.
+    ///
+    /// Must update hash AND vector together: the `content` column switches from raw
+    /// text to the summary, so the content_hash changes, and the embedding vector
+    /// — which was generated from the raw text at degrade time — must be
+    /// regenerated from the summary to match what all other entries have. Updating
+    /// only one of the three (content, hash, vector) would make the reconciliation
+    /// scanner report a drift it cannot repair.
+    pub async fn backfill_pending_summaries(
+        tenant_id: &TenantId,
+        batch_size: i32,
+    ) -> Result<SummaryBackfillReport, AppError> {
+        let pool = crate::db::pool();
+        let entries =
+            LTMRepository::list_entries_pending_summary(pool, tenant_id, batch_size, 0).await?;
+
+        let llm_service = get_llm_service()
+            .map_err(|e| AppError::Internal(format!("LLM service unavailable: {e}")))?;
+        let embedding_service = get_embedding_service()
+            .map_err(|e| AppError::Internal(format!("Embedding service unavailable: {e}")))?;
+
+        let mut report = SummaryBackfillReport {
+            scanned: entries.len(),
+            completed: 0,
+            failed: 0,
+            errors: vec![],
+        };
+
+        for entry in entries {
+            match Self::backfill_one_entry(tenant_id, &entry, llm_service, embedding_service).await
+            {
+                Ok(()) => report.completed += 1,
+                Err(e) => {
+                    report.failed += 1;
+                    report.errors.push(format!("{}: {e}", entry.entry_id));
+                    tracing::warn!(
+                        entry_id = %entry.entry_id,
+                        error = %e,
+                        "summary backfill failed for entry"
+                    );
+                }
+            }
+        }
+
+        info!(
+            tenant = %tenant_id,
+            scanned = report.scanned,
+            completed = report.completed,
+            failed = report.failed,
+            "summary backfill batch complete"
+        );
+
+        Ok(report)
+    }
+
+    async fn backfill_one_entry(
+        tenant_id: &TenantId,
+        entry: &crate::db::ltm::PendingSummaryEntry,
+        llm_service: &crate::services::llm::LLMService,
+        embedding_service: &crate::services::embedding::EmbeddingService,
+    ) -> Result<(), AppError> {
+        let extraction = llm_service
+            .summarize_and_extract(&entry.content)
+            .await
+            .map_err(|e| AppError::Internal(format!("LLM failed: {e}")))?;
+
+        let embed_text =
+            embed_and_store_text(&entry.content, &extraction.summary, SummaryStatus::Complete);
+        let embedding = embedding_service
+            .generate_embedding(&embed_text)
+            .await
+            .map_err(embedding_error_to_app_error)?;
+
+        let content_hash = crate::services::information_guard::compute_sha256(&embed_text);
+        let metadata = serde_json::json!({
+            "tenantId": tenant_id.as_str(),
+            "summary": extraction.summary,
+            "summaryStatus": "complete",
+            "entities": extraction.entities,
+            "relations": extraction.relations,
+            "key_facts": extraction.key_facts,
+            "contentHash": content_hash,
+            "entryId": entry.entry_id,
+        });
+
+        let outbox_payload = serde_json::json!({
+            "vector": embedding,
+            "metadata": metadata,
+            "content_hash": content_hash,
+        });
+        let payload_json = serde_json::to_string(&outbox_payload)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize payload: {e}")))?;
+        let payload_hash = crate::services::information_guard::compute_sha256(&payload_json);
+        let idempotency_key =
+            crate::db::vector_outbox::upsert_idempotency_key(&entry.entry_id, &payload_hash);
+
+        let pool = crate::db::pool();
+        let mut tx = begin_tenant_tx(pool, tenant_id).await?;
+
+        sqlx::query(
+            "UPDATE knowledge_entries \
+             SET content = $1, content_hash = $2, summary_status = 'complete', updated_at = now() \
+             WHERE entry_id = $3",
+        )
+        .bind(&embed_text)
+        .bind(&content_hash)
+        .bind(&entry.entry_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to update entry: {e}")))?;
+
+        sqlx::query(
+            "INSERT INTO memory_vector_outbox \
+             (event_id, tenant_id, entry_id, operation, payload_json, payload_hash, idempotency_key) \
+             VALUES ($1, $2, $3, 'upsert', $4, $5, $6) \
+             ON CONFLICT (tenant_id, idempotency_key) DO NOTHING",
+        )
+        .bind(ulid::Ulid::new().to_string())
+        .bind(tenant_id.as_str())
+        .bind(&entry.entry_id)
+        .bind(&payload_json)
+        .bind(&payload_hash)
+        .bind(&idempotency_key)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to enqueue outbox: {e}")))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to commit backfill: {e}")))?;
+
+        Ok(())
+    }
+}
+
+/// Summary backfill report.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SummaryBackfillReport {
+    pub scanned: usize,
+    pub completed: usize,
+    pub failed: usize,
+    pub errors: Vec<String>,
 }
 
 fn tenant_id_from_source_id(source_id: &str) -> Option<String> {

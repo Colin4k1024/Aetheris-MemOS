@@ -12,6 +12,7 @@ use crate::hoops::jwt;
 use crate::kernel::types::*;
 use crate::tenant::RequestTenantContext;
 use crate::AppError;
+use axum::extract::Extension;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::{broadcast, RwLock};
@@ -372,37 +373,110 @@ pub struct WsHandlerState {
     pub manager: std::sync::Arc<WsConnectionManager>,
 }
 
+impl Default for WsHandlerState {
+    fn default() -> Self {
+        Self {
+            manager: std::sync::Arc::new(WsConnectionManager::new()),
+        }
+    }
+}
+
 /// Axum WebSocket upgrade handler.
 ///
 /// The HTTP handshake request must carry a valid JWT (cookie or Bearer).
 /// On success, the connection is established with `RequestTenantContext`
 /// bound to the `WsConnection`. On auth failure, the upgrade is rejected
 /// with a close frame.
+/// WebSocket upgrade handler (ADR-0007, backlog A-5).
+///
+/// Auth is handled by the outer `auth_middleware` layer on the route that mounts
+/// this handler — `RequestTenantContext` is already in the request extensions by
+/// the time the upgrade occurs. The tenant context is captured here and threaded
+/// into the connection handler.
 pub async fn ws_upgrade_handler(
     ws: WebSocketUpgrade,
-    AxumState(state): AxumState<WsHandlerState>,
-    // Note: auth is done manually inside because WebSocketUpgrade consumes the
-    // request before middleware can inject extensions. The JWT is extracted from
-    // the upgrade request headers.
+    Extension(tenant_ctx): Extension<crate::tenant::RequestTenantContext>,
+    AxumState(_state): AxumState<WsHandlerState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_ws_connection(socket, state))
+    ws.on_upgrade(move |socket| handle_ws_connection(socket, tenant_ctx))
 }
 
-async fn handle_ws_connection(mut socket: WebSocket, state: WsHandlerState) {
-    // TODO: Extract JWT from the upgrade request headers. For now, the
-    // WebSocketUpgrade extractor does not forward headers to on_upgrade.
-    // The full implementation requires a custom extractor or axum 0.8
-    // WebSocket auth pattern. Placeholder: close with auth error.
-    //
-    // In the interim, REST auth_middleware protects the /ws route mount point,
-    // and the tenant context is available from request extensions. This handler
-    // will be completed when the axum WS route is actually mounted.
-    let _ = socket
-        .send(Message::Close(Some(axum::extract::ws::CloseFrame {
-            code: 1008,
-            reason: "Authentication required — full WS handler pending route mount".into(),
-        })))
-        .await;
+async fn handle_ws_connection(
+    mut socket: WebSocket,
+    tenant_ctx: crate::tenant::RequestTenantContext,
+) {
+    use crate::services::memory_search::MemorySearchService;
+    use crate::services::memory_storage::MemoryStorageService;
+
+    while let Some(Ok(msg)) = socket.recv().await {
+        let Message::Text(text) = msg else {
+            continue;
+        };
+
+        let response = match serde_json::from_str::<WsMessage>(&text) {
+            Ok(ws_msg) => {
+                let result = handle_ws_message(&ws_msg, &tenant_ctx).await;
+                serde_json::json!({
+                    "request_id": ws_msg.request_id,
+                    "success": result.is_ok(),
+                    "result": result.as_ref().ok(),
+                    "error": result.as_ref().err().map(|e| e.to_string()),
+                })
+            }
+            Err(e) => {
+                serde_json::json!({
+                    "success": false,
+                    "error": format!("invalid message: {e}"),
+                })
+            }
+        };
+
+        if socket
+            .send(Message::Text(response.to_string().into()))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+async fn handle_ws_message(
+    msg: &WsMessage,
+    tenant_ctx: &crate::tenant::RequestTenantContext,
+) -> Result<serde_json::Value, String> {
+    use crate::services::memory_search::MemorySearchService;
+    use crate::services::memory_storage::MemoryStorageService;
+
+    match &msg.payload {
+        WsPayload::Search(req) => {
+            let query = req.query.as_deref().unwrap_or("");
+            let results = MemorySearchService::search_ltm_for_tenant(
+                &tenant_ctx.tenant_id,
+                query,
+                req.limit.unwrap_or(10),
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| format!("{e}"))?;
+            Ok(serde_json::to_value(results).unwrap_or_default())
+        }
+        WsPayload::Store(req) => {
+            let content_str = serde_json::to_string(&req.content).unwrap_or_default();
+            let result = MemoryStorageService::store_ltm_for_tenant(
+                &tenant_ctx.tenant_id,
+                &format!("t:{}:ws", tenant_ctx.tenant_id),
+                "user_input",
+                &content_str,
+                None,
+            )
+            .await
+            .map_err(|e| format!("{e}"))?;
+            Ok(serde_json::to_value(result).unwrap_or_default())
+        }
+        _ => Err("unsupported operation".to_string()),
+    }
 }
 
 impl Default for WsConnectionManager {
