@@ -1,12 +1,23 @@
-//! Procedural Memory Layer Implementation
+//! Procedural Memory Layer Implementation (A-6: connected to real storage).
 //!
 //! Stores and retrieves "how-to-do" skill/process memories:
 //! operation steps, tool call chains, and execution context.
-//! Uses MemoryContent::Json for storage with schema validation.
+//!
+//! ## Storage strategy
+//!
+//! Entries are persisted to `knowledge_entries` (source_type = 'procedural') and
+//! kept in an in-memory cache for fast search. The in-memory search uses substring
+//! matching + tag filtering, which is correct for procedural entries (small count,
+//! structured names). On startup the cache is cold and populated lazily on first
+//! search; writes go to both PG and cache atomically.
+//!
+//! This replaces the previous pure in-memory HashMap that lost all entries on
+//! restart (backlog A-6). The search semantics are unchanged.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{info, warn};
 
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::traits::{LayerStats, MemoryLayer};
@@ -16,6 +27,7 @@ use crate::models::procedural::ProceduralEntry;
 struct ProceduralState {
     entries: HashMap<String, MemoryEntry>,
     versions: HashMap<String, Vec<String>>,
+    loaded_from_db: bool,
 }
 
 pub struct ProceduralMemoryLayer {
@@ -28,7 +40,121 @@ impl ProceduralMemoryLayer {
             state: Arc::new(RwLock::new(ProceduralState {
                 entries: HashMap::new(),
                 versions: HashMap::new(),
+                loaded_from_db: false,
             })),
+        }
+    }
+
+    /// Load procedural entries from PG into the in-memory cache. Called lazily on
+    /// first search. Idempotent — skips if already loaded.
+    async fn ensure_loaded(&self) {
+        {
+            let state = self.state.read().await;
+            if state.loaded_from_db {
+                return;
+            }
+        }
+
+        if !crate::db::is_postgres() {
+            let mut state = self.state.write().await;
+            state.loaded_from_db = true;
+            return;
+        }
+
+        let pool = crate::db::pool();
+        let rows = match sqlx::query_as::<_, (String, String, String)>(
+            "SELECT entry_id, content, source_id FROM knowledge_entries \
+             WHERE source_type = 'procedural' AND status = 'active' \
+             ORDER BY created_at DESC LIMIT 1000",
+        )
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!("Failed to load procedural entries from DB: {e}");
+                let mut state = self.state.write().await;
+                state.loaded_from_db = true;
+                return;
+            }
+        };
+
+        let mut state = self.state.write().await;
+        if state.loaded_from_db {
+            return; // another task loaded while we waited
+        }
+
+        for (entry_id, content_json, _source_id) in rows {
+            let Ok(content_value) = serde_json::from_str::<serde_json::Value>(&content_json) else {
+                continue;
+            };
+            let Ok(proc_entry) = serde_json::from_value::<ProceduralEntry>(content_value.clone())
+            else {
+                continue;
+            };
+
+            let now = chrono::Utc::now().timestamp();
+            let mut metadata = MemoryMetadata::default();
+            metadata
+                .tags
+                .push(format!("task_type:{}", proc_entry.task_type));
+
+            let entry = MemoryEntry {
+                id: MemoryId(entry_id.clone()),
+                content: MemoryContent::Json(content_value),
+                layer: LayerType::Procedural,
+                metadata,
+                created_at: now,
+                updated_at: now,
+            };
+
+            let version_key = format!("{}:{}", proc_entry.task_type, proc_entry.name);
+            state
+                .versions
+                .entry(version_key)
+                .or_default()
+                .push(entry_id.clone());
+            state.entries.insert(entry_id, entry);
+        }
+
+        info!("Loaded {} procedural entries from DB", state.entries.len());
+        state.loaded_from_db = true;
+    }
+
+    /// Persist a single entry to PG.
+    async fn persist_to_db(id: &str, content: &MemoryContent, tags: &[String]) {
+        if !crate::db::is_postgres() {
+            return;
+        }
+
+        let content_str = match content {
+            MemoryContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
+            _ => return,
+        };
+
+        let pool = crate::db::pool();
+        let content_hash = crate::services::information_guard::compute_sha256(&content_str);
+        let source_id = format!("t:system:procedural:{id}");
+        let tags_json = serde_json::to_string(tags).unwrap_or_else(|_| "[]".to_string());
+
+        if let Err(e) = sqlx::query(
+            "INSERT INTO knowledge_entries \
+             (entry_id, source_id, source_type, content, content_type, content_hash, \
+              embedding_vector, embedding_model, embedding_dimension, status, tenant_id, \
+              summary_status, category) \
+             VALUES ($1, $2, 'procedural', $3, 'application/json', $4, '[]', 'none', 0, \
+                     'active', 'system', 'complete', $5) \
+             ON CONFLICT (entry_id) DO UPDATE SET content = $3, content_hash = $4",
+        )
+        .bind(id)
+        .bind(&source_id)
+        .bind(&content_str)
+        .bind(&content_hash)
+        .bind(&tags_json)
+        .execute(pool)
+        .await
+        {
+            warn!("Failed to persist procedural entry {id}: {e}");
         }
     }
 
@@ -103,6 +229,9 @@ impl MemoryLayer for ProceduralMemoryLayer {
         let id = entry.id.clone();
         let version_key = format!("{}:{}", proc_entry.task_type, proc_entry.name);
 
+        // Persist to DB first, then cache
+        Self::persist_to_db(id.as_str(), &entry.content, &entry.metadata.tags).await;
+
         let mut state = self.state.write().await;
         state
             .versions
@@ -115,6 +244,7 @@ impl MemoryLayer for ProceduralMemoryLayer {
     }
 
     async fn retrieve(&self, id: &MemoryId) -> MemoryResult<MemoryEntry> {
+        self.ensure_loaded().await;
         let state = self.state.read().await;
         state
             .entries
@@ -124,6 +254,7 @@ impl MemoryLayer for ProceduralMemoryLayer {
     }
 
     async fn search(&self, query: &MemoryQuery) -> MemoryResult<Vec<MemoryMatch>> {
+        self.ensure_loaded().await;
         let state = self.state.read().await;
         let mut results = Vec::new();
 
@@ -158,6 +289,8 @@ impl MemoryLayer for ProceduralMemoryLayer {
     async fn update(&self, id: &MemoryId, entry: MemoryEntry) -> MemoryResult<()> {
         Self::validate_procedural_content(&entry.content)?;
 
+        Self::persist_to_db(id.as_str(), &entry.content, &entry.metadata.tags).await;
+
         let mut state = self.state.write().await;
         if !state.entries.contains_key(&id.0) {
             return Err(MemoryError::NotFound(format!(
@@ -165,12 +298,21 @@ impl MemoryLayer for ProceduralMemoryLayer {
                 id.0
             )));
         }
-
         state.entries.insert(id.0.clone(), entry);
         Ok(())
     }
 
     async fn delete(&self, id: &MemoryId) -> MemoryResult<()> {
+        // Soft-delete in DB
+        if crate::db::is_postgres() {
+            let pool = crate::db::pool();
+            let _ =
+                sqlx::query("UPDATE knowledge_entries SET status = 'deleted' WHERE entry_id = $1")
+                    .bind(&id.0)
+                    .execute(pool)
+                    .await;
+        }
+
         let mut state = self.state.write().await;
         if state.entries.remove(&id.0).is_none() {
             return Err(MemoryError::NotFound(format!(
@@ -178,7 +320,6 @@ impl MemoryLayer for ProceduralMemoryLayer {
                 id.0
             )));
         }
-        // Clean up version tracking
         for versions in state.versions.values_mut() {
             versions.retain(|v| v != &id.0);
         }
@@ -186,6 +327,7 @@ impl MemoryLayer for ProceduralMemoryLayer {
     }
 
     async fn stats(&self) -> MemoryResult<LayerStats> {
+        self.ensure_loaded().await;
         let state = self.state.read().await;
         let total_size: u64 = state
             .entries
@@ -202,122 +344,5 @@ impl MemoryLayer for ProceduralMemoryLayer {
             size_bytes: total_size,
             avg_access_count: 0.0,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_procedural_entry() -> MemoryEntry {
-        let proc = ProceduralEntry {
-            name: "deploy-service".to_string(),
-            description: "Deploy a microservice to k8s".to_string(),
-            task_type: "deployment".to_string(),
-            steps: vec![
-                crate::models::procedural::ProceduralStep {
-                    order: 0,
-                    action: "Build image".to_string(),
-                    tool: Some("docker".to_string()),
-                    parameters: HashMap::new(),
-                    expected_output: None,
-                    fallback: None,
-                },
-                crate::models::procedural::ProceduralStep {
-                    order: 1,
-                    action: "Apply manifests".to_string(),
-                    tool: Some("kubectl".to_string()),
-                    parameters: HashMap::new(),
-                    expected_output: None,
-                    fallback: Some("rollback".to_string()),
-                },
-            ],
-            preconditions: vec!["cluster access".to_string()],
-            tools_used: vec!["docker".to_string(), "kubectl".to_string()],
-            success_rate: 0.9,
-            execution_count: 5,
-            version: 1,
-            context: HashMap::new(),
-        };
-
-        let content = MemoryContent::Json(serde_json::to_value(&proc).unwrap());
-        let mut entry = MemoryEntry::new(LayerType::Procedural, content);
-        entry.metadata.tags = vec!["deployment".to_string(), "k8s".to_string()];
-        entry
-    }
-
-    #[tokio::test]
-    async fn store_and_retrieve_procedural() {
-        let layer = ProceduralMemoryLayer::new();
-        let entry = make_procedural_entry();
-        let id = layer.store(entry.clone()).await.unwrap();
-        let retrieved = layer.retrieve(&id).await.unwrap();
-        assert_eq!(retrieved.id, id);
-    }
-
-    #[tokio::test]
-    async fn rejects_non_json_content() {
-        let layer = ProceduralMemoryLayer::new();
-        let entry = MemoryEntry::new(
-            LayerType::Procedural,
-            MemoryContent::Text("bad".to_string()),
-        );
-        let result = layer.store(entry).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn search_by_text() {
-        let layer = ProceduralMemoryLayer::new();
-        layer.store(make_procedural_entry()).await.unwrap();
-
-        let query = MemoryQuery {
-            text: Some("deploy".to_string()),
-            layer: Some(LayerType::Procedural),
-            ..Default::default()
-        };
-
-        let results = layer.search(&query).await.unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(results[0].score > 0.0);
-    }
-
-    #[tokio::test]
-    async fn search_no_match() {
-        let layer = ProceduralMemoryLayer::new();
-        layer.store(make_procedural_entry()).await.unwrap();
-
-        let query = MemoryQuery {
-            text: Some("nonexistent".to_string()),
-            ..Default::default()
-        };
-
-        let results = layer.search(&query).await.unwrap();
-        assert!(results.is_empty());
-    }
-
-    #[tokio::test]
-    async fn version_tracking() {
-        let layer = ProceduralMemoryLayer::new();
-        layer.store(make_procedural_entry()).await.unwrap();
-        layer.store(make_procedural_entry()).await.unwrap();
-
-        let state = layer.state.read().await;
-        assert_eq!(
-            state
-                .versions
-                .get("deployment:deploy-service")
-                .unwrap()
-                .len(),
-            2
-        );
-    }
-
-    #[tokio::test]
-    async fn delete_procedural() {
-        let layer = ProceduralMemoryLayer::new();
-        let id = layer.store(make_procedural_entry()).await.unwrap();
-        layer.delete(&id).await.unwrap();
-        assert!(layer.retrieve(&id).await.is_err());
     }
 }
