@@ -121,9 +121,20 @@ pub struct RequestTenantContext {
 }
 
 impl RequestTenantContext {
-    /// Create a new request tenant context.
+    /// Construct from an authenticated JWT — the primary production path.
     ///
-    /// For MVP: each user is their own tenant, so tenant_id == user_id.
+    /// `tenant_id` comes from the token's `org` claim (falling back to `uid` for
+    /// tokens issued before the claim existed); `user_id` comes from `uid`. The
+    /// two are now independent, which is what makes role differentiation possible.
+    pub fn from_authenticated(tenant_id: impl Into<String>, user_id: impl Into<String>) -> Self {
+        Self {
+            tenant_id: TenantId::from_string(tenant_id),
+            user_id: user_id.into(),
+        }
+    }
+
+    /// Convenience for tests and the SQLite fallback: personal org where
+    /// `tenant_id = user_id`. Equivalent to the old `new(user_id)`.
     pub fn new(user_id: impl Into<String>) -> Self {
         let user_id = user_id.into();
         Self {
@@ -165,16 +176,17 @@ where
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // Extract JwtClaims from request extensions (set by auth_middleware)
-        let claims = parts
+        // Read the context that `auth_middleware` already constructed and inserted.
+        // This eliminates the second derivation site — previously this impl re-ran
+        // `RequestTenantContext::new(&claims.uid)` which hard-wired tenant=uid and
+        // silently bypassed the org claim the middleware had already resolved.
+        parts
             .extensions
-            .get::<crate::hoops::jwt::JwtClaims>()
+            .get::<RequestTenantContext>()
+            .cloned()
             .ok_or_else(|| {
                 AppError::Unauthorized("Authentication required for this endpoint".to_string())
-            })?;
-
-        // MVP: each user is their own tenant
-        Ok(RequestTenantContext::new(&claims.uid))
+            })
     }
 }
 

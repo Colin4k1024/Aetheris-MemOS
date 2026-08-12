@@ -34,7 +34,7 @@ fn ensure_config() {
 
 fn test_auth_header() -> String {
     ensure_config();
-    let (token, _) = backend::hoops::jwt::get_token("test-user").expect("generate test JWT");
+    let (token, _) = backend::hoops::jwt::get_token("test-user", None).expect("generate test JWT");
     format!("Bearer {token}")
 }
 

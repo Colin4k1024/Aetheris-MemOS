@@ -92,32 +92,23 @@ impl JwtAuthHookImpl {
         tiers.get(tenant_id).copied().unwrap_or(LicenseTier::Free)
     }
 
-    /// Validate JWT token and extract tenant/user info
+    /// Validate JWT token and extract tenant/user info.
+    ///
+    /// Reads the `org` claim for the tenant id (falling back to `uid` for tokens
+    /// issued before the claim existed). The old `_`-split convention was a
+    /// divergent derivation path that disagreed with the primary auth middleware —
+    /// replaced in C-3 / PR-3.
     fn validate_jwt(&self, token: &str) -> Option<AuthContext> {
-        // Use existing JWT validation from hoops::jwt
         let claims = crate::hoops::jwt::decode_token_claims(token)?;
 
-        // For now, use the uid as user_id and derive tenant_id
-        // In production, you'd decode the full JWT with tenant claims
-        let user_id = claims.uid.clone();
-
-        // Try to get tenant from user_id format (e.g., "tenantId_userId")
-        let (tenant_id, actual_user_id) = if user_id.contains('_') {
-            let parts: Vec<&str> = user_id.splitn(2, '_').collect();
-            if parts.len() == 2 {
-                (parts[0].to_string(), Some(parts[1].to_string()))
-            } else {
-                (user_id.clone(), Some(user_id))
-            }
-        } else {
-            (user_id.clone(), Some(user_id))
-        };
+        let tenant_id = claims.org.unwrap_or_else(|| claims.uid.clone());
+        let user_id = claims.uid;
 
         let tier = self.get_license_tier(&tenant_id);
 
         Some(
             AuthContext::new(tenant_id)
-                .with_user(actual_user_id.unwrap_or_default())
+                .with_user(user_id)
                 .with_tier(tier),
         )
     }

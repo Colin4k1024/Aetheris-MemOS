@@ -38,7 +38,7 @@ async fn ensure_db() {
 
 fn auth_header() -> String {
     ensure_config();
-    let (token, _) = backend::hoops::jwt::get_token("e2e-user").expect("generate E2E JWT");
+    let (token, _) = backend::hoops::jwt::get_token("e2e-user", None).expect("generate E2E JWT");
     format!("Bearer {token}")
 }
 

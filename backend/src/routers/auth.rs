@@ -73,7 +73,7 @@ pub async fn register(Json(idata): Json<RegisterInData>) -> JsonResult<LoginOutD
         .await?;
 
     // Generate token
-    let (token, exp) = jwt::get_token(&id)?;
+    let (token, exp) = jwt::get_token(&id, None)?;
     let odata = LoginOutData {
         id,
         username: idata.username,
@@ -106,7 +106,7 @@ pub async fn post_login(
         ));
     }
 
-    let (token, exp) = jwt::get_token(&id)?;
+    let (token, exp) = jwt::get_token(&id, None)?;
     let odata = LoginOutData {
         id,
         username,
@@ -192,7 +192,7 @@ pub async fn post_login_with_token(
         ));
     }
 
-    let (token, exp) = jwt::get_token(&id)?;
+    let (token, exp) = jwt::get_token(&id, None)?;
     let odata = LoginOutData {
         id,
         username,
@@ -319,5 +319,52 @@ pub async fn get_current_user(
         geographic: None,
         address: None,
         phone: None,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Org switch (C-3 / ADR-0009 方案 A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SwitchOrgRequest {
+    pub org_id: String,
+}
+
+#[derive(Serialize)]
+pub struct SwitchOrgResponse {
+    pub token: String,
+    pub exp: i64,
+    pub org_id: String,
+}
+
+/// Switch the authenticated caller's active org. Verifies membership in the
+/// target org (via `db::tenant_members::is_member`, scoped by the user GUC so
+/// only the caller's own memberships are visible), then re-issues a token with
+/// the `org` claim set to the requested org.
+///
+/// Fails with 403 if the caller is not a member of the target org.
+pub async fn switch_org(
+    Extension(claims): Extension<jwt::JwtClaims>,
+    Json(req): Json<SwitchOrgRequest>,
+) -> JsonResult<SwitchOrgResponse> {
+    let user_id = &claims.uid;
+
+    let is_member = crate::db::tenant_members::is_member(user_id, &req.org_id)
+        .await
+        .map_err(|e| AppError::Internal(format!("membership check failed: {e}")))?;
+
+    if !is_member {
+        return Err(AppError::Forbidden(
+            "You are not a member of the requested org".to_string(),
+        ));
+    }
+
+    let (token, exp) = jwt::get_token(user_id, Some(req.org_id.clone()))?;
+
+    json_ok(SwitchOrgResponse {
+        token,
+        exp,
+        org_id: req.org_id,
     })
 }
