@@ -82,10 +82,38 @@ A-1、C-1、P0-6、P0-7 都已完成，但**今天的可观测效果都受限**�
 已改为 `backend/target`。这类「配置存在但不起作用」与本轮整改的其余发现同类。
 
 
-⚠️ **未验证的边界**：本机无 Docker / PG / Qdrant / Neo4j / Ollama / promtool。
-审计的落盘→回放整链、对账四类漂移检出、`claim_batch` 的 CTE SQL（运行时
-query 非 `query!` 宏，`cargo check` 不校验）、告警的 PromQL 语义、探针对活服务
-的 200、启动 fail-fast 的 `exit(1)`，均**未实跑**。
+⚠️ **未验证的边界**（2026-08-12 首次 CI 运行后已大幅收窄，见下）：本机无 Docker /
+PG / Qdrant / Neo4j / Ollama / promtool。
+
+**CI（PR #79）已实跑验证的**——真实 PostgreSQL 16 + Qdrant 1.9.4，
+`1032 passed / 0 failed / 0 ignored`，全日志 `SKIP` 出现 **0 次**（这些测试都带
+env-guard 早返回路径，会打 `SKIP` 后仍报 ok，所以「0 次 SKIP」才是它们真跑过的
+证据，光看 ok 不够）：
+
+- **RLS 强制生效**：`ltm/kg/stm/mm_rls_blocks_cross_tenant_*` 四个穿透测试。它们用
+  superuser 连接**只为 provision 一个受限角色** `aetheris_rls_probe`
+  （NOSUPERUSER NOBYPASSRLS），再把 pool 指向它、走真实 Repository——所以断言真的
+  在策略生效的角色下执行，不是在绕过 RLS 的 owner 下假过。
+- **`claim_batch` 的租户公平性 CTE**：`claim_batch_concurrent_disjoint_sets`。此前
+  本文记为「运行时 `query_as` 非 `query!` 宏，`cargo check` 不校验 SQL，仅静态推理」
+  ——现已在真库上跑过并发不重复认领。
+- 租户 GUC 的事务局部性与不泄漏；outbox 的插入幂等 / mark_applied / dead-letter /
+  reclaim_stale 全链。
+
+**仍未实跑**（CI 无对应服务或无对应测试）：
+
+- 审计的落盘→回放**整链**。现有测试是单元级（builder / serde / 共享列 SQL /
+  `enqueue_or_spill_closed_queue_spills_to_disk`），没有「DB 宕机→落盘→恢复→回放
+  灌库」的端到端验证。
+- 对账**四类漂移的真实检出**。现有测试是 enum roundtrip 与 `drift_types` 清单级。
+- 告警的 PromQL 语义——CI **无 promtool step**（`grep -c promtool ci.yml` = 0）。
+- Neo4j 与 Ollama 相关路径——CI **无这两个 service**，故 D-d 的时序、D-e 的摘要
+  降级、D-e2 的 embedding 硬依赖均未在运行时验证。
+- 启动 fail-fast 的 `exit(1)`；a2a governance 的配额门（依赖 enterprise hooks，
+  默认构建下未初始化即 no-op）。
+
+反过来，CI 证实 RLS 在受限角色下确实会过滤，这让「两个库存 gauge 在加固角色 +
+无 GUC 时静默读 0」从理论推测变成**有依据的预期**，不再是可有可无的注脚。
 
 ---
 
@@ -216,11 +244,11 @@ handler 边界上的身份-资源绑定。与已修的 P0-2（`db/mm.rs` 租户 
 - ✅ **完成**（#29）`search_knowledge_by_entity_for_tenant` 的无用 `LEFT JOIN knowledge_entries ke` 已删除。`DISTINCT` **保留**——真正制造重复行的是 `LEFT JOIN relations r`（按 source 或 target 匹配，一个有 N 条关系的实体产出最多 N 个重复 `e` 行）。⚠️ 该函数用运行时 `query_as` 而非 `query!` 宏，故 `cargo check` 通过**不校验 SQL**；结果集等价性为**静态推理**，本机无 PG 未实跑
 - （#25）手写 OpenAPI → utoipa 宏自动生成（当前只覆盖 MVP 子集，Scalar 不是权威清单）
 - （#26）~~双 JWT：`web/jwt.rs`~~ → 见上，已完成
-- （#27）`ci.yml:158` 前端 `npm run lint` 仍 `continue-on-error: true`
+- （#27）~~`ci.yml:158` 前端 `npm run lint` 仍 `continue-on-error: true`~~ → 已完成（E-3）；PR #79 的 `frontend` job ✅ 2m8s 证实它在 CI 上确实阻塞且通过
 - （#28）~~`sdks/rust` 新增 `urlencoding` 依赖~~ → 见上，已完成
 - （#29）~~`search_knowledge_by_entity_for_tenant` 无用 `LEFT JOIN`~~ → 见上，已完成
 - （#33，**2026-08-11 新发现**）CI clippy 无 `-D warnings`：`ci.yml:102` 是 `cargo clippy --all`，只去掉了 `continue-on-error`，警告一律放行。closeout-summary 称「clippy 改为阻塞」**表述不准**。前提是先清理存量警告（`cargo check` 516 条 / `cargo clippy --all` 628 条）
-- （#34，**2026-08-11 新发现，已完成**）✅ `cargo fmt --all -- --check` 门禁。**我上轮的表述是错的**：我说「CI 显示通过」，但核实后发现**分支从未推送、远端无此分支、CI 从未运行过**——那是我从证据缺失里推出的结论，不是核实的（与 §4.5 同类错误）。真实情况是首次 push 时 CI 必定失败。已修：`cargo fmt --all` 把 65 处偏差清零；并修根因——新增 `rust-toolchain.toml` pin 到 `1.96.1`，`ci.yml` 从 `dtolnay/rust-toolchain@stable` 改为 `@master` + 显式版本。此前无 pin，CI 的 `@stable` 在运行时解析，与贡献者本地 rustfmt 可以不同版本，这正是偏差能被提交进来的机制
+- （#34，**2026-08-11 新发现，已完成**）✅ `cargo fmt --all -- --check` 门禁。**我上轮的表述是错的**：我说「CI 显示通过」，但核实后发现**分支从未推送、远端无此分支、CI 从未运行过**——那是我从证据缺失里推出的结论，不是核实的（与 §4.5 同类错误）。真实情况是首次 push 时 CI 必定失败。已修：`cargo fmt --all` 把 65 处偏差清零；并修根因——新增 `rust-toolchain.toml` pin 到 `1.96.1`，`ci.yml` 从 `dtolnay/rust-toolchain@stable` 改为 `@master` + 显式版本。此前无 pin，CI 的 `@stable` 在运行时解析，与贡献者本地 rustfmt 可以不同版本，这正是偏差能被提交进来的机制。**2026-08-12 追记**：上面那句「首次 push 时 CI 必定失败」是在偏差清零**之前**成立的预测；清零 + pin 之后，PR #79 的首次真实 CI 运行六个 check 全绿，该预测未兑现——记录在此以免它被后人当成仍然成立的现状
 - （#63，**已完成**）✅ E-8 `DocContent` 的 DOMPurify 配置用 `ADD_ATTR: ['target']` 允许 `target` 但未补 `rel="noopener noreferrer"`（反向 tabnabbing，纵深防御而非活漏洞——现代浏览器对 `target=_blank` 已默认 noopener）。已加 `afterSanitizeAttributes` hook，**合并而非覆盖**已有 rel token
 - （#69，**已完成**）✅ E-9 `TaskAnalysis` 提交按钮未接 loading 态。只用 `loading`、**刻意不加 `disabled`**——antd Button 的 loading 已拦截点击，而原生 `disabled` 只来自 `mergedDisabled`，加它会让按钮失焦到 body、结束后不回来
 - （#70，**已完成**）✅ E-10 所有 503 响应带 `Retry-After`。非 503（4xx/500）**不带**并有测试断言——在永久性错误上放该头会误导调用方重试不会好转的失败
@@ -232,35 +260,51 @@ handler 边界上的身份-资源绑定。与已修的 P0-2（`db/mm.rs` 租户 
 
 ---
 
-## F. 未推送、未合并
+## F. 首次 CI 运行结果（2026-08-12）
 
-`fix/truthfulness-and-security-remediation` **从未推送过**（`git ls-remote` 远端
-无此分支，`git reflog` 无任何 checkout/reset），所以 **CI 一次都没跑过**。
-这一点此前被误述为「CI 显示通过」，见 §E 的 #34。
+`fix/truthfulness-and-security-remediation` 此前**从未推送过**，所以 **CI 一次都
+没跑过**——这一点更早曾被误述为「CI 显示通过」，见 §E 的 #34。
+
+2026-08-12 已推送并开 PR **#79 → `dev`**，**六个 check 全绿**：
+
+| job | 结果 | 它回答了什么 |
+|---|---|---|
+| `backend` | ✅ 10m1s | 1032 passed / 0 failed / **0 ignored**，且全日志 0 次 `SKIP` |
+| `backend-a2a` | ✅ 4m1s | a2a-rs 的 pinned rev 在 runner 上拉取成功，7 个测试首次在 CI 上跑 |
+| `sdk-rust` | ✅ 52s | **新增 job 的首次执行**；该 crate 此前从未被任何 job 编译过 |
+| `frontend` | ✅ 2m8s | 阻塞式 lint 在 CI 的 `npm ci --legacy-peer-deps` 依赖树下同样 exit 0 |
+| `build` | ✅ 2m1s | |
+| `changes` | ✅ 7s | |
+
+⚠️ **注意 CI 的触发条件**：`ci.yml` 只在 `push` 到 `main/master/dev` 或 `pull_request`
+指向它们时运行，**没有通配分支触发**。所以推 feature 分支跑不了任何 job——
+「已推送」不蕴含「已验证」，必须开 PR。
+
+三个「只有 CI 能回答」的问题都已答：`sdk-rust` job 可用、两个 job 的 cache path
+改为 `backend/target` 后未破坏构建、a2a-rs 的 git 依赖可拉取。
 
 分支现有 **30 个 commit**（`origin/dev..HEAD`）：更早会话 10 个 + 2026-08-11
-四批共 20 个。仍未合并到 `dev`。
+四批共 20 个。**尚未合并到 `dev`。**
 
 第四批曾一度全部滞留在工作区（28 文件 / +1636 −184 未提交），已于 2026-08-12
 拆成 5 个 commit 落地：指标接线（B-5b）、query 契约（D-i+D-g）、a2a governance
 （A-4c）、a2a SSE 修复（E-12）、SDK 入 CI（E-7b）。**拆分后的中间提交经
 `cargo check --tests` 逐个验证可独立编译**，不是只保证最终态可用的假历史。
 
-**首次 push 前的注意事项**：
+**首次 push 前的注意事项**（1/2/5 已由 PR #79 的实跑结果回答，保留作记录）：
 
-1. `backend-a2a` job 是新增的，会首次拉取 a2a-rs 的 pinned rev（需网络）。
-   它刻意没有 `continue-on-error`，所以若拉取失败会红——但它是独立 job，
-   不会影响 `backend` job 的安全关键套件。
-2. 前端 lint 已成阻塞门禁。本地实测 exit 0 且 0 warning，但 CI 用
-   `npm ci --legacy-peer-deps` 装依赖，版本解析可能与本地 `node_modules` 不同。
+1. ~~`backend-a2a` job 会首次拉取 a2a-rs 的 pinned rev（需网络）~~ → ✅ 拉取成功，
+   4m1s 通过。它刻意没有 `continue-on-error`，是独立 job，不牵连 `backend`。
+2. ~~前端 lint 已成阻塞门禁，CI 用 `npm ci --legacy-peer-deps`，版本解析可能与
+   本地不同~~ → ✅ CI 下同样 exit 0（2m8s）。
 3. `cargo fmt` 门禁依赖 `rust-toolchain.toml` 的 `1.96.1` 与 `ci.yml` 的显式版本
-   一致。改任一处都要同步另一处。**新增的 `sdk-rust` job 也 pin 了同一版本**，
-   三处必须一起改。
+   一致。改任一处都要同步另一处。**`sdk-rust` job 也 pin 了同一版本**，
+   三处必须一起改。**（仍然有效）**
 4. 存量库的运维前提不变：必须先
    `ALTER ROLE aetheris_app WITH LOGIN PASSWORD '<managed-secret>'`，
    否则连接报 `password authentication failed`（见 closeout-summary §6）。
-5. `sdk-rust` job 是新增的且**首次覆盖该 crate**。本地在 pinned `1.96.1` 下
-   fmt/clippy/test 全绿，但这个 crate 在 GitHub runner 上从未编译过。
+   **（仍然有效；CI 用的是一次性容器，不覆盖这条）**
+5. ~~`sdk-rust` job 首次覆盖该 crate，在 GitHub runner 上从未编译过~~ → ✅ 52s 通过。
 
 **明确不宣称生产就绪。** 累计关闭 4 个生产阻塞项与 2 个 P0 跨租户泄漏，
 但仍有 10 项待处理，其中 C-3（org 层租户模型）阻塞着 A-1/C-1/P0-6/P0-7 四项
@@ -276,5 +320,5 @@ GUC 时会被 RLS 过滤成 **0**（静默 0，比对账的「全 missing→告�
 
 ---
 
-**最后更新**：2026-08-12（第四批 5 个 commit 落地；38 项完成 / 新发现 17 项 / 本批只做后端，前端推后）
+**最后更新**：2026-08-12（第四批 5 个 commit 落地；PR #79 六个 check 全绿，分支首次接受 CI 验证；38 项完成 / 新发现 17 项 / 本批只做后端，前端推后）
 **更新角色**：tech-lead
