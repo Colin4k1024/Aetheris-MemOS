@@ -18,23 +18,22 @@
 也会制造缺陷，记录在案。
 
 
-### 已完成（40 项，2026-08-12 第五批）
+### 已完成（41 项，2026-08-12 第五批）
 
 | 分类 | 已完成 |
 |---|---|
 | **P0 安全** | P0-6 path 跨租户泄漏（#56）、P0-7 body/无参跨租户泄漏（#64）、C-4 SQLite 静默降级（#15） |
 | **B 生产阻塞** | B-1 审计落盘（#4）、B-2 告警+dashboard（#31）、B-3 探针（#2）、B-4 对账接线（#1）、B-5 指标接线（#39）、#44 配额指标、**B-5b 余下 4 个零调用指标（#46）** |
-| **A 声明 vs 实现** | A-1 MCP capability 按主体（#5）、A-2 沙箱双平面（#6）、A-4 A2A 入 CI（#8）、A-4b a2a 补挂 auth（#79）、**A-4c a2a 写操作接 in-handler governance（#82）** |
+| **A 声明 vs 实现** | A-1 MCP capability 按主体（#5）、A-2 沙箱双平面（#6）、**A-3 open-core feature gating（#7）**、A-4 A2A 入 CI（#8）、A-4b a2a 补挂 auth（#79）、A-4c a2a 写操作接 in-handler governance（#82） |
 | **C 治理与多租户** | C-1 治理覆盖 5 组路由（#32）、C-2 outbox 租户公平性（#13）、C-5 tenant.rs 去留（#65） |
 | **D 实测候选** | D-a 枚举 400（#18）、D-j SDK 非法示例（#77）、D-k 另 6 个 CHECK（#78）、D-b 配置维度（#19）、D-c vector_guard 提示（#20）、D-d Neo4j 阻塞启动（#21）、D-e 摘要降级（#22）、D-e2 embedding 硬依赖（#61）、D-f doc 示例（#23）、D-h ADR 收口（#24）、D-i query 命名契约+防漂移（#16）、D-g 参数静默丢弃排查（#17）、**D-g2 写意图静默降级为读**、**D-g3 a2a 授权决定报成 500** |
 | **E 技术债** | E-2 删双 JWT（#26）、E-3 前端 lint 阻塞（#27）、E-4 SDK urlencoding（#28）、E-5 无用 JOIN（#29）、E-7 fmt 门禁+toolchain pin（#34）、**E-7b SDK 入 CI（#83）**、E-8 rel=noopener（#63）、E-9 loading 态（#69）、E-10 Retry-After（#70）、E-11 前端 jest 基建（#80）、**E-12 a2a stream 重复实现+丢结果 bug（#84）** |
 
 
-### 待处理（9 项）
+### 待处理（8 项）
 
 | 项 | 量级 | 阻塞/前提 |
 |---|---|---|
-| **A-3** open-core feature gating（#7） | M | |
 | **A-5** gRPC + WebSocket 真实化（#9） | L | 需 `.proto` + `build.rs` + tonic server |
 | **A-6** kernel/layers 接真实存储（#10） | L | 动核心数据路径，高风险 |
 | **A-7** eval harness 做成真的（#11） | XL | ADR-0008 的放行前置本身是假的 |
@@ -66,8 +65,8 @@ A-1、C-1、P0-6、P0-7 都已完成，但**今天的可观测效果都受限**�
 | `cargo fmt --all -- --check`（backend） | ✅ 0 偏差 + toolchain pinned `1.96.1` |
 | `cargo fmt --all -- --check`（sdks/rust） | ✅ 已清零并**首次纳入 CI**（此前整个 crate 从未被任何 job 编译，见 E-7b） |
 | 前端 `npm run lint` | ✅ exit 0、0 warning、已阻塞 |
-| `cargo test --tests` | ✅ **1013 passed / 0 failed**（此前 975） |
-| `cargo test --features a2a --lib` | ✅ **468 passed / 3 ignored**（第四批 453） |
+| `cargo test --tests` | ✅ **1019 passed / 0 failed**（第四批 1013） |
+| `cargo test --features a2a --lib` | ✅ **471 passed / 3 ignored**（第四批 453） |
 | `backend-a2a` job | ✅ **7 passed / 2 ignored**（2 个 ignored 均标了真实原因：需 embedding 后端） |
 | `cargo test --doc` | ✅ 2 passed |
 | `sdks/rust` clippy `--all-targets` | ✅ 0 warning（含 examples type-check） |
@@ -126,7 +125,7 @@ env-guard 早返回路径，会打 `SKIP` 后仍报 ok，所以「0 次 SKIP」�
 |---|---|---|---|---|---|
 | 1 | **D-5** MCP capability 最小权限 | ✅ **完成（已提交）**。`routers/mcp.rs` 改为按主体解析：从 RBAC 取调用方 Role，经 `capability::capabilities_for_role` 推导授予集合；无角色记录时**回落到 Reader**（最小权限），不继承写权限。授予集合从 `Role::has_permission` **派生**而非复制，故 MCP 平面与 REST 平面不会漂移（有防漂移测试）。⚠️ **今日可观测行为不变**：每人仍是自身单用户租户的 Owner（见 C-3），三项写权限齐全；变的是授予来源从常量变为主体，待 org 层租户模型落地即自动生效。Reader 现已无法经 MCP 调 `memory_write` / `memory_forget` | 改为按主体解析授予集合，未声明即拒 | S | #5 |
 | 2 | **D-4** MCP wasm 沙箱接入 | ✅ **完成（已提交）**。`call_tool` 顶部新增 `classify_plane`，**必须先于** Plane A 的 `capability::authorize`——否则其 deny-by-default 会把一切非第一方工具当 `UnknownTool` 拒掉，Plane B 永远进不去。FirstParty→原生；Extension→`SandboxProxy`→`WasmSandbox::execute_wasm`（真 wasmtime）；Unknown→拒绝+审计。**顺带修掉一个假沙箱**：`SandboxProxy::execute_tool` 原本**忽略传入的 capability policy、直接调原生 `tool.execute()`**，且 `execute_wasm` 改动前**零调用点零测试**——真沙箱躺着而唯一入口绕过它。若只把这个 proxy 接进 live 路径，会得到「看起来接好了的假隔离」，比不接更危险。第一方工具**故意保持原生**（需特权 DB 访问，套 wasm 只能把 DB 重新开成宽 host fn，隔离收益≈0）。删除了误导性的 `SandboxedTool` trait。12 项测试。⚠️ **生产 registry 为空**——「通路存在」≠「Plane B 可用」；`execute_wasm` 要求同时授予全部 4 个 capability 才能跑任何模块，是**占位符且方向反了**（纯计算 wasm 本不需任何 host capability）。决策已沉淀至 `docs/memory/decisions.md` | 按 ADR-0004 双平面模型接线 | M | #6 |
-| 3 | **D-6** open-core 真 feature gating | `feature = "enterprise"` 在 `src/` 出现 **0 次**（2026-08-11 复核仍为 0），gates 不了任何代码；billing 等所谓 Enterprise 模块默认编入 MIT 二进制 | 给 billing / RBAC / governance / 可视化加 `#[cfg(feature = "enterprise")]`；CI 增加「默认构建」与「enterprise 构建」双通道，防止 gate 漂移 | M | #7 |
+| 3 | **D-6** open-core 真 feature gating | ✅ **完成（A-3 / #7）**。`feature = "enterprise"` 此前在 `src/` 出现 **0 次**——声明了 gate 却不 gate 任何代码。**范围经拍板收窄为「只 gate billing 路由面」**：`Cargo.toml` 原注释写的是「billing, cluster management, **RBAC, governance hooks**」，按字面执行会把 RBAC 与 governance middleware 从默认构建编译掉，而它们承载 REST（C-1）、MCP（A-1）、A2A（A-4c）三个平面的授权路径——MIT 构建将没有任何授权，是伪装成打包修复的**安全回退**。C-1 当初明确立过「授权路径不得依赖 enterprise 接线」，注释与该约束矛盾本身即一处文档失真，已改正。配额那半不需编译期 gate（`try_enterprise_hooks()` 返回 `Option`，未初始化即惰性）。<br>**守卫分工（均经对照组实测）**：漏 gate 由**编译器**挡（未 gate 的 `billing::` 引用会让默认构建失败），故 CI 新增 enterprise 通道——此前那段 gated 代码 **CI 从未类型检查过**；多 gate 的三种形态编译器也能挡（cfg 在定义上→`unresolved import`、只在 binding 上→`cannot find value`、挂在链式调用上→非法 Rust），唯一能编译通过的「重构链条+条件应用」必然在本文件多一个 cfg，故把 cfg 数量**钉死在 3**。<br>⚠️ **未尽范围**：默认构建**仍编入** `hoops/enterprise_impl.rs`、`enterprise_hooks_v2.rs` 的 `BillingHook`/`BillingEvent` 类型机制与 `dashboard.rs` 本地 `BillingSummary`——本次只 gate 路由面；那套 hook 机制与刻意保持未 gate 的 governance 接线纠缠，动它有触碰安全面的风险。**不宣称完整 open-core 分离**。<br>⚠️ 守卫第一版失败：`total` 把注释与测试自身字符串里的 `billing::` 也数了进去，与 D-i 那次「注释污染 contains 检查」同类 | 给 billing 加 `#[cfg(feature = "enterprise")]`；CI 增加双通道防 gate 漂移 | M | #7 |
 | 4 | **D-3** A2A | ✅ **完成**。依赖已 pin rev、features 接真依赖；新增独立 `backend-a2a` job（不折进 backend，避免 GitHub 拉取抖动牵连安全关键套件；刻意无 continue-on-error）。**首次运行立刻暴露真缺陷**：a2a router 未挂 `auth_middleware`，4/7 因缺 `Extension<RequestTenantContext>` 而 500。已在 A-4b 修复（agent card 按 A2A spec 保持公开——它宣告 security schemes，挡在 auth 后是 discovery 的鸡生蛋问题；其余全走 auth）。现 **7 passed / 1 诚实 ignored**（那 1 个需真实 embedding 后端，标了 `#[ignore]` 原因而非伪造通过）。余 A-4c：写操作接 in-handler governance | 纳入 CI 并让测试真跑 | M | #8 |
 | 5 | **D-1** gRPC + WebSocket 真实化 | `grpc_auth_interceptor`（`protocol/grpc.rs:21`）**零调用者**、无 tonic server、无 `.proto`、无 `build.rs`；`ws_upgrade_handler`（`protocol/websocket.rs:381`）**从未挂载**，内层 handler 是 TODO（连上即 Close 1008） | 按 ADR-0007：补 `.proto` + `build.rs` + tonic server + service impl；挂载 WS upgrade 路由并实现真实 handler；两者复用 `hoops::jwt::authenticate()` 统一鉴权核心 | L | #9 |
 | 6 | **D-2** `kernel/` + `layers/` 接真实存储 | 整套 trait 抽象设计良好但**线上主链路完全绕开**；`layers/{stm,ltm,kg,mm}_layer.rs` **四个文件全部**是 `RwLock<HashMap>` 内存 stub，`ltm_layer` 的 search 是 `contains()` 子串匹配、score 恒 1.0 | 把 `layers/*` 后端从内存换为 `db::*Repository`；让 `routers/procedural.rs` 的 GraphRAG 不再跑在空 stub 上；此后 `hybrid_search.rs` 的正确 RRF 实现才有真实输入 | L | #10 |
@@ -329,7 +328,7 @@ restore 了。这是「配置存在但不起作用」这一类 bug 里，少数�
 5. ~~`sdk-rust` job 首次覆盖该 crate，在 GitHub runner 上从未编译过~~ → ✅ 52s 通过。
 
 **明确不宣称生产就绪。** 累计关闭 4 个生产阻塞项与 2 个 P0 跨租户泄漏，
-但仍有 **9 项**待处理，其中 C-3（org 层租户模型）阻塞着 A-1/C-1/P0-6/P0-7 四项
+但仍有 **8 项**待处理，其中 C-3（org 层租户模型）阻塞着 A-1/C-1/P0-6/P0-7 四项
 已完成工作的实际可观测效果。CI（PR #79）已把「未实跑」的范围显著收窄——RLS
 强制、`claim_batch` CTE、outbox 全链现在有真库证据——但审计回放整链、对账漂移
 检出、PromQL 语义、Neo4j / Ollama 路径仍**未经真机验证**（CI 无这些服务）。
@@ -343,5 +342,5 @@ GUC 时会被 RLS 过滤成 **0**（静默 0，比对账的「全 missing→告�
 
 ---
 
-**最后更新**：2026-08-12（第五批：D-g2 + D-g3；PR #79 六个 check 全绿，分支首次接受 CI 验证；40 项完成 / 9 项待处理 / 新发现 18 项 / 前端推后）
+**最后更新**：2026-08-12（第五批：D-g2 + D-g3 + A-3；PR #79 六个 check 全绿，分支首次接受 CI 验证；41 项完成 / 8 项待处理 / 新发现 18 项 / 前端推后）
 **更新角色**：tech-lead
