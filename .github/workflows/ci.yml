@@ -145,6 +145,30 @@ jobs:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
           SQLX_OFFLINE: "true"
 
+      # Open-core gate, second channel (backlog A-3). Every step above builds the
+      # DEFAULT feature set, so on its own it proves only that the MIT build works.
+      # This step proves the enterprise build still compiles — without it, the
+      # `#[cfg(feature = "enterprise")]` code (routers/billing.rs and
+      # `billing_router`) is never type-checked by CI at all and would rot exactly
+      # the way sdks/rust did before E-7b.
+      #
+      # The two channels together are what makes the gate self-enforcing: an
+      # UNGATED reference to `billing::` breaks the default build above, and a
+      # BROKEN gated module breaks this one. The remaining failure mode — gating
+      # too much, which compiles in both channels — is covered by the
+      # `routers::enterprise_gate` tests.
+      #
+      # `check --all-targets` rather than `test`: this channel adds no new
+      # behaviour to exercise, only a route registration, and the tests already ran
+      # above. `--all-targets` still type-checks the test code inside the gated
+      # module.
+      - name: Check enterprise channel compiles
+        run: cargo check --all-targets --features enterprise
+        timeout-minutes: 20
+        env:
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+          SQLX_OFFLINE: "true"
+
   # A2A agent-interop protocol channel. A SEPARATE job (not a step in `backend`)
   # on purpose: the `a2a` feature pulls a2a-rs from a pinned GitHub rev, so a
   # cold-cache build must reach GitHub over the network. Folding it into `backend`

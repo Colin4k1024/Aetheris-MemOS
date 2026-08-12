@@ -9,6 +9,9 @@ use tower_http::trace::TraceLayer;
 
 mod agent;
 mod auth;
+/// Metering / billing surface. Enterprise-gated — see [`billing_router`] for why
+/// the gate covers this and nothing else.
+#[cfg(feature = "enterprise")]
 mod billing;
 mod dashboard;
 mod data_io;
@@ -50,6 +53,60 @@ use crate::{config, hoops, services::prometheus_exporter};
 #[derive(RustEmbed)]
 #[folder = "assets"]
 struct Assets;
+
+/// Metering / billing routes — the one genuinely commercial surface in this
+/// repository, and therefore the only thing `feature = "enterprise"` gates
+/// (backlog A-3).
+///
+/// ## Why the gate stops here
+///
+/// `Cargo.toml` used to describe this feature as covering "billing, cluster
+/// management, RBAC, governance hooks". Implementing that literally would compile
+/// RBAC and the governance middleware **out of the default build** — and those are
+/// what the authorization path runs on across all three protocol planes:
+/// `hoops/governance.rs` (REST, C-1), `routers/mcp.rs` (MCP capability
+/// derivation, A-1) and `a2a/handler.rs` (in-handler governance, A-4c). The MIT
+/// build would ship with no authorization anywhere, which is a security
+/// regression wearing a packaging fix's clothes.
+///
+/// C-1 explicitly required that the strong-typed authorization path not depend on
+/// enterprise wiring, precisely so SQLite/dev deployments stay guarded. Security
+/// is not the monetised surface; metering is. The `Cargo.toml` comment has been
+/// corrected to match.
+///
+/// The quota half of governance needs no compile gate either: it runs through
+/// `try_enterprise_hooks()`, which returns `Option` and is already inert whenever
+/// the hook set was not initialised.
+///
+/// ## How drift is caught
+///
+/// In this direction, by the **compiler**: any ungated reference to `billing::`
+/// fails the default build, which is why CI compiles both channels
+/// (`cargo check` with default features and with `--features enterprise`).
+/// The opposite direction — someone *adding* a cfg to the authorization surface —
+/// compiles cleanly and is caught by
+/// `enterprise_gate::authorization_surface_is_not_enterprise_gated`.
+#[cfg(feature = "enterprise")]
+fn billing_router() -> Router {
+    Router::new()
+        .route("/init", post(billing::init_tenant))
+        .route("/usage", post(billing::get_usage))
+        .route("/usage/{tenant_id}", get(billing::get_current_usage))
+        .route("/quota/{tenant_id}", get(billing::get_quota_status))
+        .route("/record", post(billing::record_usage))
+}
+
+/// Default (MIT) build: no billing surface.
+///
+/// An empty nested router has no fallback of its own, so it delegates to the
+/// outer one — `/billing/*` answers the same 404 it would if the prefix had never
+/// been mounted. Returning an empty `Router` rather than `#[cfg]`-ing the `.nest`
+/// call keeps the 170-line builder chain in `root()` intact; the alternative is
+/// splitting that chain around one conditional step.
+#[cfg(not(feature = "enterprise"))]
+fn billing_router() -> Router {
+    Router::new()
+}
 
 pub fn root() -> Router {
     let _ = &config::get().jwt;
@@ -215,16 +272,8 @@ pub fn root() -> Router {
                 .route("/network", get(memory_pool::get_network_status))
                 .route("/agents", get(memory_pool::list_agents)),
         )
-        // Billing routes
-        .nest(
-            "/billing",
-            Router::new()
-                .route("/init", post(billing::init_tenant))
-                .route("/usage", post(billing::get_usage))
-                .route("/usage/{tenant_id}", get(billing::get_current_usage))
-                .route("/quota/{tenant_id}", get(billing::get_quota_status))
-                .route("/record", post(billing::record_usage)),
-        )
+        // Billing routes — enterprise-gated, see `billing_router`.
+        .nest("/billing", billing_router())
         // P0 cleanup: enterprise cluster/shard routes removed from public API.
         // The in-memory fake cluster (services/enterprise.rs + routers/enterprise.rs)
         // is preserved for P2 re-implementation with real PG advisory-lock coordination
@@ -1235,5 +1284,139 @@ mod query_param_contract {
             }
         }
         out
+    }
+}
+
+/// Guards for the open-core feature gate (backlog A-3).
+#[cfg(test)]
+mod enterprise_gate {
+    /// Source files carrying the authorization path. These must compile into
+    /// **every** build, including the default MIT one.
+    const AUTHORIZATION_SURFACE: &[&str] = &[
+        "src/hoops/governance.rs",
+        "src/services/rbac.rs",
+        "src/mcp/capability.rs",
+        "src/routers/mcp.rs",
+        "src/a2a/handler.rs",
+    ];
+
+    const ENTERPRISE_CFG: &str = "feature = \"enterprise\"";
+
+    fn read(relative: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    }
+
+    /// This file's source with comments and this very test module stripped, so a
+    /// mention of a symbol in prose can never be counted as a code reference.
+    ///
+    /// The D-i guard shipped with exactly that bug: doc comments *explaining* the
+    /// thing being guarded satisfied a `contains` check, so deleting the real
+    /// attribute left the test green. The first draft of the test below repeated
+    /// it — its own assertion strings mention the symbol it counts. Prose and code
+    /// have to be separated before either is measured.
+    fn router_code_only() -> String {
+        let src = read("src/routers/mod.rs");
+        let code = src
+            .split("mod enterprise_gate {")
+            .next()
+            .unwrap_or(&src)
+            .to_string();
+        code.lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// One half of the over-gating defence, and **not** the load-bearing half.
+    ///
+    /// Gating a definition alone does not actually compile: `routers/mod.rs`
+    /// imports `governance_middleware`, so adding a cfg to it fails the default
+    /// build with `unresolved import` — verified by negative control. This test is
+    /// belt-and-braces for that case; it turns a confusing link error into a
+    /// message that names the constraint.
+    ///
+    /// The case the compiler genuinely cannot see is covered by
+    /// [`enterprise_cfg_count_in_this_file_is_pinned`].
+    ///
+    /// Encodes the C-1 constraint that the strong-typed authorization path must not
+    /// depend on enterprise wiring.
+    #[test]
+    fn authorization_surface_is_not_enterprise_gated() {
+        for file in AUTHORIZATION_SURFACE {
+            let src = read(file);
+            assert!(
+                !src.contains(ENTERPRISE_CFG),
+                "{file} is on the authorization path and must compile into the default \
+                 build. Gating it yields an MIT binary with no authorization on \
+                 REST/MCP/A2A — see `billing_router` and backlog C-1/A-3."
+            );
+        }
+    }
+
+    /// The last line of over-gating defence, for the one shape that compiles.
+    ///
+    /// Most ways of gating security out of the default build simply do not build,
+    /// each verified by negative control:
+    ///
+    /// - cfg on the definition → `unresolved import` (this file imports it);
+    /// - cfg on the `governance_layer` binding alone → `cannot find value`;
+    /// - cfg on a chained `.route_layer(...)` → not valid Rust in that position.
+    ///
+    /// What does compile is restructuring the chain and applying the layer
+    /// conditionally — `let r = ...;` then `#[cfg(...)] let r = r.route_layer(...);`.
+    /// Both channels build cleanly, every definition still exists, and the MIT
+    /// binary quietly serves every route ungoverned. The sibling test above cannot
+    /// see it either, because no cfg ever appears in the authorization-path files.
+    ///
+    /// Any such edit must add a cfg **to this file**, so the count is pinned. Three
+    /// are expected, all billing: the `mod billing;` declaration, the enterprise
+    /// `billing_router`, and its `cfg(not(...))` counterpart. A fourth is not
+    /// automatically wrong — but it is a new decision about what the open-core split
+    /// removes, and it should be made deliberately rather than arrived at.
+    #[test]
+    fn enterprise_cfg_count_in_this_file_is_pinned() {
+        let code = router_code_only();
+        let count = code.matches(ENTERPRISE_CFG).count();
+        assert_eq!(
+            count, 3,
+            "expected exactly 3 enterprise cfgs in routers/mod.rs (mod billing, \
+             billing_router, and its cfg(not) counterpart); found {count}. A new gate \
+             here may be removing security from the default MIT build — see \
+             `billing_router` for why the A-3 gate deliberately stops at billing."
+        );
+    }
+
+    /// The gate must actually cover the billing surface: the module declaration is
+    /// gated, and every handler reference sits inside the gated `billing_router`.
+    #[test]
+    fn billing_surface_is_fully_behind_the_gate() {
+        let src = read("src/routers/mod.rs");
+        assert!(
+            src.contains(&format!("#[cfg({ENTERPRISE_CFG})]\nmod billing;")),
+            "the billing module declaration must carry the enterprise cfg, or it \
+             compiles into the default MIT build"
+        );
+
+        let code = router_code_only();
+        let gated = code
+            .split("fn billing_router() -> Router {")
+            .nth(1)
+            .expect("the enterprise billing_router must exist");
+        let gated = &gated[..gated.find("\n}").unwrap_or(gated.len())];
+
+        let inside = gated.matches("billing::").count();
+        let total = code.matches("billing::").count();
+        assert!(
+            inside > 0,
+            "billing_router must register the billing handlers"
+        );
+        assert_eq!(
+            inside, total,
+            "every `billing::` reference must live inside the gated billing_router; \
+             {total} found in this file, {inside} of them inside it. A reference \
+             elsewhere breaks the default build."
+        );
     }
 }

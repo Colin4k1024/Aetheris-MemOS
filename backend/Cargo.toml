@@ -7,7 +7,22 @@ readme = "./README.md"
 
 [features]
 default = []
-# Enterprise features: billing, cluster management, RBAC, governance hooks
+# Enterprise features. Scope: metering / billing routes ONLY (backlog A-3).
+#
+# This used to read "billing, cluster management, RBAC, governance hooks".
+# Implementing that literally would compile RBAC and the governance middleware out
+# of the default build — and those carry the authorization path on all three
+# protocol planes (hoops/governance.rs, routers/mcp.rs, a2a/handler.rs), so the MIT
+# binary would ship with no authorization at all. C-1 explicitly requires that the
+# strong-typed authorization path not depend on enterprise wiring. Security is not
+# the monetised surface; metering is.
+#
+# The quota half of governance needs no compile gate either: try_enterprise_hooks()
+# returns Option and is already inert whenever the hook set was not initialised.
+#
+# CI compiles BOTH channels (default and --features enterprise) so an ungated
+# reference cannot slip into the MIT build. See routers::billing_router for the
+# full rationale and routers::enterprise_gate for the drift guards.
 enterprise = []
 # Enable Redis STM cache adapter
 redis-stm = ["dep:redis"]
