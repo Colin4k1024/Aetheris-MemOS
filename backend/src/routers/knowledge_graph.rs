@@ -89,6 +89,7 @@ pub struct RelationInfo {
 }
 
 /// 创建实体
+#[utoipa::path(post, path = "/api/kg/entities", tag = "knowledge-graph", request_body = CreateEntityRequest, responses((status = 200, body = EntityListResponse, description = "Entity created")))]
 pub async fn create_entity(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<CreateEntityRequest>,
@@ -249,6 +250,7 @@ pub struct EntityListResponse {
 }
 
 /// 获取实体列表
+#[utoipa::path(get, path = "/api/kg/entities", tag = "knowledge-graph", responses((status = 200, description = "KG entity list")))]
 pub async fn list_entities(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(query): Query<ListEntitiesQuery>,

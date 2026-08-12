@@ -74,6 +74,7 @@ pub struct SelectMemoryResponse {
     pub what_if_result: Option<crate::services::scheduler::MemorySelectionResult>,
 }
 
+#[utoipa::path(post, path = "/api/v1/memory/adaptive/select", tag = "memory", responses((status = 200, description = "Selected memory configuration")))]
 pub async fn select_memory_config(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<SelectMemoryRequest>,
@@ -102,6 +103,7 @@ pub async fn select_memory_config(
     })
 }
 
+#[utoipa::path(post, path = "/api/v1/memory/adaptive/trace", tag = "memory", responses((status = 200, description = "Selection with decision trace")))]
 pub async fn select_memory_config_trace(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<SelectMemoryRequest>,
@@ -149,6 +151,7 @@ pub struct ListTracesResponse {
     pub traces: Vec<DecisionTraceItem>,
 }
 
+#[utoipa::path(get, path = "/api/v1/memory/traces", tag = "memory", responses((status = 200, description = "Decision trace list")))]
 pub async fn get_decision_traces(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(q): Query<ListTracesQuery>,
@@ -192,6 +195,7 @@ pub struct ExplainResponse {
     pub traces: Vec<DecisionTraceItem>,
 }
 
+#[utoipa::path(get, path = "/api/v1/memory/explain", tag = "memory", responses((status = 200, description = "Memory selection explanation")))]
 pub async fn explain_memory_selection(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(q): Query<ExplainQuery>,
@@ -229,6 +233,7 @@ pub async fn explain_memory_selection(
 #[derive(Deserialize, Debug, Default, ToSchema)]
 pub struct WorkflowEvidenceQuery {}
 
+#[utoipa::path(get, path = "/api/v1/workflows/{id}/evidence", tag = "memory", responses((status = 200, description = "Workflow evidence")))]
 pub async fn get_workflow_evidence(
     Path(workflow_id): Path<String>,
     Query(_query): Query<WorkflowEvidenceQuery>,
@@ -236,6 +241,7 @@ pub async fn get_workflow_evidence(
     json_ok(crate::services::evidence_graph::list_workflow_evidence(&workflow_id).await?)
 }
 
+#[utoipa::path(post, path = "/api/v1/memory/feedback", tag = "memory", responses((status = 200, description = "Feedback recorded")))]
 pub async fn record_memory_feedback(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<crate::services::memory_contract::MemoryFeedbackRequest>,
@@ -245,6 +251,7 @@ pub async fn record_memory_feedback(
     json_ok(response)
 }
 
+#[utoipa::path(post, path = "/api/v1/memory/forget", tag = "memory", responses((status = 200, description = "Memory forgotten")))]
 pub async fn forget_memory(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<crate::services::memory_contract::MemoryForgetRequest>,
@@ -264,6 +271,7 @@ pub struct MemoryStatusResponse {
     pub resource_status: ResourceStatus,
 }
 
+#[utoipa::path(get, path = "/api/v1/memory/adaptive/status", tag = "memory", responses((status = 200, description = "Adaptive memory status")))]
 pub async fn get_memory_status() -> JsonResult<MemoryStatusResponse> {
     // 尝试获取最新配置（使用默认用户和代理ID）
     let config_row = MemoryConfigRepository::get_latest("default_user", "default_agent").await?;
@@ -720,6 +728,7 @@ pub struct HealthResponse {
     pub performance: SystemPerformance,
 }
 
+#[utoipa::path(get, path = "/api/v1/memory/health", tag = "memory", responses((status = 200, description = "Memory health status")))]
 pub async fn health_check() -> JsonResult<HealthResponse> {
     use time::OffsetDateTime;
 
