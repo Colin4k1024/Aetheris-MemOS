@@ -9,15 +9,16 @@
 
 ## 任务追踪对照
 
-原始清单 29 项，2026-08-11 期间因做别的事撞出 **17 项新发现**（其中 2 项 P0），
-共 48 项。`#N` 为会话任务 ID。**会话任务清单是易失的，本文是唯一持久事实源**
+原始清单 29 项，2026-08-11 期间因做别的事撞出 **18 项新发现**（其中 2 项 P0），
+共 49 项。`#N` 为会话任务 ID。**会话任务清单是易失的，本文是唯一持久事实源**
 ——任务状态变化必须回写本文。
 
-**第四批新增的 2 项发现**：`detect_skill` 写意图静默降级为读（§D 第 10 条）、
-CI 两个 job 的 cargo cache path 一直未命中（见「CI 配置修正」）。
+**第五批（2026-08-12）新增 1 项发现**：`a2a` 把授权决定报成服务器故障
+（§D 第 11 条）——**这一项是 A-4c 自己引入的**，不是既有缺陷。整改批次自身
+也会制造缺陷，记录在案。
 
 
-### 已完成（38 项，2026-08-11 第四批收口）
+### 已完成（40 项，2026-08-12 第五批）
 
 | 分类 | 已完成 |
 |---|---|
@@ -25,11 +26,11 @@ CI 两个 job 的 cargo cache path 一直未命中（见「CI 配置修正」）
 | **B 生产阻塞** | B-1 审计落盘（#4）、B-2 告警+dashboard（#31）、B-3 探针（#2）、B-4 对账接线（#1）、B-5 指标接线（#39）、#44 配额指标、**B-5b 余下 4 个零调用指标（#46）** |
 | **A 声明 vs 实现** | A-1 MCP capability 按主体（#5）、A-2 沙箱双平面（#6）、A-4 A2A 入 CI（#8）、A-4b a2a 补挂 auth（#79）、**A-4c a2a 写操作接 in-handler governance（#82）** |
 | **C 治理与多租户** | C-1 治理覆盖 5 组路由（#32）、C-2 outbox 租户公平性（#13）、C-5 tenant.rs 去留（#65） |
-| **D 实测候选** | D-a 枚举 400（#18）、D-j SDK 非法示例（#77）、D-k 另 6 个 CHECK（#78）、D-b 配置维度（#19）、D-c vector_guard 提示（#20）、D-d Neo4j 阻塞启动（#21）、D-e 摘要降级（#22）、D-e2 embedding 硬依赖（#61）、D-f doc 示例（#23）、D-h ADR 收口（#24）、**D-i query 命名契约+防漂移（#16）**、**D-g 参数静默丢弃排查（#17）** |
+| **D 实测候选** | D-a 枚举 400（#18）、D-j SDK 非法示例（#77）、D-k 另 6 个 CHECK（#78）、D-b 配置维度（#19）、D-c vector_guard 提示（#20）、D-d Neo4j 阻塞启动（#21）、D-e 摘要降级（#22）、D-e2 embedding 硬依赖（#61）、D-f doc 示例（#23）、D-h ADR 收口（#24）、D-i query 命名契约+防漂移（#16）、D-g 参数静默丢弃排查（#17）、**D-g2 写意图静默降级为读**、**D-g3 a2a 授权决定报成 500** |
 | **E 技术债** | E-2 删双 JWT（#26）、E-3 前端 lint 阻塞（#27）、E-4 SDK urlencoding（#28）、E-5 无用 JOIN（#29）、E-7 fmt 门禁+toolchain pin（#34）、**E-7b SDK 入 CI（#83）**、E-8 rel=noopener（#63）、E-9 loading 态（#69）、E-10 Retry-After（#70）、E-11 前端 jest 基建（#80）、**E-12 a2a stream 重复实现+丢结果 bug（#84）** |
 
 
-### 待处理（10 项）
+### 待处理（9 项）
 
 | 项 | 量级 | 阻塞/前提 |
 |---|---|---|
@@ -42,7 +43,6 @@ CI 两个 job 的 cargo cache path 一直未命中（见「CI 配置修正」）
 | **E-1** utoipa 迁移（#25） | L | |
 | **E-6** clippy `-D warnings`（#33） | L | **已拍板本批不动**：534 条里约 380 条是 dead_code 类（142 struct never constructed / 95 fn never used），指向 A-5/A-6 尚未接线的代码。清它等于要先决定那些模块去留，故等 A-5/A-6 落地后存量自然下降再上门禁 |
 | **E-11b** 前端测试接入 CI（#81） | S | **前端项，已按指示推到最后**。⚠️ 前一轮「Node 20 实测 6 passed」**未能复现**：`node:20` 容器内 `npm test` 报 `Jest: Failed to parse the TypeScript config file jest.config.ts / Parse config file failed: [config/config.ts]`。ci.yml 里那个 step 已撤回并留注释说明——接了要么红、要么得挂 `continue-on-error`，而不能失败的门禁不是门禁 |
-| **D-g2** `detect_skill` 关键词猜测导致写意图静默降级为读（新发现） | M | 见 §D 第 10 条 |
 
 ### 前端范围说明（2026-08-11 追加）
 
@@ -67,7 +67,7 @@ A-1、C-1、P0-6、P0-7 都已完成，但**今天的可观测效果都受限**�
 | `cargo fmt --all -- --check`（sdks/rust） | ✅ 已清零并**首次纳入 CI**（此前整个 crate 从未被任何 job 编译，见 E-7b） |
 | 前端 `npm run lint` | ✅ exit 0、0 warning、已阻塞 |
 | `cargo test --tests` | ✅ **1013 passed / 0 failed**（此前 975） |
-| `cargo test --features a2a --lib` | ✅ 453 passed / 3 ignored |
+| `cargo test --features a2a --lib` | ✅ **468 passed / 3 ignored**（第四批 453） |
 | `backend-a2a` job | ✅ **7 passed / 2 ignored**（2 个 ignored 均标了真实原因：需 embedding 后端） |
 | `cargo test --doc` | ✅ 2 passed |
 | `sdks/rust` clippy `--all-targets` | ✅ 0 warning（含 examples type-check） |
@@ -232,7 +232,11 @@ handler 边界上的身份-资源绑定。与已修的 P0-2（`db/mm.rs` 租户 
    **方案（已拍板）**：**不改任何现有命名**——三处 camelCase 各有活着的消费方，改名是对外 breaking change，为整齐而破坏集成方不划算。改为：(1) 给所有 query 结构体加 `deny_unknown_fields`，让拼错的参数**返回 400 而非静默丢弃**，直接堵住根因；(2) 11 项契约测试经 axum **真实 extractor**（`Query::try_from_uri`）固定每个端点接受的拼写，并各自注明消费方；(3) 3 个结构化防漂移守卫。
    **守卫扫出 16 个 query 结构体**（比初判的 9 个多 7 个——是守卫自己发现的）+ 2 个带说明的豁免：`TokenQuery`（`/login/account` 的 URL 会经邮件客户端被追加 `utm_*` 等参数，严格化会让带追踪参数的链接登录失败；且它只有一个参数、缺失时不会静默返回窄结果而是走 body 凭据或显式 401）、`WorkflowEvidenceQuery`（空结构体，无字段可供「丢进去」，加严只会无谓拒绝）。豁免需写 `ALLOWS_UNKNOWN_QUERY_PARAMS:` 注释说明理由，且**豁免总数被 pin 住**，多一个必须是有意识的编辑。
    **三个守卫均经对照组实测会 fail**。过程中**修掉一个「守卫不咬人」的 bug**：最初把注释和属性放在同一个窗口里做 `contains` 检查，而多个结构体的 doc 注释里正好**解释**了 `deny_unknown_fields`——于是删掉真属性、测试照样绿。已改为注释与属性分开取（`partition`），因为这两个信号一个在代码里一个在注释里，混在一起会让守卫失去失败能力。这正是本轮整改要消灭的「门禁存在但不起作用」，只是这次出现在我自己写的门禁里。
-10. **（新发现，未修）`detect_skill` 是关键词猜测，写意图会被静默降级为读**：`a2a/handler.rs` 的 `detect_skill` 按 `text.contains("store"/"remember"/"save")` 判断写意图，`else` 分支返回 `Some(MemorySearch)`。所以「persist this」「keep this note」这类措辞会被分类为**搜索**——**不构成写门禁绕过**（到不了写 handler，A-4c 已核实这点是 fail-safe），但用户以为写入了、实际只做了一次无害的读，属**功能正确性/数据感知**问题。`skills.rs` 已有 `MemorySkill::from_id`，但 `handle_message` 没用它、走的是关键词猜测。建议：要么无法识别时归 `None`（fail-closed 到 `general_query`），要么改用显式 skill_id。
+10. ✅ **完成**（D-g2）**`detect_skill` 关键词猜测导致写意图静默降级为读**。`detect_skill` 以 `else => Some(MemorySearch)` 收尾，所以它**永远不返回 `None`**，`handle_message` 里 `None => handle_general_query` 那条分支是**死代码**（这一点是修的时候才发现的，原表述没提）。用三个硬编码关键词之外的措辞表达写意图——「persist this」「memorize this note」——会落进那个 else 执行一次**搜索**，调用方拿到成功响应、以为存了。**不构成写门禁绕过**（到不了写 handler，A-4c 已核实是 fail-safe），属功能正确性/数据感知缺陷。
+    **改法两层**：(1) **显式优先**——读 `message.metadata["skill"]` 经 `MemorySkill::from_id` 解析（就是 agent card 宣告的 5 个 id；`from_id` 早就存在，只是 `handle_message` 从没用过）。未知 id **报错而非回落到猜测**：把「你要 X 我给 Y」当成畸形请求的处理方式只是把缺陷换个位置。(2) **启发式 fail-closed**——无信号→`None`；**读写意图混杂也→`None`**，不让 if-else 顺序替调用方决定（降级静默丢数据，升级凭空造数据，两个方向都不安全）；读与读并列保持原优先级，故「search the knowledge graph」行为不变。写关键词只谨慎补了 persist/memorize/record，keep/note/write 因过宽被排除（「keep searching」不是写）。`handle_general_query` 首次可达，回复改为**列出可用 skill id 与选择它们的 metadata key**——fail-closed 落进死胡同只是挪个地方。
+    **顺带修掉一个我在 A-4c 里引入的缺陷**，见 §D 第 11 条。
+    防漂移：`MemorySkill::ALL` + 用**真实 `create_agent_card()` 输出**交叉校验（card 是发布契约，若它宣告了 `from_id` 解析不了的 skill，调用方会因为照着说明书提要求而被拒）；治理的两个既有测试改走 `ALL`，消掉重复硬编码数组。15 项新测试，**四个对照组均实测会 fail**。⚠️ 过程中**第一版对照组没咬人**——核查后是对照组本身写错（只短路了成功分支，未知 id 行为根本没变），已重做；与 D-i 里「守卫不咬人」同类，这次出现在验证手段上
+11. ✅ **完成（新发现，与 D-g2 同批修）`a2a` 把授权决定报成服务器故障**：`handle_message` 返回裸 `String`，三个 transport 一律映射成 REST **500** / JSON-RPC **-32603**。于是 A-4c 加的治理拒绝——一个**授权决定**——以「服务器故障」形式返回给调用方。重试是 500 的正确反应，却是 403 的无用反应；on-call 也分不清「你没权限」和「我们挂了」。与 D-a（CHECK 违例以 500 而非 400 暴露）同类，只是上移一层。**这是 A-4c 引入的，不是既有缺陷**。不修它就没法正确加 D-g2 的「未知 skill id 报错」——那会是又一个以 500 暴露的客户端错误。已新增 `A2AError{InvalidRequest, Denied, Internal}` → 400/403/500 与 -32602/-32003/-32603；`From<String>` 让模块内既有 `?` 路径落到 `Internal`（对它们正确，全是服务层失败），新的客户端错误路径必须显式写出、不会默默继承。REST 侧客户端错误**回传细节**（400 不说明哪个值被拒就不可操作），`Internal` 细节**不回传**（可能带 DB/后端信息），完整文本仍进日志
 
 
 ---
@@ -325,9 +329,10 @@ restore 了。这是「配置存在但不起作用」这一类 bug 里，少数�
 5. ~~`sdk-rust` job 首次覆盖该 crate，在 GitHub runner 上从未编译过~~ → ✅ 52s 通过。
 
 **明确不宣称生产就绪。** 累计关闭 4 个生产阻塞项与 2 个 P0 跨租户泄漏，
-但仍有 10 项待处理，其中 C-3（org 层租户模型）阻塞着 A-1/C-1/P0-6/P0-7 四项
-已完成工作的实际可观测效果，且大量行为**未经真机验证**（本机无
-PG/Qdrant/Neo4j/Ollama/promtool；docker 可用但未起这些服务）。
+但仍有 **9 项**待处理，其中 C-3（org 层租户模型）阻塞着 A-1/C-1/P0-6/P0-7 四项
+已完成工作的实际可观测效果。CI（PR #79）已把「未实跑」的范围显著收窄——RLS
+强制、`claim_batch` CTE、outbox 全链现在有真库证据——但审计回放整链、对账漂移
+检出、PromQL 语义、Neo4j / Ollama 路径仍**未经真机验证**（CI 无这些服务）。
 
 **第四批未实测的边界**：a2a governance 的 quota 门（gate 2）依赖 enterprise
 hooks，默认构建下未初始化即 no-op，其真实拒绝路径未跑；两个库存 gauge 的
@@ -338,5 +343,5 @@ GUC 时会被 RLS 过滤成 **0**（静默 0，比对账的「全 missing→告�
 
 ---
 
-**最后更新**：2026-08-12（第四批 5 个 commit 落地；PR #79 六个 check 全绿，分支首次接受 CI 验证；38 项完成 / 新发现 17 项 / 本批只做后端，前端推后）
+**最后更新**：2026-08-12（第五批：D-g2 + D-g3；PR #79 六个 check 全绿，分支首次接受 CI 验证；40 项完成 / 9 项待处理 / 新发现 18 项 / 前端推后）
 **更新角色**：tech-lead
