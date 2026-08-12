@@ -13,7 +13,40 @@ use std::sync::Arc;
 use crate::tenant::RequestTenantContext;
 
 use super::agent_card::create_agent_card;
-use super::handler::A2AHandler;
+use super::handler::{A2AError, A2AHandler};
+
+/// JSON-RPC error code for an [`A2AError`].
+///
+/// `-32602` (Invalid params) and `-32603` (Internal error) are JSON-RPC 2.0
+/// standard codes. A denial has no standard code, so it takes `-32003` from the
+/// `-32000..=-32099` implementation-defined server-error range, with the reason in
+/// the message.
+///
+/// All three used to report `-32603`, which tells every caller the server broke
+/// and the request is worth retrying — correct for exactly one of them.
+fn jsonrpc_code(err: &A2AError) -> i32 {
+    match err {
+        A2AError::InvalidRequest(_) => -32602,
+        A2AError::Denied(_) => -32003,
+        A2AError::Internal(_) => -32603,
+    }
+}
+
+/// HTTP status for an [`A2AError`], plus the body to send with it.
+///
+/// Client-error detail is returned verbatim — a caller that named an unknown
+/// skill needs to see *which* id was rejected and what the valid ones are, or the
+/// 400 is unactionable. `Internal` detail is **not** returned: those strings come
+/// from the service layer and can carry database, embedding-backend or
+/// serialization specifics. The full text still goes to the log.
+fn rest_error(err: &A2AError) -> (StatusCode, Json<Value>) {
+    let (status, detail) = match err {
+        A2AError::InvalidRequest(m) => (StatusCode::BAD_REQUEST, m.as_str()),
+        A2AError::Denied(m) => (StatusCode::FORBIDDEN, m.as_str()),
+        A2AError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal error"),
+    };
+    (status, Json(json!({ "error": detail })))
+}
 
 #[derive(Clone)]
 pub struct A2AState {
@@ -114,8 +147,8 @@ async fn handle_jsonrpc(
                     jsonrpc: "2.0".to_string(),
                     result: None,
                     error: Some(JsonRpcError {
-                        code: -32603,
-                        message: e,
+                        code: jsonrpc_code(&e),
+                        message: e.message().to_string(),
                         data: None,
                     }),
                     id: request.id,
@@ -160,13 +193,14 @@ async fn handle_send_message(
     state: A2AState,
     params: Option<Value>,
     tenant_ctx: &RequestTenantContext,
-) -> Result<Value, String> {
-    let params = params.ok_or("Missing parameters")?;
-    let request: a2a::types::SendMessageRequest =
-        serde_json::from_value(params).map_err(|e| format!("Invalid request: {}", e))?;
+) -> Result<Value, A2AError> {
+    let params = params.ok_or_else(|| A2AError::InvalidRequest("Missing parameters".into()))?;
+    let request: a2a::types::SendMessageRequest = serde_json::from_value(params)
+        .map_err(|e| A2AError::InvalidRequest(format!("Invalid request: {e}")))?;
 
     let response = state.handler.handle_message(request, tenant_ctx).await?;
-    serde_json::to_value(response).map_err(|e| format!("Serialization error: {}", e))
+    serde_json::to_value(response)
+        .map_err(|e| A2AError::Internal(format!("Serialization error: {e}")))
 }
 
 async fn handle_get_task_rpc(_state: A2AState, params: Option<Value>) -> Result<Value, String> {
@@ -189,12 +223,17 @@ async fn handle_rest_message(
     State(state): State<A2AState>,
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(request): Json<a2a::types::SendMessageRequest>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     match state.handler.handle_message(request, &tenant_ctx).await {
         Ok(response) => Ok(Json(
             serde_json::to_value(response).unwrap_or_else(|_| json!({})),
         )),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => {
+            // Log the full text regardless of what the caller is told; the
+            // `Internal` body is deliberately generic (see `rest_error`).
+            tracing::warn!(error = %e, "A2A REST message failed");
+            Err(rest_error(&e))
+        }
     }
 }
 
@@ -382,6 +421,81 @@ mod tests {
             payload.data.contains("hello from agent"),
             "serialized message must carry the agent's text, got: {}",
             payload.data
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Error classification reaching the wire (D-g2). Classifying an error in the
+    // handler is only half the fix — these pin the transport mapping, which is
+    // what the caller actually sees. Every variant used to collapse to
+    // 500 / -32603.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn each_error_kind_gets_its_own_http_status() {
+        let cases = [
+            (
+                A2AError::InvalidRequest("bad skill".into()),
+                StatusCode::BAD_REQUEST,
+            ),
+            (A2AError::Denied("nope".into()), StatusCode::FORBIDDEN),
+            (
+                A2AError::Internal("boom".into()),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ];
+        for (err, expected) in cases {
+            let (status, _) = rest_error(&err);
+            assert_eq!(status, expected, "wrong status for {err:?}");
+        }
+    }
+
+    #[test]
+    fn each_error_kind_gets_its_own_jsonrpc_code() {
+        assert_eq!(
+            jsonrpc_code(&A2AError::InvalidRequest("x".into())),
+            -32602,
+            "client mistakes must use the standard Invalid params code"
+        );
+        assert_eq!(jsonrpc_code(&A2AError::Denied("x".into())), -32003);
+        assert_eq!(jsonrpc_code(&A2AError::Internal("x".into())), -32603);
+
+        // The three must be distinguishable — collapsing any two back together
+        // reintroduces "retry this" on errors retrying cannot fix.
+        let codes = [
+            jsonrpc_code(&A2AError::InvalidRequest("x".into())),
+            jsonrpc_code(&A2AError::Denied("x".into())),
+            jsonrpc_code(&A2AError::Internal("x".into())),
+        ];
+        let mut unique = codes.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), 3, "error codes collapsed: {codes:?}");
+    }
+
+    #[test]
+    fn client_errors_return_detail_but_internal_errors_do_not_leak_it() {
+        // A 400 without the offending value is unactionable, so the detail ships.
+        let (_, Json(body)) = rest_error(&A2AError::InvalidRequest(
+            "Unknown skill 'memory_stroe'".into(),
+        ));
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("memory_stroe"),
+            "the caller must learn which value was rejected, got: {body}"
+        );
+
+        // Internal detail comes from the service layer and can carry database or
+        // backend specifics, so it must not reach the caller.
+        let (_, Json(body)) = rest_error(&A2AError::Internal(
+            "postgres: relation \"knowledge_entries\" does not exist".into(),
+        ));
+        let text = body["error"].as_str().unwrap_or_default();
+        assert!(
+            !text.contains("postgres") && !text.contains("knowledge_entries"),
+            "internal detail leaked to the caller: {text}"
         );
     }
 }

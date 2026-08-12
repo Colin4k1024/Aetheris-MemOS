@@ -25,6 +25,75 @@ use super::skills::MemorySkill;
 /// and calls the actual memory service layer — no more format! placeholders.
 pub struct A2AHandler {}
 
+/// Metadata key a caller sets to name the skill it wants explicitly, e.g.
+/// `{"skill": "memory_store"}`. The values are the ids the agent card advertises
+/// (`MemorySkill::id`), so a caller that read the card already knows them.
+pub const SKILL_METADATA_KEY: &str = "skill";
+
+/// Keywords that unambiguously mean "put this into memory".
+///
+/// Deliberately conservative. Every word added here also makes more phrases
+/// *ambiguous* (write + read → `None` → general query), so only words whose
+/// write intent is not in doubt belong. "keep", "note" and "write" were
+/// considered and rejected as too generic — "keep searching" is not a write.
+const WRITE_INTENT_KEYWORDS: &[&str] =
+    &["store", "remember", "save", "persist", "memorize", "record"];
+
+/// Why an A2A message could not be handled, at the granularity the transports
+/// need in order to answer the caller truthfully.
+///
+/// [`A2AHandler::handle_message`] previously returned a bare `String` and every
+/// transport mapped it to "internal error" — REST `500`, JSON-RPC `-32603`. That
+/// is wrong for two of the three cases here, and actively misleading for one: the
+/// governance denial added in A-4c reported an *authorization decision* as a
+/// server fault, so neither the caller nor an on-call engineer reading logs could
+/// tell "you may not do this" from "we are broken". Retrying is the correct
+/// response to a 500 and the useless response to a 403.
+///
+/// Same defect class as D-a (`CHECK`-constraint violations surfacing as 500
+/// instead of 400), one layer up: the status code has to carry which side owns
+/// the problem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum A2AError {
+    /// The caller asked for something malformed — today, a `skill` metadata id no
+    /// skill answers to. Retrying unchanged cannot help.
+    InvalidRequest(String),
+    /// The caller is authenticated but not permitted to perform this operation.
+    Denied(String),
+    /// A genuine server-side failure. This is the only variant a caller should
+    /// retry, and the only one that should page anyone.
+    Internal(String),
+}
+
+impl A2AError {
+    /// Human-readable detail, for logs and for the error body sent to the caller.
+    pub fn message(&self) -> &str {
+        match self {
+            Self::InvalidRequest(m) | Self::Denied(m) | Self::Internal(m) => m,
+        }
+    }
+}
+
+impl std::fmt::Display for A2AError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+/// Existing `Result<_, String>` paths inside this module keep working via `?` and
+/// land on [`A2AError::Internal`].
+///
+/// That default is deliberate and correct for them: every one of those strings
+/// comes from a service-layer failure (DB, embedding backend, serialization), not
+/// from a caller mistake. The two non-internal outcomes are constructed
+/// explicitly, so a *new* client-error path cannot inherit `Internal` by accident
+/// — it has to be written down.
+impl From<String> for A2AError {
+    fn from(message: String) -> Self {
+        Self::Internal(message)
+    }
+}
+
 /// Map each A2A memory skill to the governance [`Operation`] it performs.
 ///
 /// This lives next to the dispatch `match` in [`A2AHandler::handle_message`] and
@@ -75,9 +144,9 @@ impl A2AHandler {
         &self,
         request: SendMessageRequest,
         tenant_ctx: &RequestTenantContext,
-    ) -> Result<SendMessageResponse, String> {
+    ) -> Result<SendMessageResponse, A2AError> {
         let message = &request.message;
-        let skill_id = self.detect_skill(message);
+        let skill_id = self.detect_skill(message)?;
 
         info!(
             tenant = %tenant_ctx.tenant_id,
@@ -122,7 +191,9 @@ impl A2AHandler {
             Self::post_store_usage(tenant_ctx);
         }
 
-        response
+        // Skill handlers still fail with `String`; those are all service-layer
+        // failures, so `From<String>` lands them on `Internal`.
+        response.map_err(A2AError::from)
     }
 
     /// Apply in-handler governance for one A2A operation, mirroring the
@@ -151,7 +222,7 @@ impl A2AHandler {
         &self,
         operation: Operation,
         tenant_ctx: &RequestTenantContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), A2AError> {
         // --- Gate 1: RBAC permission (independent of enterprise hooks) ---
         let permission = operation_to_permission(operation);
         let allowed = get_rbac_service().blocking_has_permission(
@@ -176,7 +247,9 @@ impl A2AHandler {
                 operation = %operation.as_str(),
                 "A2A message denied: insufficient role permissions"
             );
-            return Err("Insufficient role permissions".to_string());
+            return Err(A2AError::Denied(
+                "Insufficient role permissions".to_string(),
+            ));
         }
 
         // --- Gate 2: Quota (only when enterprise hooks are wired) ---
@@ -213,7 +286,7 @@ impl A2AHandler {
                     reason = %reason,
                     "A2A message denied by governance"
                 );
-                return Err(reason);
+                return Err(A2AError::Denied(reason));
             }
         }
 
@@ -235,13 +308,88 @@ impl A2AHandler {
         }
     }
 
-    fn detect_skill(&self, message: &Message) -> Option<MemorySkill> {
-        let text = self.extract_text(message).to_lowercase();
+    /// Resolve which skill this message is asking for.
+    ///
+    /// Two tiers, deliberately in this order:
+    ///
+    /// 1. **Explicit** — `message.metadata["skill"]` ([`SKILL_METADATA_KEY`]),
+    ///    resolved through [`MemorySkill::from_id`], i.e. the same ids the agent
+    ///    card advertises. A caller that read the card can say what it wants and
+    ///    get exactly that, with no guessing in the loop. An id that is *present
+    ///    but unknown* is an [`A2AError::InvalidRequest`], never a quiet fallback
+    ///    to guessing — silently doing something other than what was asked is the
+    ///    defect this function is being fixed for, so it must not be the handling
+    ///    of a malformed request either.
+    /// 2. **Heuristic** — keyword matching. Best effort, and now **fail-closed**:
+    ///    no recognisable signal yields `None`, which dispatches to
+    ///    `handle_general_query` (a harmless echo that names the available
+    ///    skills) instead of silently running something.
+    ///
+    /// ## What was wrong (D-g2)
+    ///
+    /// The heuristic used to end in `else => Some(MemorySkill::MemorySearch)`, so
+    /// it never returned `None` and `handle_message`'s `None => general_query` arm
+    /// was **unreachable**. Write intent phrased without one of the three
+    /// hardcoded write keywords — "persist this", "memorize this note" — fell
+    /// through to that `else` and performed a *search*: the caller believed it had
+    /// stored data, got a success response, and nothing anywhere said otherwise.
+    ///
+    /// This was never a write-gate bypass — the request never reaches the write
+    /// handler, so A-4c's governance still holds — which is why it is a
+    /// correctness / data-awareness defect rather than a security one.
+    ///
+    /// ## Why mixed intent yields `None`
+    ///
+    /// When a message matches both a write keyword and a read keyword, if-else
+    /// order used to silently decide. Neither direction is safe to guess:
+    /// downgrading a write loses the caller's data with a success response, and
+    /// upgrading a read to a write would *create* data nobody asked for. So mixed
+    /// signal is treated as no signal and the caller is asked to be explicit.
+    ///
+    /// Read-vs-read ties keep the original priority order — those branches are all
+    /// non-mutating, so picking one is harmless and it preserves today's behaviour
+    /// for phrases like "search the knowledge graph".
+    fn detect_skill(&self, message: &Message) -> Result<Option<MemorySkill>, A2AError> {
+        if let Some(id) = Self::explicit_skill_id(message) {
+            return MemorySkill::from_id(id).map(Some).ok_or_else(|| {
+                let known = MemorySkill::ALL
+                    .iter()
+                    .map(|s| s.id())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                A2AError::InvalidRequest(format!("Unknown skill '{id}'. Available skills: {known}"))
+            });
+        }
 
+        Ok(Self::infer_skill(
+            &self.extract_text(message).to_lowercase(),
+        ))
+    }
+
+    /// The `skill` metadata value, when the caller set it to a string.
+    fn explicit_skill_id(message: &Message) -> Option<&str> {
+        message.metadata.as_ref()?.get(SKILL_METADATA_KEY)?.as_str()
+    }
+
+    /// Keyword heuristic over the message text. See [`A2AHandler::detect_skill`]
+    /// for why this fails closed instead of defaulting to search.
+    fn infer_skill(text: &str) -> Option<MemorySkill> {
+        let wants_write = WRITE_INTENT_KEYWORDS.iter().any(|kw| text.contains(kw));
+        let read_skill = Self::infer_read_skill(text);
+
+        match (wants_write, read_skill) {
+            (true, None) => Some(MemorySkill::MemoryStore),
+            (false, Some(skill)) => Some(skill),
+            // Mixed read+write signal, or no signal at all: do not guess.
+            (true, Some(_)) | (false, None) => None,
+        }
+    }
+
+    /// Read-intent categories, in the original priority order. All non-mutating,
+    /// so a first-match-wins tie-break among them is safe.
+    fn infer_read_skill(text: &str) -> Option<MemorySkill> {
         if text.contains("search") || text.contains("find") || text.contains("query") {
             Some(MemorySkill::MemorySearch)
-        } else if text.contains("store") || text.contains("remember") || text.contains("save") {
-            Some(MemorySkill::MemoryStore)
         } else if text.contains("fusion")
             || text.contains("all layers")
             || text.contains("comprehensive")
@@ -252,7 +400,7 @@ impl A2AHandler {
         } else if text.contains("knowledge") || text.contains("entity") || text.contains("graph") {
             Some(MemorySkill::KnowledgeGraph)
         } else {
-            Some(MemorySkill::MemorySearch)
+            None
         }
     }
 
@@ -500,21 +648,36 @@ impl A2AHandler {
         )
     }
 
+    /// Terminal fallback when no skill could be resolved.
+    ///
+    /// Reachable for the first time as of D-g2 — `detect_skill` used to end in
+    /// `else => Some(MemorySearch)`, so this arm was dead code. Now that it is
+    /// where an unresolved message actually lands, the reply has to be *useful*:
+    /// it names the accepted skill ids and the metadata key that selects them.
+    /// Failing closed into a dead end ("How can I help you?") would just relocate
+    /// the original problem — the caller still would not learn how to get the
+    /// write it asked for.
     async fn handle_general_query(
         &self,
         request: SendMessageRequest,
     ) -> Result<SendMessageResponse, String> {
         let text = self.extract_text(&request.message);
+        let known = MemorySkill::ALL
+            .iter()
+            .map(|s| s.id())
+            .collect::<Vec<_>>()
+            .join(", ");
         let response_text = format!(
-            "Received your message: '{}'. How can I help you with memory operations?",
-            text
+            "Could not determine which memory operation '{text}' is asking for, so nothing \
+             was executed. Set message metadata \"{SKILL_METADATA_KEY}\" to one of: {known}."
         );
 
         self.create_response(
             request,
             response_text,
             json!({
-                "skill": "general"
+                "skill": "general",
+                "available_skills": MemorySkill::ALL.iter().map(|s| s.id()).collect::<Vec<_>>(),
             }),
         )
     }
@@ -585,37 +748,31 @@ mod tests {
 
     #[test]
     fn read_skills_map_to_search_operation() {
-        for skill in [
-            MemorySkill::MemorySearch,
-            MemorySkill::MemoryFusion,
-            MemorySkill::MemoryStatus,
-            MemorySkill::KnowledgeGraph,
-        ] {
+        for skill in MemorySkill::ALL
+            .iter()
+            .filter(|s| !matches!(s, MemorySkill::MemoryStore))
+        {
             assert_eq!(
-                skill_to_operation(&skill),
+                skill_to_operation(skill),
                 Operation::Search,
                 "{skill:?} must be a read operation"
             );
         }
     }
 
-    /// Anti-drift guard, structural rather than a hardcoded list: it walks the
-    /// full set of `MemorySkill` variants and asserts that exactly ONE of them —
-    /// `MemoryStore` — governs as a write. The `matches!` in the fold means a new
-    /// variant is force-classified here the moment it is added (the variant array
-    /// won't compile until it is listed), and if a future edit makes a *second*
-    /// skill a Store, or drops the Store mapping from `MemoryStore`, the count
-    /// breaks. See the negative-control test that proves this bites.
+    /// Anti-drift guard, structural rather than a hardcoded list: it walks
+    /// [`MemorySkill::ALL`] and asserts that exactly ONE variant — `MemoryStore` —
+    /// governs as a write. If a future edit makes a *second* skill a Store, or
+    /// drops the Store mapping from `MemoryStore`, the count breaks. See the
+    /// negative-control test that proves this bites.
+    ///
+    /// Routed through `ALL` rather than a local array so a newly added variant
+    /// reaches this guard automatically; `ALL`'s own completeness is in turn
+    /// pinned against the agent card by
+    /// `skills::skill_id_tests::advertised_skill_ids_and_all_are_the_same_set`.
     #[test]
     fn exactly_one_skill_is_a_write() {
-        let all = [
-            MemorySkill::MemorySearch,
-            MemorySkill::MemoryStore,
-            MemorySkill::MemoryFusion,
-            MemorySkill::MemoryStatus,
-            MemorySkill::KnowledgeGraph,
-        ];
-        let writes: Vec<&MemorySkill> = all
+        let writes: Vec<&MemorySkill> = MemorySkill::ALL
             .iter()
             .filter(|s| matches!(skill_to_operation(s), Operation::Store))
             .collect();
@@ -692,7 +849,12 @@ mod tests {
                 .await
                 .expect_err("cross-tenant caller with no role must be denied");
             assert!(
-                err.contains("Insufficient role permissions"),
+                matches!(err, A2AError::Denied(_)),
+                "an authorization decision must classify as Denied (→403), not as a \
+                 server fault (→500), got: {err:?}"
+            );
+            assert!(
+                err.message().contains("Insufficient role permissions"),
                 "denial reason should be the RBAC message, got: {err}"
             );
         }
@@ -728,6 +890,188 @@ mod tests {
             gate < dispatch,
             "enforce_governance must run BEFORE the skill dispatch; authorizing after \
              handle_memory_store has already written is not a gate"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Skill resolution (D-g2). The bug: `detect_skill` ended in
+    // `else => Some(MemorySearch)`, so write intent phrased without one of three
+    // hardcoded keywords silently performed a READ and returned success. Never a
+    // write-gate bypass (the request never reaches the write handler), but the
+    // caller believed its data was stored.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    fn text_message(text: &str) -> Message {
+        Message::new(Role::User, vec![Part::text(text.to_string())])
+    }
+
+    fn message_with_skill(text: &str, skill_id: &str) -> Message {
+        let mut message = text_message(text);
+        message.metadata = Some(
+            [(SKILL_METADATA_KEY.to_string(), json!(skill_id))]
+                .into_iter()
+                .collect(),
+        );
+        message
+    }
+
+    #[test]
+    fn explicit_skill_metadata_wins_over_keyword_guessing() {
+        // Text screams "search"; metadata says store. The caller's explicit
+        // statement of intent must beat the heuristic — that is the entire point
+        // of offering an explicit channel.
+        let handler = A2AHandler::new();
+        let message = message_with_skill("find and search everything", "memory_store");
+
+        assert_eq!(
+            handler.detect_skill(&message),
+            Ok(Some(MemorySkill::MemoryStore))
+        );
+    }
+
+    #[test]
+    fn every_advertised_skill_id_is_selectable_via_metadata() {
+        let handler = A2AHandler::new();
+        for skill in MemorySkill::ALL {
+            let message = message_with_skill("anything at all", skill.id());
+            assert_eq!(
+                handler.detect_skill(&message),
+                Ok(Some(skill)),
+                "'{}' is advertised on the agent card but not selectable",
+                skill.id()
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_explicit_skill_id_is_rejected_rather_than_guessed() {
+        // Falling back to the heuristic here would re-create the very defect this
+        // change fixes: the caller asked for X, got Y, and was told it succeeded.
+        let handler = A2AHandler::new();
+        let message = message_with_skill("store this", "memory_stroe");
+
+        let err = handler
+            .detect_skill(&message)
+            .expect_err("an unresolvable skill id must be an error, not a fallback");
+
+        assert!(
+            matches!(err, A2AError::InvalidRequest(_)),
+            "a bad skill id is the caller's mistake, so it must not be Internal: {err:?}"
+        );
+        assert!(
+            err.message().contains("memory_stroe") && err.message().contains("memory_store"),
+            "the rejection must name what was rejected and what is valid, else the 400 \
+             is unactionable: {}",
+            err.message()
+        );
+    }
+
+    #[test]
+    fn write_intent_without_the_legacy_keywords_is_no_longer_downgraded_to_search() {
+        // The D-g2 regression lock. Each of these is unambiguous write intent that
+        // the old three-keyword list ("store"/"remember"/"save") missed, so each
+        // used to fall through to `else => Some(MemorySearch)`.
+        let handler = A2AHandler::new();
+        for text in ["persist this for me", "memorize this note", "record this"] {
+            assert_eq!(
+                handler.detect_skill(&text_message(text)),
+                Ok(Some(MemorySkill::MemoryStore)),
+                "'{text}' is write intent and must not resolve to a read"
+            );
+        }
+    }
+
+    #[test]
+    fn unrecognised_text_yields_no_skill_instead_of_defaulting_to_search() {
+        // Previously impossible: detect_skill could not return None, which made
+        // handle_message's `None => handle_general_query` arm dead code.
+        let handler = A2AHandler::new();
+        for text in ["hello there", "what is the weather"] {
+            assert_eq!(
+                handler.detect_skill(&text_message(text)),
+                Ok(None),
+                "'{text}' carries no memory-operation signal and must not be guessed"
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_read_and_write_intent_is_not_guessed_either_way() {
+        // Both directions are unsafe to guess: downgrading loses the caller's data
+        // silently, upgrading would create data nobody asked for.
+        let handler = A2AHandler::new();
+        for text in ["save the search results", "find and remember this"] {
+            assert_eq!(
+                handler.detect_skill(&text_message(text)),
+                Ok(None),
+                "'{text}' mixes read and write intent; if-else order must not decide it"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_ties_keep_the_original_priority_order() {
+        // Ties among non-mutating skills stay first-match-wins, so behaviour for
+        // existing phrasings does not shift. Only read/write ambiguity is fatal.
+        let handler = A2AHandler::new();
+        assert_eq!(
+            handler.detect_skill(&text_message("search the knowledge graph")),
+            Ok(Some(MemorySkill::MemorySearch))
+        );
+    }
+
+    #[test]
+    fn non_string_skill_metadata_falls_through_to_the_heuristic() {
+        // `{"skill": 7}` is not a skill id. Treating it as an explicit selection
+        // would mean rejecting on a key we never promised to accept as a number;
+        // the heuristic still applies and still fails closed.
+        let handler = A2AHandler::new();
+        let mut message = text_message("hello there");
+        message.metadata = Some(
+            [(SKILL_METADATA_KEY.to_string(), json!(7))]
+                .into_iter()
+                .collect(),
+        );
+
+        assert_eq!(handler.detect_skill(&message), Ok(None));
+    }
+
+    #[test]
+    fn governance_denial_is_a_denial_not_an_internal_error() {
+        // Guards the classification, which is what the transports key off. A
+        // denial reported as Internal tells the caller to retry a request that
+        // will never succeed, and pages someone for a working authorization check.
+        let denied = A2AError::Denied("Insufficient role permissions".to_string());
+        assert!(!matches!(denied, A2AError::Internal(_)));
+
+        // Service-layer strings still default to Internal via `From<String>`.
+        assert_eq!(
+            A2AError::from("qdrant unreachable".to_string()),
+            A2AError::Internal("qdrant unreachable".to_string())
+        );
+    }
+
+    /// Structural guard: the two denial sites in `enforce_governance` must
+    /// construct `A2AError::Denied`. Both were plain `String` before this change
+    /// and therefore surfaced as 500 / JSON-RPC -32603.
+    #[test]
+    fn both_governance_denial_paths_are_classified_as_denied() {
+        let src = include_str!("handler.rs");
+        let body = src
+            .split("async fn enforce_governance")
+            .nth(1)
+            .expect("enforce_governance must exist");
+        let body = &body[..body.find("\n    async fn ").unwrap_or(body.len())];
+
+        let denials = body.matches("A2AError::Denied").count();
+        assert_eq!(
+            denials, 2,
+            "enforce_governance has two denial paths (RBAC and quota); both must be \
+             A2AError::Denied so the caller gets 403 rather than 500. Found {denials}"
+        );
+        assert!(
+            !body.contains("return Err(reason)"),
+            "the quota denial must not return a bare String — that lands on Internal"
         );
     }
 }
