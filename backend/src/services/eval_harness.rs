@@ -82,32 +82,85 @@ impl EvalSuite {
         self.cases.push(case);
     }
 
-    /// Run every registered case and record placeholder results.
+    /// Run every registered case through the **real** adaptive scheduler and
+    /// compare against expected outcomes.
     ///
-    /// This is a scaffold: it does NOT invoke the real scheduler or
-    /// predictor. Each case is recorded as passing with efficiency equal
-    /// to its `min_expected_efficiency` threshold and coherence `1.0`,
-    /// so the suite reports a clean pass until the real path is wired in.
-    pub fn run(&mut self) {
+    /// A case passes iff:
+    /// 1. The scheduler's primary + secondary memory types are a superset of
+    ///    `expected_memory_types` (the expected types are present in the selection).
+    /// 2. The predicted efficiency meets or exceeds `min_expected_efficiency`.
+    ///
+    /// This replaced the scaffold that hardcoded `passed = true` (backlog A-7).
+    /// The scheduler is a heuristic/static model (not learned — that's P3), so
+    /// calling it is cheap and deterministic.
+    pub async fn run(&mut self) {
+        use crate::services::scheduler::AdaptiveMemoryScheduler;
+
+        let scheduler = AdaptiveMemoryScheduler::new(Box::new(
+            crate::services::predictor::PerformancePredictionModel::new(),
+        ));
+        let preferences = crate::models::TaskPreferences {
+            prioritize_efficiency: true,
+            prioritize_coherence: true,
+            enable_multimodal: true,
+            enable_reasoning: true,
+        };
         let mut results = Vec::with_capacity(self.cases.len());
+
         for case in &self.cases {
-            // Placeholder logic — replace with a real scheduler call in a
-            // later work item. Returning `passed = true` with the threshold
-            // efficiency keeps the reporting path honest while the
-            // prediction layer is being integrated.
-            let selected_memory_types = case
-                .expected_memory_types
-                .iter()
-                .map(memory_type_label)
-                .collect();
-            results.push(EvalResult {
-                test_name: case.name.clone(),
-                passed: true,
-                actual_efficiency: case.min_expected_efficiency,
-                actual_coherence: 1.0,
-                selected_memory_types,
-                duration_ms: 0,
-            });
+            let start = std::time::Instant::now();
+
+            let trace_result = scheduler
+                .adaptive_memory_selection_trace(
+                    &case.task_context,
+                    &case.resource_constraints,
+                    &preferences,
+                )
+                .await;
+
+            let duration_ms = start.elapsed().as_millis() as u64;
+
+            match trace_result {
+                Ok(trace) => {
+                    let result = &trace.final_result;
+                    let mut selected: Vec<String> = vec![memory_type_label_from_model(
+                        &result.memory_config.primary_memory,
+                    )];
+                    for sec in &result.memory_config.secondary_memory {
+                        selected.push(memory_type_label_from_model(sec));
+                    }
+
+                    let expected_labels: Vec<String> = case
+                        .expected_memory_types
+                        .iter()
+                        .map(memory_type_label)
+                        .collect();
+                    let types_match = expected_labels.iter().all(|e| selected.contains(e));
+
+                    let efficiency = result.performance_prediction.efficiency_gain;
+                    let coherence = result.performance_prediction.coherence_gain;
+                    let meets_efficiency = efficiency >= case.min_expected_efficiency;
+
+                    results.push(EvalResult {
+                        test_name: case.name.clone(),
+                        passed: types_match && meets_efficiency,
+                        actual_efficiency: efficiency,
+                        actual_coherence: coherence,
+                        selected_memory_types: selected,
+                        duration_ms,
+                    });
+                }
+                Err(e) => {
+                    results.push(EvalResult {
+                        test_name: case.name.clone(),
+                        passed: false,
+                        actual_efficiency: 0.0,
+                        actual_coherence: 0.0,
+                        selected_memory_types: vec![format!("error: {e}")],
+                        duration_ms,
+                    });
+                }
+            }
         }
         self.results = results;
     }
@@ -167,6 +220,11 @@ fn memory_type_label(m: &MemoryType) -> String {
         MemoryType::Kg => "kg".to_string(),
         MemoryType::Mm => "mm".to_string(),
     }
+}
+
+/// Convert the models-layer `MemoryType` (from `MemoryConfig`) to a label.
+fn memory_type_label_from_model(m: &MemoryType) -> String {
+    memory_type_label(m)
 }
 
 /// Build the standard benchmark suite: three representative cases spanning
@@ -279,33 +337,39 @@ mod tests {
         assert_eq!(suite.cases[2].name, "deep_reasoning_task");
     }
 
-    #[test]
-    fn run_records_a_result_per_case() {
+    #[tokio::test]
+    async fn run_records_a_result_per_case() {
         let mut suite = build_standard_suite();
         assert!(suite.results.is_empty());
-        suite.run();
+        suite.run().await;
         assert_eq!(suite.results.len(), 3);
+        // The real scheduler may or may not pass all cases depending on its
+        // heuristic — what matters is that it produces results, not placeholders.
         for result in &suite.results {
             assert!(
-                result.passed,
-                "case {} should pass in scaffold",
+                result.duration_ms < 5000,
+                "case {} took too long ({}ms) — may be hanging",
+                result.test_name,
+                result.duration_ms
+            );
+            assert!(
+                !result.selected_memory_types.is_empty(),
+                "case {} produced no memory type selection",
                 result.test_name
             );
         }
     }
 
-    #[test]
-    fn summary_aggregates_results() {
+    #[tokio::test]
+    async fn summary_aggregates_results() {
         let mut suite = build_standard_suite();
-        suite.run();
+        suite.run().await;
         let summary = suite.summary();
         assert_eq!(summary.total, 3);
-        assert_eq!(summary.passed, 3);
-        assert_eq!(summary.failed, 0);
-        // placeholder efficiency equals min_expected_efficiency per case
-        let expected_avg = (0.8 + 0.7 + 0.6) / 3.0;
-        assert!((summary.avg_efficiency - expected_avg).abs() < 1e-9);
-        assert!((summary.avg_coherence - 1.0).abs() < 1e-9);
+        // Real scheduler results — not necessarily all pass, but summary is coherent
+        assert_eq!(summary.passed + summary.failed, 3);
+        assert!(summary.avg_efficiency.is_finite());
+        assert!(summary.avg_coherence.is_finite());
     }
 
     #[test]
@@ -320,18 +384,21 @@ mod tests {
         assert_eq!(summary.avg_efficiency, 0.0);
     }
 
-    #[test]
-    fn selected_memory_types_are_lowercase_labels() {
+    #[tokio::test]
+    async fn selected_memory_types_are_valid_labels() {
         let mut suite = build_standard_suite();
-        suite.run();
-        // simple_text_task -> ["stm"]
-        assert_eq!(suite.results[0].selected_memory_types, vec!["stm"]);
-        // complex_multimodal_task -> ["stm","ltm","mm"]
-        assert_eq!(
-            suite.results[1].selected_memory_types,
-            vec!["stm", "ltm", "mm"]
-        );
-        // deep_reasoning_task -> ["ltm","kg"]
-        assert_eq!(suite.results[2].selected_memory_types, vec!["ltm", "kg"]);
+        suite.run().await;
+        let valid = ["stm", "ltm", "kg", "mm"];
+        for result in &suite.results {
+            for label in &result.selected_memory_types {
+                if label.starts_with("error:") {
+                    continue; // scheduler error — not a label issue
+                }
+                assert!(
+                    valid.contains(&label.as_str()),
+                    "unexpected memory type label: {label}"
+                );
+            }
+        }
     }
 }
