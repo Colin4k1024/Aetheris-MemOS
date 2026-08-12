@@ -276,6 +276,24 @@ handler 边界上的身份-资源绑定。与已修的 P0-2（`db/mm.rs` 租户 
 | `build` | ✅ 2m1s | |
 | `changes` | ✅ 7s | |
 
+### cache path 修复已被实测证明生效
+
+PR 的第二次 push（只改 docs）触发了全量重跑——`dorny/paths-filter` 在
+`pull_request` 事件下**对比 base 分支**而非上一个 commit，所以 PR 内每次 push
+都会看到全量差异，「跳过无关 job」这项优化在大 PR 内不起作用。
+
+这反而产出了唯一能验证 cache 修复的证据：
+
+| job | 第一次（冷） | 第二次（热） | 加速 |
+|---|---|---|---|
+| `backend` | 10m1s | **4m52s** | 2.1× |
+| `backend-a2a` | 4m1s | **1m55s** | 2.1× |
+| `sdk-rust` | 52s | **19s** | 2.7× |
+
+修复前 `actions/cache` 归档的是**不存在的根 `target/`**，所以历史上每一次运行都是
+冷编译。改为 `backend/target` 后第二次运行出现 2 倍级加速，说明 cache 确实被
+restore 了。这是「配置存在但不起作用」这一类 bug 里，少数能被定量证明修好的。
+
 ⚠️ **注意 CI 的触发条件**：`ci.yml` 只在 `push` 到 `main/master/dev` 或 `pull_request`
 指向它们时运行，**没有通配分支触发**。所以推 feature 分支跑不了任何 job——
 「已推送」不蕴含「已验证」，必须开 PR。
