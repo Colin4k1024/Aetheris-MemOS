@@ -15,7 +15,7 @@ This document records the review results before open-sourcing and release TODOs 
 | Sensitive Info | User migration has no preset accounts | Cleaned |
 | Sensitive Info | Documentation and frontend login/Mock use placeholders or demo | Cleaned |
 | Project Cleanup | [.gitignore](../.gitignore) includes `.trae/`, `.env`, database files, etc. | Configured |
-| CI | Root [.github/workflows/backend-ci.yml](../.github/workflows/backend-ci.yml) | Ready |
+| CI | Root [.github/workflows/ci.yml](../.github/workflows/ci.yml) (single consolidated workflow: backend + frontend) | Ready |
 
 ## Pre-release TODOs (Maintainers)
 

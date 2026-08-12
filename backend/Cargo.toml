@@ -7,18 +7,31 @@ readme = "./README.md"
 
 [features]
 default = []
-# Enterprise features: billing, cluster management, RBAC, governance hooks
+# Enterprise features. Scope: metering / billing routes ONLY (backlog A-3).
+#
+# This used to read "billing, cluster management, RBAC, governance hooks".
+# Implementing that literally would compile RBAC and the governance middleware out
+# of the default build — and those carry the authorization path on all three
+# protocol planes (hoops/governance.rs, routers/mcp.rs, a2a/handler.rs), so the MIT
+# binary would ship with no authorization at all. C-1 explicitly requires that the
+# strong-typed authorization path not depend on enterprise wiring. Security is not
+# the monetised surface; metering is.
+#
+# The quota half of governance needs no compile gate either: try_enterprise_hooks()
+# returns Option and is already inert whenever the hook set was not initialised.
+#
+# CI compiles BOTH channels (default and --features enterprise) so an ungated
+# reference cannot slip into the MIT build. See routers::billing_router for the
+# full rationale and routers::enterprise_gate for the drift guards.
 enterprise = []
 # Enable Redis STM cache adapter
 redis-stm = ["dep:redis"]
-# A2A agent-interoperability protocol. OFF by default. Its git deps (a2a-rs) are
-# commented out below because even as `optional` they are pulled during dependency
-# RESOLUTION (to build the lockfile), which requires network and breaks offline/CI
-# builds. This is a bare cfg flag so `#[cfg(feature = "a2a")]` is a recognised
-# feature. To enable A2A:
-#   1) uncomment + pin the a2a/a2a-server deps in [dependencies] below,
-#   2) change this to: a2a = ["dep:a2a", "dep:a2a-server"],
-#   3) build with `--features a2a` (needs network for the first resolve).
+# A2A agent-interoperability protocol. OFF by default (intentionally not in
+# `default`): its git deps (a2a-rs, pinned by rev below) are fetched from GitHub
+# during dependency RESOLUTION even when `optional`, so putting a2a in `default`
+# would make every offline / first-time build need network. Build it explicitly
+# with `--features a2a` (the first resolve fetches the pinned rev from GitHub). CI
+# compiles this feature in a dedicated `backend-a2a` job (.github/workflows/ci.yml).
 a2a = ["dep:a2a", "dep:a2a-server"]
 
 [dependencies]
@@ -77,10 +90,10 @@ axum-prometheus = "0.1"
 prometheus = "0.13"
 metrics = "0.21"
 
-# A2A Protocol support — COMMENTED OUT so offline/CI builds don't try to resolve
-# these unpinned git crates. Re-enable via the `a2a` feature (see [features] note):
-# pin a `rev` first (run online once: `cargo update -p a2a-lf -p a2a-server-lf`
-# then copy the commit from Cargo.lock), then uncomment:
+# A2A Protocol deps. `optional = true` — pulled in only when the `a2a` feature is
+# enabled (see [features] above). Pinned by `rev` for reproducibility; the first
+# build with `--features a2a` fetches this rev from GitHub (needs network). Keep the
+# two revs identical (same upstream repo).
 a2a = { package = "a2a-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "0b19af0e2805455c01f8f2b7fb52c5d5ec1bce95", optional = true }
 a2a-server = { package = "a2a-server-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "0b19af0e2805455c01f8f2b7fb52c5d5ec1bce95", optional = true }
 uuid = { version = "1", features = ["v4"] }

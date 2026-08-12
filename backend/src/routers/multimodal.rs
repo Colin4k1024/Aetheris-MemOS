@@ -81,6 +81,14 @@ pub async fn store_mm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<StoreMMRequest>,
 ) -> JsonResult<StoreMMResponse> {
+    // 校验 modality_type（backlog D-k）。
+    // 合法值的单一真相源是 `models::memory_enums::ModalityType`（与 migration 的
+    // `CHECK (modality_type IN (...))` 由防漂移测试锁定一致）。此前 handler 把调用方
+    // 的原始字符串直接绑进 INSERT，非法值会以 DB check 违约（HTTP 500 内部错误）暴露；
+    // 现在在写入边界拒绝并返回 400，错误消息列出全部合法值，集成方可据此自查。
+    let modality_type = crate::models::memory_enums::ModalityType::parse(&body.modality_type)
+        .map_err(crate::AppError::BadRequest)?;
+
     // 解析二进制内容
     let _binary_data = if let Some(content) = &body.content {
         use base64::Engine;
@@ -96,13 +104,13 @@ pub async fn store_mm(
     let entry_id = MMRepository::create_entry(
         body.session_id.as_deref(),
         &body.source_id,
-        &body.modality_type,
+        modality_type.as_str(),
         "{}", // content_metadata
         body.text_content.as_deref(),
         body.image_url.as_deref(),
         body.audio_url.as_deref(),
         None, // video_url
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to store multimodal: {}", e)))?;
@@ -111,12 +119,18 @@ pub async fn store_mm(
 }
 
 /// 获取多模态记忆
+///
+/// 刻意不接 `Query<LimitQuery>`：本端点按 `entry_id` 取单条，`limit` 与
+/// `tenantId` 对它没有任何意义。此前它绑定了 `Query(_query): Query<LimitQuery>`
+/// 又整个丢弃——参数被接受、被忽略、不报错，正是 D-g 那一类缺陷。既然
+/// `LimitQuery` 现在带 `deny_unknown_fields`，继续绑定反而会让 `?limit=5`
+/// 变成「被接受但无效」；直接不接，多余参数由 axum 忽略，而契约里不再宣称
+/// 支持它。
 pub async fn get_mm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(entry_id): Path<String>,
-    Query(_query): Query<LimitQuery>,
 ) -> JsonResult<Option<MMEntryInfo>> {
-    let entry = MMRepository::get_entry_by_id(&entry_id, Some(tenant_ctx.tenant_id.as_str()))
+    let entry = MMRepository::get_entry_by_id(&entry_id, tenant_ctx.tenant_id.as_str())
         .await
         .map_err(|e| crate::AppError::Internal(format!("Failed to get multimodal: {}", e)))?;
 
@@ -143,7 +157,7 @@ pub async fn get_session_mm(
     let entries = MMRepository::get_entries_by_session(
         &session_id,
         Some(limit),
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to get session multimodal: {}", e)))?;
@@ -174,7 +188,7 @@ pub async fn get_by_modality(
     let entries = MMRepository::get_entries_by_modality(
         &modality_type,
         Some(limit),
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await
     .map_err(|e| crate::AppError::Internal(format!("Failed to get by modality: {}", e)))?;
@@ -216,7 +230,7 @@ pub async fn list_mm(
         modality_filter,
         Some(limit),
         Some(offset),
-        Some(tenant_ctx.tenant_id.as_str()),
+        tenant_ctx.tenant_id.as_str(),
     )
     .await?;
     let infos: Vec<MMEntryInfo> = result
@@ -239,7 +253,13 @@ pub async fn list_mm(
     })
 }
 
+// These two are the clearest illustration of the hazard `deny_unknown_fields`
+// guards: `modality_type` is snake_case while `tenantId` right beside it is
+// camelCase. Both spellings have live consumers, so both are pinned by the
+// `query_param_contract` tests in `routers/mod.rs`. See `ListSessionsQuery`
+// (routers/memory_storage.rs) for why an unknown parameter must 400.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct LimitQuery {
     pub limit: Option<usize>,
     #[serde(rename = "tenantId")]
@@ -247,6 +267,7 @@ pub struct LimitQuery {
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ListMMQuery {
     pub modality_type: Option<String>,
     pub limit: Option<usize>,

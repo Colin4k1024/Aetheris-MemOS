@@ -123,6 +123,8 @@ const OptimizeSection: React.FC<OptimizeSectionProps> = ({
   const [optimization, setOptimization] =
     useState<API.OptimizationResult | null>(null);
 
+  const intl = useIntl();
+
   const { run: runOptimize } = useRequest(optimize, {
     manual: true,
     onSuccess: (data: any) => {

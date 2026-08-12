@@ -14,7 +14,7 @@ use crate::hoops::enterprise::{
 };
 use crate::services::rbac::{get_rbac_service, Permission, RbacService, Role};
 use crate::tenant::context::QuotaResource;
-use crate::tenant::quota::{QuotaManager, ResourceQuota};
+use crate::tenant::quota::QuotaManager;
 
 /// Auth context - carries authentication information
 #[derive(Debug, Clone)]
@@ -183,22 +183,26 @@ impl RbacHookImpl {
         }
     }
 
-    /// Synchronous permission check (for use in sync contexts)
+    /// Synchronous permission check with lazy Owner auto-grant.
+    ///
+    /// Delegates to [`RbacService::blocking_has_permission`] which uses a
+    /// synchronous `std::sync::RwLock` — lock contention never produces a
+    /// spurious `false` (the reader blocks until the lock is available).
+    ///
+    /// ## Auto-grant behaviour
+    ///
+    /// When no role is recorded for `(tenant_id, user_id)` and the two IDs are
+    /// equal (single-user tenant), the Owner role is lazily granted.  This makes
+    /// governance functional without a bootstrap flow.  See `rbac.rs` module docs
+    /// for the full design rationale and limitations.
     pub fn blocking_has_permission(
         &self,
         tenant_id: &str,
         user_id: &str,
         permission: Permission,
     ) -> bool {
-        // Try to acquire read lock and check
-        if let Ok(roles) = self.rbac.roles().try_read() {
-            if let Some(tenant_roles) = roles.get(tenant_id) {
-                if let Some(role) = tenant_roles.get(user_id) {
-                    return role.has_permission(&permission);
-                }
-            }
-        }
-        false
+        self.rbac
+            .blocking_has_permission(tenant_id, user_id, permission)
     }
 }
 
@@ -316,44 +320,37 @@ impl TenantQuotaHookImpl {
             Resource::VectorQueries => QuotaResource::ApiCallsPerDay, // Map to API calls
         };
 
-        let allowed = self.quota_manager.can_perform(tenant_id, &quota_resource);
+        // Lazy self-healing: provision a default quota record for any tenant
+        // that does not yet have one, so that usage counting has a record to
+        // count against.  The quota map is in-memory, so it must self-heal
+        // after every restart — this mirrors the Owner auto-grant in
+        // `services/rbac.rs`.
+        let quota = self.quota_manager.ensure_quota(tenant_id);
 
-        // Get quota info
-        let quota = self.quota_manager.get_quota(tenant_id);
+        let allowed = quota.check(&quota_resource);
+        let remaining = quota.remaining(&quota_resource);
+        let limit = match quota_resource {
+            QuotaResource::StorageMB => quota.storage_mb,
+            QuotaResource::ApiCallsPerDay => quota.api_calls_per_day,
+            QuotaResource::ConcurrentSessions => quota.concurrent_sessions as u64,
+            QuotaResource::MemoryEntries => quota.memory_entries,
+        };
+        let current = limit.saturating_sub(remaining);
+        let overage = current.saturating_sub(limit) as i64;
 
-        if let Some(q) = quota {
-            let remaining = q.remaining(&quota_resource);
-            let limit = match quota_resource {
-                QuotaResource::StorageMB => q.storage_mb,
-                QuotaResource::ApiCallsPerDay => q.api_calls_per_day,
-                QuotaResource::ConcurrentSessions => q.concurrent_sessions as u64,
-                QuotaResource::MemoryEntries => q.memory_entries,
-            };
-            let current = limit.saturating_sub(remaining);
-            let overage = current.saturating_sub(limit) as i64;
+        let result = QuotaResult {
+            allowed,
+            current,
+            limit,
+            overage,
+        };
 
-            let result = QuotaResult {
-                allowed,
-                current,
-                limit,
-                overage,
-            };
-
-            // Log warning if over soft limit
-            if self.is_soft_limit_exceeded(&result) {
-                self.log_quota_warning(tenant_id, &resource, &result);
-            }
-
-            result
-        } else {
-            // No quota configured - allow
-            QuotaResult {
-                allowed: true,
-                current: 0,
-                limit: u64::MAX,
-                overage: 0,
-            }
+        // Log warning if over soft limit
+        if self.is_soft_limit_exceeded(&result) {
+            self.log_quota_warning(tenant_id, &resource, &result);
         }
+
+        result
     }
 
     /// Get usage - public method
@@ -540,10 +537,39 @@ impl GovernanceHook for GovernanceHookImpl {
     fn post_store(&self, ctx: &HookContext, result: &HookResult) {
         if result.success {
             let quota_manager = self.quota.quota_manager();
-            if let Some(mut quota) = quota_manager.get_quota(&ctx.tenant_id) {
-                quota.used.memory_entries += 1;
-                quota_manager.set_quota(&ctx.tenant_id, quota);
+            // Lazy self-healing: provision default quota if none exists for this tenant.
+            // The quota map is in-memory, so it must self-heal after every restart.
+            let mut quota = quota_manager.ensure_quota(&ctx.tenant_id);
+            quota.used.memory_entries += 1;
+            let new_used = quota.used.memory_entries;
+            let limit = quota.memory_entries;
+            quota_manager.set_quota(&ctx.tenant_id, quota);
+
+            // Publish the usage ratio here rather than from `QuotaManager::set_quota`:
+            // this is the only place that holds tenant + current + limit together,
+            // and putting a Prometheus side effect inside a generic map setter would
+            // also fire it from unrelated unit tests.
+            //
+            // CARDINALITY: `tenant` is an unbounded label — one series per tenant that
+            // ever stores a memory. Acceptable for self-hosted and small tenant counts;
+            // a large multi-tenant deployment must bound it (emit only above a
+            // threshold, or pre-aggregate server-side) before enabling the staged
+            // TenantQuotaNearLimit rule. Do not add more labels here.
+            //
+            // A zero limit would mean "unlimited" or "unconfigured" depending on the
+            // caller; either way a ratio is undefined, so skip rather than divide.
+            if limit > 0 {
+                let ratio = new_used as f64 / limit as f64;
+                crate::services::prometheus_exporter::get_exporter()
+                    .set_tenant_quota_usage(&ctx.tenant_id, ratio);
             }
+
+            tracing::info!(
+                tenant_id = %ctx.tenant_id,
+                new_used,
+                limit,
+                "quota: incremented memory_entries after successful store"
+            );
         } else {
             self.record_audit(AuditEvent::new(
                 ctx.tenant_id.clone(),
@@ -650,6 +676,8 @@ pub fn build_server_with_enterprise_hooks() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hoops::enterprise::Operation;
+    use crate::tenant::quota::ResourceQuota;
 
     #[test]
     fn test_auth_hook_validate_api_key() {
@@ -724,5 +752,165 @@ mod tests {
         assert!(hooks.has_governance());
         assert!(hooks.has_auth());
         assert!(hooks.has_rbac());
+    }
+
+    // ------------------------------------------------------------------
+    // Quota counting tests — verify that post_store actually increments
+    // usage, that failures do NOT increment, and that Search is a no-op.
+    // ------------------------------------------------------------------
+
+    fn make_test_governance() -> (Arc<QuotaManager>, GovernanceHookImpl) {
+        let rbac = Arc::new(RbacService::new());
+        let quota_manager = Arc::new(QuotaManager::new());
+        let quota_hook = Arc::new(TenantQuotaHookImpl::new(quota_manager.clone()));
+        let audit: Arc<dyn Fn(AuditEvent) + Send + Sync> = Arc::new(|_| {});
+        let governance =
+            GovernanceHookImpl::new(Arc::new(RbacHookImpl::new(rbac)), quota_hook, audit);
+        (quota_manager, governance)
+    }
+
+    #[test]
+    fn post_store_success_increments_memory_entries_by_one() {
+        let (quota_manager, governance) = make_test_governance();
+        let ctx = HookContext::new(
+            "tenant-a".to_string(),
+            Operation::Store,
+            "/test".to_string(),
+        );
+
+        governance.post_store(&ctx, &HookResult::success());
+
+        let quota = quota_manager.ensure_quota("tenant-a");
+        assert_eq!(
+            quota.used.memory_entries, 1,
+            "a successful Store must increment used.memory_entries by exactly 1"
+        );
+    }
+
+    /// The usage-ratio gauge must actually move — `tenant_quota_usage_ratio` was
+    /// registered but never written for the whole life of the project (backlog
+    /// B-5), so it read a frozen 0 in `/metrics` while looking instrumented.
+    #[test]
+    fn post_store_publishes_the_usage_ratio_gauge() {
+        let (quota_manager, governance) = make_test_governance();
+        let tenant = "tenant-ratio";
+        let ctx = HookContext::new(tenant.to_string(), Operation::Store, "/test".to_string());
+
+        // Small limit so one store produces an exactly-predictable ratio.
+        let mut seed = ResourceQuota::default();
+        seed.memory_entries = 4;
+        seed.used.memory_entries = 0;
+        quota_manager.set_quota(tenant, seed);
+
+        governance.post_store(&ctx, &HookResult::success());
+
+        let families = crate::services::prometheus_exporter::get_exporter()
+            .registry()
+            .gather();
+        let ratio = families
+            .iter()
+            .find(|f| f.get_name() == "tenant_quota_usage_ratio")
+            .expect("tenant_quota_usage_ratio must be registered")
+            .get_metric()
+            .iter()
+            .find(|m| {
+                m.get_label()
+                    .iter()
+                    .any(|l| l.get_name() == "tenant" && l.get_value() == tenant)
+            })
+            .map(|m| m.get_gauge().get_value())
+            .expect("post_store must emit a series for this tenant");
+
+        assert!(
+            (ratio - 0.25).abs() < f64::EPSILON,
+            "1 used of limit 4 must publish 0.25, got {ratio}"
+        );
+    }
+
+    /// A zero limit means "unlimited" or "unconfigured" depending on the caller, so
+    /// a ratio is undefined. Emitting one would either divide by zero (inf) or
+    /// invent a number an alert would then act on.
+    #[test]
+    fn post_store_emits_no_ratio_when_limit_is_zero() {
+        let (quota_manager, governance) = make_test_governance();
+        let tenant = "tenant-zero-limit";
+        let ctx = HookContext::new(tenant.to_string(), Operation::Store, "/test".to_string());
+
+        let mut seed = ResourceQuota::default();
+        seed.memory_entries = 0;
+        quota_manager.set_quota(tenant, seed);
+
+        governance.post_store(&ctx, &HookResult::success());
+
+        let families = crate::services::prometheus_exporter::get_exporter()
+            .registry()
+            .gather();
+        let emitted = families
+            .iter()
+            .find(|f| f.get_name() == "tenant_quota_usage_ratio")
+            .map(|f| {
+                f.get_metric().iter().any(|m| {
+                    m.get_label()
+                        .iter()
+                        .any(|l| l.get_name() == "tenant" && l.get_value() == tenant)
+                })
+            })
+            .unwrap_or(false);
+
+        assert!(
+            !emitted,
+            "a zero limit must not publish a ratio — inf or a fabricated value would \
+             be acted on by the quota alert"
+        );
+
+        // The counter itself must still advance; only the derived ratio is skipped.
+        assert_eq!(quota_manager.ensure_quota(tenant).used.memory_entries, 1);
+    }
+
+    #[test]
+    fn post_store_failure_does_not_increment() {
+        let (quota_manager, governance) = make_test_governance();
+        let ctx = HookContext::new(
+            "tenant-b".to_string(),
+            Operation::Store,
+            "/test".to_string(),
+        );
+
+        // Seed a quota so we can observe that it stays unchanged.
+        let mut seed = ResourceQuota::default();
+        seed.used.memory_entries = 5;
+        quota_manager.set_quota("tenant-b", seed);
+
+        governance.post_store(&ctx, &HookResult::failure("internal error"));
+
+        let quota = quota_manager.ensure_quota("tenant-b");
+        assert_eq!(
+            quota.used.memory_entries, 5,
+            "a failed Store must NOT increment used.memory_entries"
+        );
+    }
+
+    #[test]
+    fn search_does_not_increment_memory_entries() {
+        let (quota_manager, governance) = make_test_governance();
+        let ctx = HookContext::new(
+            "tenant-c".to_string(),
+            Operation::Search,
+            "/test".to_string(),
+        );
+
+        governance.post_search(&ctx, &HookResult::success());
+
+        // Search path never calls ensure_quota, so the tenant may not even have
+        // a quota record.  If it does (from a prior ensure_quota call), the count
+        // must still be zero.
+        let used = quota_manager
+            .get_quota("tenant-c")
+            .map(|q| q.used.memory_entries)
+            .unwrap_or(0);
+        assert_eq!(
+            used, 0,
+            "a Search operation must NOT increment used.memory_entries"
+        );
     }
 }

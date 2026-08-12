@@ -32,6 +32,12 @@ pub struct HealthStatus {
     pub overall_healthy: bool,
     pub layers: Vec<LayerHealth>,
     pub timestamp: String,
+    /// `false` — this payload does **not** contact PostgreSQL, Qdrant or any
+    /// other external dependency. Present so that an operator or dashboard
+    /// cannot mistake it for a readiness signal; use `/readyz` for that.
+    pub is_dependency_probe: bool,
+    /// Human-readable statement of what this payload does and does not cover.
+    pub note: String,
 }
 
 /// Self-healing service for autonomous diagnosis and constrained self-healing
@@ -55,7 +61,22 @@ impl SelfHealingService {
         }
     }
 
-    /// Check health of all memory layers
+    /// Report per-layer status of the in-process memory layers.
+    ///
+    /// # This is not a dependency probe
+    ///
+    /// The `layers/*` backends are currently `RwLock<HashMap>` in-process stubs
+    /// (see backlog item A-6 / D-2 — wiring them to `db::*Repository` is
+    /// pending), so there is nothing to round-trip against and no latency to
+    /// measure. `healthy: true` is therefore accurate but uninformative: an
+    /// in-process map does not fail.
+    ///
+    /// Earlier versions also reported fabricated 1–4 ms latencies, which made
+    /// this look like a real probe and led operators to trust it. The latencies
+    /// are now `None` and [`HealthStatus::is_dependency_probe`] is `false`.
+    ///
+    /// For actual liveness/readiness use `/livez` and `/readyz`
+    /// (`routers/probes.rs`), which round-trip PostgreSQL and Qdrant.
     pub fn check_health(&self) -> HealthStatus {
         let layers = vec![
             self.check_stm_health(),
@@ -70,43 +91,39 @@ impl SelfHealingService {
             overall_healthy,
             layers,
             timestamp: chrono_lite_now(),
+            is_dependency_probe: false,
+            note: "In-process memory-layer status only; the layer backends are \
+                   in-memory stubs, so no external dependency is contacted. Use \
+                   /readyz for a real PostgreSQL + Qdrant readiness probe."
+                .to_string(),
+        }
+    }
+
+    /// In-process layer status. `latency_ms` is deliberately `None` — see
+    /// [`Self::check_health`]; reporting a number here would be fabricated.
+    fn layer_status(layer: &str) -> LayerHealth {
+        LayerHealth {
+            layer: layer.to_string(),
+            healthy: true,
+            latency_ms: None,
+            error: None,
         }
     }
 
     fn check_stm_health(&self) -> LayerHealth {
-        LayerHealth {
-            layer: "stm".to_string(),
-            healthy: true,
-            latency_ms: Some(1),
-            error: None,
-        }
+        Self::layer_status("stm")
     }
 
     fn check_ltm_health(&self) -> LayerHealth {
-        LayerHealth {
-            layer: "ltm".to_string(),
-            healthy: true,
-            latency_ms: Some(2),
-            error: None,
-        }
+        Self::layer_status("ltm")
     }
 
     fn check_kg_health(&self) -> LayerHealth {
-        LayerHealth {
-            layer: "kg".to_string(),
-            healthy: true,
-            latency_ms: Some(3),
-            error: None,
-        }
+        Self::layer_status("kg")
     }
 
     fn check_mm_health(&self) -> LayerHealth {
-        LayerHealth {
-            layer: "mm".to_string(),
-            healthy: true,
-            latency_ms: Some(4),
-            error: None,
-        }
+        Self::layer_status("mm")
     }
 
     /// Attempt recovery with exponential backoff

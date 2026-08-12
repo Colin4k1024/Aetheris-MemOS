@@ -13,6 +13,43 @@ from urllib.parse import urljoin
 import requests
 
 
+class MemoryApiError(Exception):
+    """Raised when the Adaptive Memory server returns a non-2xx response.
+
+    Carries the HTTP status and the server-provided error detail so the caller
+    sees *why* the request failed. For an invalid ``session_type`` or
+    ``source_type`` the server returns a 400 whose message lists the accepted
+    values; the SDK surfaces that message verbatim rather than keeping (and
+    drifting from) its own copy of the valid set.
+    """
+
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(f"Adaptive Memory API error {status_code}: {detail}")
+
+
+def _error_detail_from_text(status_code: int, text: str) -> str:
+    """Extract a human-readable message from an error response body.
+
+    Prefers a structured JSON error (``error`` / ``message`` / ``detail``
+    field), falls back to the raw text, and never swallows the body silently.
+    """
+    text = (text or "").strip()
+    if not text:
+        return f"HTTP {status_code}"
+    try:
+        body = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(body, dict):
+        for key in ("error", "message", "detail"):
+            value = body.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return text
+
+
 class MemoryClient:
     """
     Synchronous client for Adaptive Memory System.
@@ -62,14 +99,21 @@ class MemoryClient:
             params=params,
             timeout=self.timeout,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Surface the server's error body (which, for an invalid
+            # session_type/source_type, lists the accepted values) instead of
+            # the opaque "400 Client Error" that raise_for_status() would give.
+            raise MemoryApiError(
+                response.status_code,
+                _error_detail_from_text(response.status_code, response.text),
+            )
         return response.json()
 
     # === MCP Tools ===
 
     def initialize_mcp(self) -> Dict[str, Any]:
         """Initialize MCP connection."""
-        return self._request("POST", "api/mcp/initialize")
+        return self._request("POST", "api/initialize")
 
     def list_mcp_tools(self) -> Dict[str, Any]:
         """List available MCP tools."""
@@ -115,11 +159,15 @@ class MemoryClient:
         """
         layer = layer.lower()
         if layer == "stm":
+            # Forward the external session_id to the session_id parameter (used
+            # to append to an existing session). Previously it was passed as
+            # session_type — a CHECK-constrained enum — so the caller's
+            # session_id never matched a valid type and was silently dropped.
             return self.store_stm(
                 user_id=user_id,
                 agent_id=agent_id,
                 content=content,
-                session_type=session_id or "default",
+                session_id=session_id,
             )
         if layer == "ltm":
             return self.store_ltm(
@@ -232,7 +280,7 @@ class MemoryClient:
         user_id: str,
         agent_id: str,
         content: str,
-        session_type: str = "default",
+        session_type: str = "conversation",
         role: str = "user",
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -243,18 +291,17 @@ class MemoryClient:
             user_id: User identifier
             agent_id: Agent identifier
             content: Content to store
-            session_type: Type of session
+            session_type: Session type accepted by the server. The server is the
+                single source of truth for the valid set and returns them in its
+                400 error (raised here as ``MemoryApiError``) when the value is
+                invalid; the SDK deliberately keeps no copy of the list. The
+                default ``"conversation"`` is a valid value.
             role: Role of the message sender
             session_id: Optional existing session ID to append to
 
         Returns:
             Dict with session_id and message_id
         """
-        # Normalize session_type to match DB CHECK constraint
-        valid_types = ("conversation", "task", "query")
-        if session_type not in valid_types:
-            session_type = "conversation"
-
         payload: Dict[str, Any] = {
             "userId": user_id,
             "agentId": agent_id,
@@ -351,7 +398,7 @@ class MemoryClient:
         return self._request(
             "GET",
             "api/v1/memory/storage/sessions",
-            params={"userId": user_id, "limit": limit} if user_id else {"limit": limit},
+            params={"user_id": user_id, "limit": limit} if user_id else {"limit": limit},
         )
 
     def list_ltm_entries(
@@ -461,15 +508,21 @@ class AsyncMemoryClient:
         json: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        import aiohttp
-
         client = await self._get_client()
         url = f"{self.base_url}/{path.lstrip('/')}"
 
         async with client.request(
             method=method, url=url, json=json, params=params
         ) as response:
-            response.raise_for_status()
+            if response.status >= 400:
+                # Mirror the sync client: surface the server's error body so an
+                # invalid session_type/source_type reports the accepted values
+                # instead of an opaque status code.
+                text = await response.text()
+                raise MemoryApiError(
+                    response.status,
+                    _error_detail_from_text(response.status, text),
+                )
             return await response.json()
 
     async def store_stm(
@@ -477,14 +530,10 @@ class AsyncMemoryClient:
         user_id: str,
         agent_id: str,
         content: str,
-        session_type: str = "default",
+        session_type: str = "conversation",
         role: str = "user",
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        valid_types = ("conversation", "task", "query")
-        if session_type not in valid_types:
-            session_type = "conversation"
-
         payload: Dict[str, Any] = {
             "userId": user_id,
             "agentId": agent_id,
@@ -514,11 +563,13 @@ class AsyncMemoryClient:
     ) -> Dict[str, Any]:
         layer = layer.lower()
         if layer == "stm":
+            # See MemoryClient.remember: session_id belongs in the session_id
+            # parameter, not session_type (a CHECK-constrained enum).
             return await self.store_stm(
                 user_id=user_id,
                 agent_id=agent_id,
                 content=content,
-                session_type=session_id or "default",
+                session_id=session_id,
             )
         if layer == "ltm":
             return await self.store_ltm(

@@ -10,7 +10,10 @@ pub enum Error {
     #[error("Request failed: {0}")]
     Request(#[from] reqwest::Error),
     #[error("API error: {status} - {message}")]
-    Api { status: reqwest::StatusCode, message: String },
+    Api {
+        status: reqwest::StatusCode,
+        message: String,
+    },
 }
 
 /// Adaptive Memory client
@@ -38,16 +41,29 @@ impl Client {
 
     /// Build URL from path
     fn build_url(&self, path: &str) -> String {
-        format!("{}/api/{}", self.base_url.trim_end_matches('/'), path.trim_start_matches('/'))
+        format!(
+            "{}/api/{}",
+            self.base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
     }
 
-    /// Make a request
-    async fn request<T: DeserializeOwned, B: Serialize>(
+    /// Build a request (without sending it), applying auth, optional query
+    /// parameters, and an optional JSON body.
+    ///
+    /// Extracted as a separate seam so URL/query construction can be
+    /// unit-tested without a live server (see the tests below).
+    fn build_request<B, Q>(
         &self,
         method: reqwest::Method,
         path: &str,
         body: Option<B>,
-    ) -> Result<T, Error> {
+        query: Option<&Q>,
+    ) -> reqwest::RequestBuilder
+    where
+        B: Serialize,
+        Q: Serialize + ?Sized,
+    {
         let url = self.build_url(path);
         let mut request = self.http.request(method, url);
 
@@ -55,10 +71,21 @@ impl Client {
             request = request.bearer_auth(key);
         }
 
+        if let Some(query) = query {
+            request = request.query(query);
+        }
+
         if let Some(body) = body {
             request = request.json(&body);
         }
 
+        request
+    }
+
+    /// Send a prepared request and deserialize the JSON response.
+    async fn send_and_parse<T: DeserializeOwned>(
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, Error> {
         let response = request.send().await?;
 
         if response.status().is_success() {
@@ -70,16 +97,28 @@ impl Client {
         }
     }
 
+    /// Make a request
+    async fn request<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<B>,
+    ) -> Result<T, Error> {
+        Self::send_and_parse(self.build_request(method, path, body, None::<&()>)).await
+    }
+
     // === Storage ===
 
     /// Store content in STM
     pub async fn store_stm(&self, req: StoreStmRequest) -> Result<StoreStmResponse, Error> {
-        self.request(reqwest::Method::POST, "v1/memory/storage/stm", Some(req)).await
+        self.request(reqwest::Method::POST, "v1/memory/storage/stm", Some(req))
+            .await
     }
 
     /// Store content in LTM
     pub async fn store_ltm(&self, req: StoreLtmRequest) -> Result<StoreLtmResponse, Error> {
-        self.request(reqwest::Method::POST, "v1/memory/storage/ltm", Some(req)).await
+        self.request(reqwest::Method::POST, "v1/memory/storage/ltm", Some(req))
+            .await
     }
 
     // === Search ===
@@ -110,30 +149,50 @@ impl Client {
         .await
     }
 
+    /// Build the `list_sessions` request (without sending it), so query
+    /// construction is unit-testable and parameters can't be silently dropped.
+    fn list_sessions_request(
+        &self,
+        user_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> reqwest::RequestBuilder {
+        #[derive(Serialize)]
+        struct ListSessionsQuery<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            user_id: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            limit: Option<usize>,
+        }
+
+        self.build_request(
+            reqwest::Method::GET,
+            "v1/memory/storage/sessions",
+            None::<&()>,
+            Some(&ListSessionsQuery { user_id, limit }),
+        )
+    }
+
     /// List sessions
     pub async fn list_sessions(
         &self,
         user_id: Option<&str>,
         limit: Option<usize>,
-    ) -> Result<Vec<Session>, Error> {
-        self.request(
-            reqwest::Method::GET,
-            "v1/memory/storage/sessions",
-            None::<&()>,
-        )
-        .await
+    ) -> Result<SessionListResponse, Error> {
+        Self::send_and_parse(self.list_sessions_request(user_id, limit)).await
     }
 
     // === MCP ===
 
     /// Initialize MCP
     pub async fn initialize_mcp(&self) -> Result<serde_json::Value, Error> {
-        self.request(reqwest::Method::POST, "mcp/initialize", None::<&()>).await
+        self.request(reqwest::Method::POST, "initialize", None::<&()>)
+            .await
     }
 
     /// List MCP tools
     pub async fn list_mcp_tools(&self) -> Result<serde_json::Value, Error> {
-        self.request(reqwest::Method::GET, "mcp/tools", None::<&()>).await
+        self.request(reqwest::Method::GET, "mcp/tools", None::<&()>)
+            .await
     }
 
     /// Call MCP tool
@@ -174,9 +233,7 @@ impl Client {
         self.request(
             reqwest::Method::POST,
             "v1/memory/adaptive/select",
-            Some(SelectRequest {
-                task_description,
-            }),
+            Some(SelectRequest { task_description }),
         )
         .await
     }
@@ -185,7 +242,8 @@ impl Client {
 
     /// Health check
     pub async fn health_check(&self) -> Result<serde_json::Value, Error> {
-        self.request(reqwest::Method::GET, "v1/memory/health", None::<&()>).await
+        self.request(reqwest::Method::GET, "v1/memory/health", None::<&()>)
+            .await
     }
 }
 
@@ -250,6 +308,62 @@ mod tests {
         assert_eq!(
             client.build_url("v1/memory/storage/stm"),
             "http://localhost:8008/api/v1/memory/storage/stm"
+        );
+    }
+
+    /// Build a `list_sessions` request and return its final URL string.
+    fn list_sessions_url(user_id: Option<&str>, limit: Option<usize>) -> String {
+        Client::new("http://localhost:8008")
+            .list_sessions_request(user_id, limit)
+            .build()
+            .expect("request should build")
+            .url()
+            .as_str()
+            .to_string()
+    }
+
+    #[test]
+    fn list_sessions_sends_all_params() {
+        assert_eq!(
+            list_sessions_url(Some("alice"), Some(10)),
+            "http://localhost:8008/api/v1/memory/storage/sessions?user_id=alice&limit=10"
+        );
+    }
+
+    #[test]
+    fn list_sessions_sends_only_user_id() {
+        assert_eq!(
+            list_sessions_url(Some("alice"), None),
+            "http://localhost:8008/api/v1/memory/storage/sessions?user_id=alice"
+        );
+    }
+
+    #[test]
+    fn list_sessions_sends_only_limit() {
+        assert_eq!(
+            list_sessions_url(None, Some(10)),
+            "http://localhost:8008/api/v1/memory/storage/sessions?limit=10"
+        );
+    }
+
+    #[test]
+    fn list_sessions_omits_absent_params() {
+        // Both params absent → no query string at all (no dangling '?').
+        assert_eq!(
+            list_sessions_url(None, None),
+            "http://localhost:8008/api/v1/memory/storage/sessions"
+        );
+    }
+
+    #[test]
+    fn list_sessions_encodes_special_characters() {
+        // form-urlencoded (reqwest `.query()`) encodes spaces as '+', which every
+        // standard query-string parser (including the Axum backend) decodes back
+        // to a space. This differs from percent-encoding ('%20') but is equivalent
+        // on decode.
+        assert_eq!(
+            list_sessions_url(Some("alice smith"), None),
+            "http://localhost:8008/api/v1/memory/storage/sessions?user_id=alice+smith"
         );
     }
 }

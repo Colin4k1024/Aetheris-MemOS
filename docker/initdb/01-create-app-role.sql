@@ -1,3 +1,10 @@
+-- ⚠️  RETAINED FOR FRESH-VOLUME CONVENIENCE ONLY.
+-- This script is idempotent and mirrors the logic in the authoritative
+-- sqlx migration: backend/migrations/20260810000000_create_app_role.sql.
+-- Docker only executes initdb scripts when the data directory is empty,
+-- so this script NEVER runs on an existing database. The migration is the
+-- authoritative source that ensures the role is created in every database.
+--
 -- P1: Create non-BYPASSRLS application role for RLS enforcement.
 --
 -- The default `memory` user created by docker-compose is a superuser,

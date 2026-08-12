@@ -7,6 +7,25 @@ use tracing::{error, info, instrument, warn};
 
 use crate::config;
 
+/// LLM 摘要调用的错误分类。
+///
+/// 让调用方能区分「后端真的不可达」（可安全降级）与「后端可达但返回错误状态或
+/// 无法解析的内容」（必须暴露，而不是伪装成一次「降级」写入）。这是 D-e 降级方案
+/// 的关键：只有 `Unavailable` / `Upstream` 允许降级，`Malformed` 属于真实故障。
+#[derive(Debug, thiserror::Error)]
+pub enum LlmError {
+    /// 后端完全无法连通（连接被拒、DNS 失败、超时）。即「Ollama 不可达」场景。
+    #[error("LLM backend unavailable: {0}")]
+    Unavailable(String),
+    /// 后端可达，但返回了非 2xx 的 HTTP 状态。
+    #[error("LLM backend returned error status {status}")]
+    Upstream { status: u16 },
+    /// 后端有响应，但响应体（外层信封或内容 JSON）无法解析为可用结果。
+    /// 表示真实 bug 或模型/prompt 问题——不是短暂的服务不可用。
+    #[error("LLM response could not be parsed: {0}")]
+    Malformed(String),
+}
+
 /// LLM 服务，用于调用本地 LLM（Ollama）或 OpenAI 兼容 API 进行内容总结和结构化提取
 pub struct LLMService {
     client: Client,
@@ -111,7 +130,7 @@ impl LLMService {
                     "Response text (first 500 chars): {}",
                     &response_text.chars().take(500).collect::<String>()
                 );
-                anyhow::anyhow!("Failed to parse LLM response: {}", e)
+                anyhow::Error::new(LlmError::Malformed(e.to_string()))
             })?;
 
         // 确保 summary 不为空（如果 LLM 没有提供，使用默认值）
@@ -177,7 +196,7 @@ impl LLMService {
             .await
             .map_err(|e| {
                 error!("Failed to send request to Ollama: {}", e);
-                anyhow::anyhow!("Failed to call LLM: {}", e)
+                anyhow::Error::new(LlmError::Unavailable(e.to_string()))
             })?;
 
         if !response.status().is_success() {
@@ -187,12 +206,14 @@ impl LLMService {
                 "Ollama API returned error: status={}, body={}",
                 status, error_text
             );
-            return Err(anyhow::anyhow!("Ollama API error: status={}", status));
+            return Err(anyhow::Error::new(LlmError::Upstream {
+                status: status.as_u16(),
+            }));
         }
 
         let ollama_response: OllamaResponse = response.json().await.map_err(|e| {
             error!("Failed to parse Ollama response: {}", e);
-            anyhow::anyhow!("Failed to parse response: {}", e)
+            anyhow::Error::new(LlmError::Malformed(e.to_string()))
         })?;
 
         Ok(ollama_response.response)
@@ -216,7 +237,7 @@ impl LLMService {
 
         let response = request.send().await.map_err(|e| {
             error!("Failed to send request to OpenAI-compatible API: {}", e);
-            anyhow::anyhow!("Failed to call LLM: {}", e)
+            anyhow::Error::new(LlmError::Unavailable(e.to_string()))
         })?;
 
         if !response.status().is_success() {
@@ -226,15 +247,14 @@ impl LLMService {
                 "OpenAI-compatible API returned error: status={}, body={}",
                 status, error_text
             );
-            return Err(anyhow::anyhow!(
-                "OpenAI-compatible API error: status={}",
-                status
-            ));
+            return Err(anyhow::Error::new(LlmError::Upstream {
+                status: status.as_u16(),
+            }));
         }
 
         let openai_response: OpenAIChatResponse = response.json().await.map_err(|e| {
             error!("Failed to parse OpenAI-compatible response: {}", e);
-            anyhow::anyhow!("Failed to parse response: {}", e)
+            anyhow::Error::new(LlmError::Malformed(e.to_string()))
         })?;
 
         Ok(openai_response

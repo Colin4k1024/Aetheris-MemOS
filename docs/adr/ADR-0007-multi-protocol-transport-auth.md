@@ -2,17 +2,40 @@
 
 ## 决策信息
 
-- 编号：ADR-0007（Proposed；由 tech-lead 于 Design Review Board 收口后转 Accepted）
+- 编号：ADR-0007
 - 决策标题：gRPC / WebSocket / A2A 三协议真实化的传输选型（tonic / axum WS upgrade / a2a-rs），并把「token → JwtClaims → RequestTenantContext」抽取为**传输无关的鉴权核心**，四协议（含现有 REST/MCP）通过各自适配器统一收敛到同一 JWT + 租户语义
-- 状态：Proposed
-- 日期：2026-07-16
+- 状态：Accepted
+- 实现状态：未落地 —— 核心决策（统一鉴权核心 `hoops/jwt.rs::authenticate`）已落地且每个 HTTP 请求都在走，但 HTTP 之外没有任何协议被真正服务：gRPC 无 server（interceptor 零调用者、无 .proto/build.rs，A-5）、WebSocket 连上即 Close 1008 且未挂路由（A-5）、A2A 默认 feature 关闭未入 CI（A-4）。
+- 违反项（已闭合）：原 `web/jwt.rs` 接受 query-string token 且不注入租户上下文，构成第二条平行鉴权路径、与本 ADR「统一鉴权核心」决策直接冲突；backlog E-2 已完成，`web/jwt.rs` 已整文件删除（零代码调用者，`hoops/jwt.rs` 是其严格超集，唯一差异 `JwtClaims.iat` 字段全仓无读取方），第二条平行鉴权路径不再存在。
+- 日期：2026-07-16（提出）；2026-08-11（按实现核实收口状态）
 - Owner：architect
+- 收口责任人：tech-lead（Design Review Board 收口，2026-08-11；原提出时状态字段自述「由 tech-lead 于 Design Review Board 收口后转 Accepted」，此次即为该收口动作）
 - 关联需求 / 命令入口：`docs/artifacts/2026-07-16-enterprise-productionization/delivery-plan.md`（P2「多协议接真实」：A2A 接真实记忆服务 + gRPC 真 server + WebSocket 真 server + 鉴权 + agent-card 一致性）
 - 关联 ADR：
   - `ADR-0001-memory-storage-tenant-isolation.md`（租户隔离 / RLS——四协议隔离的最终兜底）
   - `ADR-0004-mcp-sandbox-execution-model.md`（MCP 工具执行 / 验签 / 沙箱——与本 ADR 的鉴权平面边界）
   - `ADR-0005-ha-infrastructure-selection.md`（不自建基础设施——约束「不引网关 / 网格作 P2 前置」）
   - `ADR-0006-enterprise-cluster-coordination.md`（许可分级 / 集群路由——跨协议许可门控挂载点）
+
+## 实现核实与缺口（2026-08-11 收口）
+
+本 ADR 的**核心决策 = 传输无关 Authenticator 核心**，该部分**已落地**，故收口为 `Accepted`。但三协议的 server 端服务化程度不一，且 `web/jwt.rs` 弱实现尚未 retire——这些是缺口。
+
+> **与既往快照的差异**：本 ADR 提出时 gRPC/WS「基本未落地」。截至 2026-08-11 核实，鉴权核心与各适配器的**鉴权钩子**已比当时前进——WS 已有 `ws_upgrade_handler`、A2A handler 已改真数据、gRPC 已有委托核心的 interceptor。但**没有一个协议端到端服务化**（见下）。
+
+**已落地（核心决策 + 鉴权钩子）：**
+
+- **传输无关鉴权核心**：`backend/src/hoops/jwt.rs:39` `pub fn authenticate(token) -> Result<(JwtClaims, RequestTenantContext), AppError>`——正是本 ADR 主张的单一事实源。
+- **REST/MCP 委托核心**：REST `route_layer(auth_middleware)`、MCP `/mcp/*` 挂 auth 之后（现状保持，行为不回归）。
+- **gRPC 鉴权适配器**：`backend/src/protocol/grpc.rs:21` `grpc_auth_interceptor` 从 metadata 取 Bearer → 调 `jwt::authenticate` → 注入 extensions，失败返 `Status::unauthenticated`——适配器已按 ADR 写好。
+- **A2A handler 已改真**：`backend/src/a2a/handler.rs:19` 注释「calls the actual memory service layer — no more format! placeholders」；`handle_memory_search`（`:106`）真查记忆、`handle_memory_status`（`:209-241`）真读 STM/KG（`overall_healthy = ltm_accessible`，不再硬编码 `true`）。
+
+**尚未落地 / 缺口（对应 backlog A-5 / A-4 / E-2）：**
+
+1. **gRPC 无 server**（backlog A-5）：`grpc_auth_interceptor` **零调用者**；**无 `.proto` 文件、无 `build.rs`、无 tonic server 挂载**（`grpc_auth_interceptor` 在 `main.rs`/`routers/mod.rs` 无引用）。interceptor 是孤立的适配器，没有服务消费它。
+2. **WebSocket 未服务化**（backlog A-5）：`protocol/websocket.rs:381` 的 `ws_upgrade_handler` 存在，但内层 `handle_ws_connection`（`:391+`）是 **TODO——连上即 `Close(1008)`「full WS handler pending route mount」**；且该 handler **未挂载到任何路由**（`rg ws_upgrade_handler src/routers` 零命中）。`send_to_session`（`:325-343`）**仍是占位**（算出 `is_subscribed` 却丢弃、注释「always return true … In real implementation, would send via WebSocket」），本 ADR 主张的「按 tenant 过滤真正投递」未落地。
+3. **A2A feature 默认关闭**（backlog A-4）：`Cargo.toml:22` `a2a = ["dep:a2a","dep:a2a-server"]` + `:84-85` git 依赖已 pin rev，但需 `--features a2a` 且联网才拉取；handler 虽已改真，但默认构建不编译 A2A，端到端仍未纳入 CI（backlog A-4「A2A 纳入 CI 并让 7 个测试真跑」）。
+4. **双 JWT 漂移未收口**（backlog E-2）：`backend/src/web/jwt.rs` 仍在（`web/mod.rs:8` `pub mod jwt`），文件头自述「weak JWT … 接受 query-string token、不注入 RequestTenantContext」（`:67-71` 真的从 query 取 `token=`）。本 ADR 主张「retire web/jwt.rs 的 query-string token 路径」尚未完成。
 
 ## 结论先行
 

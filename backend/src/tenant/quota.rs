@@ -162,6 +162,27 @@ impl QuotaManager {
             true // No quota means unlimited
         }
     }
+
+    /// Get or provision a default quota for a tenant (idempotent, lazy self-healing).
+    ///
+    /// The quota map is **in-memory only**, so it must self-heal after every restart.
+    /// This mirrors the lazy Owner auto-grant pattern used in `services/rbac.rs`.
+    pub fn ensure_quota(&self, tenant_id: &str) -> ResourceQuota {
+        // Fast path: already exists.
+        if let Ok(quotas) = self.quotas.read() {
+            if let Some(quota) = quotas.get(tenant_id) {
+                return quota.clone();
+            }
+        }
+        // Slow path: provision the default.
+        let default = ResourceQuota::default();
+        if let Ok(mut quotas) = self.quotas.write() {
+            quotas
+                .entry(tenant_id.to_string())
+                .or_insert_with(|| default.clone());
+        }
+        default
+    }
 }
 
 impl Default for QuotaManager {

@@ -1,0 +1,53 @@
+# Aetheris-MemOS — STAGED alert rules (NOT loaded)
+#
+# THIS FILE IS DELIBERATELY NOT MOUNTED.
+#
+# `docker-compose.yml` mounts only `./monitoring/alerts` into the Prometheus
+# container, and `monitoring/prometheus.yml` lists only
+# `/etc/prometheus/alerts/aetheris-alerts.yml` under `rule_files`. Nothing here
+# is evaluated.
+#
+# WHY A STAGING FILE EXISTS
+# -------------------------
+# `prometheus_exporter.rs` registers a metric the moment the exporter is built,
+# so a metric appears in `/metrics` whether or not any code ever writes to it. A
+# rule on such a metric watches a frozen zero: it can never fire, while looking
+# on a dashboard exactly like a rule that is protecting you. That is a fake gate,
+# and it is the failure mode the 2026-08 truthfulness remediation exists to
+# remove. So a rule lives here until its metric provably has a producer.
+#
+# PROMOTION CRITERION
+# -------------------
+# Move a rule into `../alerts/` only when the setter it depends on has a
+# non-test caller on a live code path. Verify with, e.g.:
+#
+#   rg -n '\.set_ltm_entries_total\(' backend/src --glob '!**/prometheus_exporter.rs'
+#
+# and state the call site (`file:line`) in the promoted rule's comment, so the
+# next reader can re-check the claim instead of trusting it.
+#
+# HISTORY
+# -------
+# 2026-08-11 — promoted to ../alerts/ once their producers were wired:
+#   outbox_pending_total, outbox_dead_letter_total,
+#   outbox_qdrant_upsert_{success,failure}_total   (backlog B-5)
+#   tenant_quota_usage_ratio                       (backlog #44)
+#
+# CURRENTLY STAGED: none.
+#
+# Four registered metrics still have zero producers, but no rules are drafted for
+# them yet — drafting a rule before deciding what it should assert would just
+# park a guess here. Tracked as backlog B-5b:
+#
+#   memory_ltm_entries_total    <- set_ltm_entries_total     (0 callers)
+#   memory_stm_sessions_active  <- set_stm_sessions_active   (0 callers)
+#   memory_requests_total       <- record_request            (0 callers)
+#   memory_search_duration_*    <- record_search_duration    (0 callers)
+#
+# `memory_requests_total` matters beyond its own dashboard: it is the only
+# plausible proxy for an authentication-failure *rate*, as opposed to the raw
+# `auth_failures_total` counter which has no denominator. Wiring it needs a
+# request middleware, and its `endpoint` label must use the route template rather
+# than the concrete path — otherwise every id in a URL becomes its own series.
+
+groups: []

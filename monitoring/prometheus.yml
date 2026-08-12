@@ -2,6 +2,20 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Alerting rules. Use an ABSOLUTE container path on purpose: Prometheus resolves
+# a relative rule_files entry against the process working directory, and the
+# official prom/prometheus image sets WORKDIR=/prometheus (the data volume) —
+# not /etc/prometheus. A relative `alerts/...` would therefore resolve to
+# /prometheus/alerts/, which nothing mounts, and a glob that matches no file
+# loads zero rules **without failing startup**. That is a silently dead alert
+# gate, so pin the absolute path that docker-compose actually mounts.
+#
+# Only LIVE rules load here. ./monitoring/alerts-staged/ holds rules whose
+# metrics are registered but never written (see backlog B-5) and is deliberately
+# left unmounted — loading them would create alerts that can never fire.
+rule_files:
+  - /etc/prometheus/alerts/aetheris-alerts.yml
+
 scrape_configs:
   - job_name: "aetheris-backend"
     static_configs:

@@ -66,10 +66,20 @@ pub struct HeatmapData {
 }
 
 /// Timeline query parameters
+///
+/// `deny_unknown_fields`: see `ListSessionsQuery` (routers/memory_storage.rs).
+///
+/// `layer` was removed rather than implemented (D-g). All three consumers of this
+/// struct — timeline, graph, heatmap — read only `limit` and each sources a fixed
+/// layer (`get_timeline` hardcodes `layer: "ltm"` in its response, `get_graph_visualization`
+/// reads the KG). So `?layer=kg` on the timeline was accepted, echoed nowhere, and
+/// silently ignored: the caller got LTM rows back labelled `ltm` with no error.
+/// Honouring it would mean inventing cross-layer filtering these handlers do not
+/// have; dropping it stops the endpoint from advertising a filter it never applied.
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TimelineQuery {
     pub limit: Option<i32>,
-    pub layer: Option<String>,
 }
 
 /// Get timeline data for visualization

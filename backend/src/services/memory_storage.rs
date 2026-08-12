@@ -3,12 +3,105 @@ use tracing::{error, info, instrument, warn};
 
 use crate::db::tenant_scope::begin_tenant_tx;
 use crate::db::vector_outbox::{self, OutboxOperation};
-use crate::db::{ltm::LTMRepository, pool, stm::STMRepository};
+use crate::db::{admin_pool, ltm::LTMRepository, pool, stm::STMRepository};
+use crate::services::prometheus_exporter::get_exporter;
 use crate::services::{
-    embedding::get_embedding_service, llm::get_llm_service, qdrant::get_qdrant_client,
+    embedding::{get_embedding_service, EmbeddingError},
+    llm::{get_llm_service, LlmError, StructuredExtraction},
+    qdrant::get_qdrant_client,
 };
 use crate::tenant::{get_default_tenant, TenantId};
 use crate::AppError;
+
+/// Max characters of raw content embedded (and stored in `content`) when the
+/// LLM summary is deferred. The normal path embeds a short LLM summary; without
+/// one we embed the raw content so retrieval still works, but bound it so a very
+/// large document cannot overflow the embedding model's context and turn the
+/// degraded write into a *new* failure. Conservative on purpose.
+const DEGRADED_EMBED_MAX_CHARS: usize = 4000;
+
+/// Whether an LTM entry carries a real LLM summary/extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SummaryStatus {
+    /// Summary + structured extraction produced normally.
+    Complete,
+    /// LLM backend was unavailable/erroring; summary is empty and awaits backfill.
+    Pending,
+}
+
+impl SummaryStatus {
+    /// Stable string persisted to the DB `summary_status` column and surfaced in
+    /// the store response / Qdrant metadata.
+    fn as_str(self) -> &'static str {
+        match self {
+            SummaryStatus::Complete => "complete",
+            SummaryStatus::Pending => "pending",
+        }
+    }
+}
+
+/// Classify an LLM summarization error into a bounded metric `reason` when the
+/// failure is safe to degrade, or `None` when it must be surfaced to the caller.
+///
+/// - `Unavailable` (backend unreachable) / `Upstream` (reachable but errored) →
+///   degrade: the summary is a best-effort enrichment, keep the write.
+/// - `Malformed` (reachable but returned unusable output) or any non-`LlmError`
+///   → surface it. Silently degrading garbage output would mask a real
+///   prompt/model bug behind "successful" writes.
+fn degradable_summary_reason(err: &anyhow::Error) -> Option<&'static str> {
+    match err.downcast_ref::<LlmError>() {
+        Some(LlmError::Unavailable(_)) => Some("unavailable"),
+        Some(LlmError::Upstream { .. }) => Some("upstream_error"),
+        _ => None,
+    }
+}
+
+/// Text used for BOTH the embedding vector and the stored `content` column.
+/// Degraded (no summary): a bounded prefix of the raw content, so retrieval on
+/// the entry still works instead of silently embedding an empty summary.
+///
+/// ⚠️ BACKFILL CONSEQUENCE (read before writing a summary-backfill job):
+/// the embedding vector is derived from THIS text. So a `Complete` entry's
+/// vector = embed(summary), but a `Pending` entry's vector = embed(content) —
+/// two *different* inputs. When a backfill later fills the deferred summary, it
+/// MUST recompute the vector as embed(new summary) AND emit a
+/// `vector_outbox` upsert (see `store_ltm_for_tenant`) so Qdrant is updated.
+/// Filling only the summary text would leave the vector permanently derived
+/// from the content while the rest of the corpus is summary-derived — a silent
+/// inconsistency. This is NOT handled here; backfill is a separate work item.
+fn embed_and_store_text(content: &str, summary: &str, status: SummaryStatus) -> String {
+    match status {
+        SummaryStatus::Complete => summary.to_string(),
+        SummaryStatus::Pending => content.chars().take(DEGRADED_EMBED_MAX_CHARS).collect(),
+    }
+}
+
+/// Map an embedding-generation failure to an HTTP-appropriate `AppError` (D-e2).
+///
+/// Embedding is a hard dependency, so we distinguish "backend can't serve right
+/// now" (retryable → 503) from "our config is wrong / a real bug" (retry won't
+/// help → 500), instead of collapsing everything to 500:
+/// - transport-unreachable, or a `5xx`/`429` upstream status → 503
+///   (`DependencyUnavailable`).
+/// - a `4xx` upstream status (bad model, bad api key) → 500: that is a config
+///   error, not the caller's fault and not fixed by retrying, so reporting it as
+///   a retryable 503 would just spin the caller.
+/// - malformed / wrong-dimension output, or any non-`EmbeddingError` → 500.
+///
+/// The detail (which may include an internal endpoint) goes into the `AppError`
+/// String for LOGS ONLY; `AppError::api_message` returns a generic message, so
+/// the endpoint never reaches the client.
+fn embedding_error_to_app_error(e: anyhow::Error) -> AppError {
+    match e.downcast_ref::<EmbeddingError>() {
+        Some(EmbeddingError::Unavailable(_)) => {
+            AppError::DependencyUnavailable(format!("embedding backend unavailable: {e}"))
+        }
+        Some(EmbeddingError::Upstream { status }) if *status >= 500 || *status == 429 => {
+            AppError::DependencyUnavailable(format!("embedding backend error: {e}"))
+        }
+        _ => AppError::Internal(format!("embedding generation failed: {e}")),
+    }
+}
 
 /// 记忆存储服务
 pub struct MemoryStorageService;
@@ -21,6 +114,11 @@ pub struct StoreLtmResult {
     /// `"pending"` when delivery is via the durable outbox (PostgreSQL).
     #[serde(rename = "indexStatus")]
     pub index_status: String,
+    /// `"complete"` when the LLM summary/extraction was produced; `"pending"`
+    /// when the LLM backend was unavailable and the summary was deferred for
+    /// later backfill (the write still succeeded).
+    #[serde(rename = "summaryStatus")]
+    pub summary_status: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
@@ -82,12 +180,17 @@ impl MemoryStorageService {
         let session_id = if let Some(sid) = existing_session_id {
             sid.to_string()
         } else {
-            // 创建新会话
+            // 创建新会话：仅在此分支 session_type 才会写入 DB 并撞上
+            // `CHECK (session_type IN (...))`。校验放在写入前的边界，返回 400 并列出
+            // 合法值（backlog D-a），避免 DB check 约束以 500「内部错误」暴露给调用方。
+            // 追加到既有会话时 session_type 不参与写入，故不校验（见任务的既有数据说明）。
+            let session_type = crate::models::memory_enums::SessionType::parse(session_type)
+                .map_err(AppError::BadRequest)?;
             STMRepository::create_session(
                 tenant_id,
                 user_id,
                 agent_id,
-                session_type,
+                session_type.as_str(),
                 max_context_length,
                 retention_hours,
             )
@@ -145,72 +248,92 @@ impl MemoryStorageService {
         content: &str,
         title: Option<&str>,
     ) -> Result<StoreLtmResult, AppError> {
-        // 验证和规范化 source_type
-        // 数据库约束只允许：'document', 'api', 'database', 'web', 'user_input'
-        let normalized_source_type = match source_type {
-            "document" | "api" | "database" | "web" | "user_input" => source_type,
-            "test" | "testing" => {
-                warn!(
-                    "source_type '{}' is not allowed, mapping to 'user_input'",
-                    source_type
-                );
-                "user_input"
-            }
-            _ => {
-                warn!(
-                    "Unknown source_type '{}', mapping to 'user_input'",
-                    source_type
-                );
-                "user_input"
-            }
-        };
+        // 校验 source_type（backlog D-a）。
+        // 合法值的单一真相源是 `models::memory_enums::SourceType`（与 migration 的
+        // `CHECK (source_type IN (...))` 由防漂移测试锁定一致）。此前这里把未知值
+        // 静默重映射为 'user_input'——那会把调用方的笔误当成合法来源存进库，无人可知；
+        // 现在改为在边界拒绝并返回 400，错误消息列出全部合法值，集成方可据此自查。
+        let source_type = crate::models::memory_enums::SourceType::parse(source_type)
+            .map_err(AppError::BadRequest)?;
+        let normalized_source_type = source_type.as_str();
 
         info!(
-            "Storing LTM: source_id={}, source_type={} (normalized from {}), content_length={}",
+            "Storing LTM: source_id={}, source_type={}, content_length={}",
             source_id,
             normalized_source_type,
-            source_type,
             content.len()
         );
 
-        // 1. 调用 LLM 进行总结和结构化提取（事务外）
+        // 1. 调用 LLM 进行总结和结构化提取（事务外）。
+        //
+        // 摘要为可降级能力（backlog D-e）：LLM 后端「不可达」或「返回错误状态」时，
+        // 允许写入继续、摘要留空并标记 summary_status=pending，事后由独立回填流程补齐。
+        // 但「可达却返回无法解析的内容」(Malformed) 属于真实故障，不静默降级、必须暴露——
+        // 否则会把系统性 prompt/模型 bug 伪装成一次「成功」写入。
         let llm_service = get_llm_service()
             .map_err(|e| AppError::Internal(format!("Failed to get LLM service: {}", e)))?;
 
-        let extraction = llm_service
-            .summarize_and_extract(content)
-            .await
-            .map_err(|e| {
-                error!("LLM summarization failed: {}", e);
-                AppError::Internal(format!("LLM summarization failed: {}", e))
-            })?;
+        let (extraction, summary_status) = match llm_service.summarize_and_extract(content).await {
+            Ok(extraction) => {
+                info!(
+                    "LLM extraction completed: entities={}, relations={}",
+                    extraction.entities.len(),
+                    extraction.relations.len()
+                );
+                (extraction, SummaryStatus::Complete)
+            }
+            Err(e) => match degradable_summary_reason(&e) {
+                Some(reason) => {
+                    warn!(
+                        tenant_id = %tenant_id,
+                        source_id = %source_id,
+                        reason = reason,
+                        "LLM summary unavailable; storing LTM with deferred summary (summary_status=pending): {}",
+                        e
+                    );
+                    get_exporter().inc_ltm_summary_degraded(reason);
+                    (StructuredExtraction::default(), SummaryStatus::Pending)
+                }
+                None => {
+                    error!("LLM summarization failed (non-degradable): {}", e);
+                    return Err(AppError::Internal(format!(
+                        "LLM summarization failed: {}",
+                        e
+                    )));
+                }
+            },
+        };
 
-        info!(
-            "LLM extraction completed: entities={}, relations={}",
-            extraction.entities.len(),
-            extraction.relations.len()
-        );
+        // Text for BOTH the embedding vector and the stored `content` column:
+        // normal → the (short) summary; degraded → bounded raw content, so we
+        // never silently embed an empty summary and wreck retrieval quality.
+        let embed_text = embed_and_store_text(content, &extraction.summary, summary_status);
 
-        // 2. 生成向量嵌入（事务外）
+        // 2. 生成向量嵌入（事务外）。
+        //
+        // 注意：embedding 仍是硬依赖——它也走嵌入后端（典型部署与 LLM 同一个 Ollama）。
+        // 若嵌入后端同样不可达，此处仍会失败并向上返回错误；本任务不改变这一点。让
+        // 「嵌入后端宕机也能写入」需要延迟向量化，属于另立的工作项，不在本次范围内。
         let embedding_service = get_embedding_service()
             .map_err(|e| AppError::Internal(format!("Failed to get embedding service: {}", e)))?;
 
         let embedding = embedding_service
-            .generate_embedding(&extraction.summary)
+            .generate_embedding(&embed_text)
             .await
             .map_err(|e| {
                 error!("Embedding generation failed: {}", e);
-                AppError::Internal(format!("Embedding generation failed: {}", e))
+                embedding_error_to_app_error(e)
             })?;
 
         info!("Embedding generated: dimension={}", embedding.len());
 
         let entry_id = ulid::Ulid::new().to_string();
-        let content_hash = crate::services::information_guard::compute_sha256(&extraction.summary);
+        let content_hash = crate::services::information_guard::compute_sha256(&embed_text);
         let metadata = serde_json::json!({
             "tenantId": tenant_id.as_str(),
             "title": title,
             "summary": extraction.summary.clone(),
+            "summaryStatus": summary_status.as_str(),
             "entities": extraction.entities.clone(),
             "relations": extraction.relations.clone(),
             "key_facts": extraction.key_facts.clone(),
@@ -240,12 +363,13 @@ impl MemoryStorageService {
                 source_id,
                 normalized_source_type,
                 title,
-                &extraction.summary,
+                &embed_text,
                 "text",
                 &embedding,
                 embedding_service.model(),
                 embedding_service.dimension() as i32,
                 quality_score,
+                Some(summary_status.as_str()),
             )
             .await?;
 
@@ -293,12 +417,13 @@ impl MemoryStorageService {
                 source_id,
                 normalized_source_type,
                 title,
-                &extraction.summary,
+                &embed_text,
                 "text",
                 &embedding,
                 embedding_service.model(),
                 embedding_service.dimension() as i32,
                 quality_score,
+                Some(summary_status.as_str()),
             )
             .await
             {
@@ -350,6 +475,7 @@ impl MemoryStorageService {
         Ok(StoreLtmResult {
             entry_id,
             index_status,
+            summary_status: summary_status.as_str().to_string(),
         })
     }
 
@@ -468,8 +594,15 @@ impl MemoryStorageService {
     ) -> Result<QdrantTenantBackfillReport, AppError> {
         let limit = limit.clamp(1, 1000);
         let offset = offset.max(0);
-        let rows =
-            LTMRepository::list_qdrant_tenant_backfill_entries(pool(), limit, offset).await?;
+        let admin = admin_pool().ok_or_else(|| {
+            AppError::BadRequest(
+                "Qdrant tenant backfill requires a configured admin database connection \
+                 (db.admin_url). This feature is disabled by default — set db.admin_url to \
+                 an owner/BYPASSRLS connection string to enable it."
+                    .into(),
+            )
+        })?;
+        let rows = LTMRepository::list_qdrant_tenant_backfill_entries(admin, limit, offset).await?;
 
         let mut report = QdrantTenantBackfillReport {
             dry_run,
@@ -517,5 +650,121 @@ fn tenant_id_from_source_id(source_id: &str) -> Option<String> {
         None
     } else {
         Some(tenant_id.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_status_as_str_is_stable() {
+        assert_eq!(SummaryStatus::Complete.as_str(), "complete");
+        assert_eq!(SummaryStatus::Pending.as_str(), "pending");
+    }
+
+    #[test]
+    fn unreachable_and_upstream_errors_are_degradable() {
+        // "Ollama 不可达" and reachable-but-error-status keep the write alive.
+        let unavailable = anyhow::Error::new(LlmError::Unavailable("connection refused".into()));
+        assert_eq!(degradable_summary_reason(&unavailable), Some("unavailable"));
+
+        let upstream = anyhow::Error::new(LlmError::Upstream { status: 503 });
+        assert_eq!(degradable_summary_reason(&upstream), Some("upstream_error"));
+    }
+
+    #[test]
+    fn malformed_and_unknown_errors_are_not_degradable() {
+        // Reachable-but-unusable output must surface, not be silently masked as a
+        // "successful" degraded write — this is the self-audit guard for D-e.
+        let malformed = anyhow::Error::new(LlmError::Malformed("not json".into()));
+        assert_eq!(degradable_summary_reason(&malformed), None);
+
+        // A non-LlmError (e.g. an unexpected internal failure) must also surface.
+        let other = anyhow::anyhow!("some unrelated failure");
+        assert_eq!(degradable_summary_reason(&other), None);
+    }
+
+    #[test]
+    fn complete_status_embeds_and_stores_the_summary() {
+        let text = embed_and_store_text("raw content", "the summary", SummaryStatus::Complete);
+        assert_eq!(text, "the summary");
+    }
+
+    #[test]
+    fn pending_status_embeds_raw_content_not_empty_summary() {
+        // Degraded: embed the real content, never an empty summary, otherwise
+        // retrieval on the entry would be silently destroyed.
+        let text = embed_and_store_text("raw content", "", SummaryStatus::Pending);
+        assert_eq!(text, "raw content");
+    }
+
+    #[test]
+    fn pending_status_bounds_large_content_by_chars() {
+        let big = "x".repeat(DEGRADED_EMBED_MAX_CHARS + 500);
+        let text = embed_and_store_text(&big, "", SummaryStatus::Pending);
+        assert_eq!(text.chars().count(), DEGRADED_EMBED_MAX_CHARS);
+    }
+
+    #[test]
+    fn pending_status_truncation_is_utf8_safe() {
+        // Multi-byte chars must not be split mid-codepoint (char-based, not byte).
+        let multibyte = "语".repeat(DEGRADED_EMBED_MAX_CHARS + 100);
+        let text = embed_and_store_text(&multibyte, "", SummaryStatus::Pending);
+        assert_eq!(text.chars().count(), DEGRADED_EMBED_MAX_CHARS);
+        assert!(text.chars().all(|c| c == '语'));
+    }
+
+    // --- embedding failure → HTTP status mapping (D-e2) ------------------ //
+
+    #[test]
+    fn embedding_unavailable_maps_to_503_variant() {
+        let e = anyhow::Error::new(EmbeddingError::Unavailable("connection refused".into()));
+        assert!(matches!(
+            embedding_error_to_app_error(e),
+            AppError::DependencyUnavailable(_)
+        ));
+    }
+
+    #[test]
+    fn embedding_5xx_and_429_map_to_503() {
+        for status in [500u16, 502, 503, 429] {
+            let e = anyhow::Error::new(EmbeddingError::Upstream { status });
+            assert!(
+                matches!(
+                    embedding_error_to_app_error(e),
+                    AppError::DependencyUnavailable(_)
+                ),
+                "status {status} should map to 503"
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_4xx_maps_to_500_not_503() {
+        // Bad model (404) / bad api key (401) are config errors — retrying never
+        // helps, so they must NOT be reported as a retryable 503.
+        for status in [400u16, 401, 404] {
+            let e = anyhow::Error::new(EmbeddingError::Upstream { status });
+            assert!(
+                matches!(embedding_error_to_app_error(e), AppError::Internal(_)),
+                "status {status} should map to 500"
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_malformed_and_unknown_map_to_500() {
+        let malformed = anyhow::Error::new(EmbeddingError::Malformed("bad json".into()));
+        assert!(matches!(
+            embedding_error_to_app_error(malformed),
+            AppError::Internal(_)
+        ));
+        // A non-EmbeddingError (unexpected failure) must also surface as 500.
+        let other = anyhow::anyhow!("some unrelated failure");
+        assert!(matches!(
+            embedding_error_to_app_error(other),
+            AppError::Internal(_)
+        ));
     }
 }

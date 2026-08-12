@@ -173,6 +173,10 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # LIVE alert rules (referenced by rule_files in prometheus.yml). The
+      # alerts-staged/ dir is intentionally NOT mounted — those rules target
+      # metrics that are not yet instrumented and must not be loaded.
+      - ./monitoring/alerts:/etc/prometheus/alerts:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"

@@ -4,11 +4,36 @@
 
 - 编号：ADR-0003
 - 决策标题：企业高可靠准入必须包含备份恢复、HA、告警、发布回滚 runbook 与演练证据
-- 状态：Proposed
-- 日期：2026-07-06
+- 状态：Accepted
+- 实现状态：未落地 —— 门禁策略已采纳且探针 / 告警 / runbook 骨架已建，但门禁本身 `launch-acceptance.md` 判定为 `blocked`（tenant migration / backfill / RLS 测试 / restore drill 等证据项全未完成）；未通过的门禁在功能上等于无门禁，故记未落地。
+- 日期：2026-07-06（提出）；2026-08-11（按实现核实收口状态）
 - Owner：tech-lead / devops-engineer / qa-engineer
+- 收口责任人：tech-lead（Design Review Board 收口决策轴，2026-08-11；门禁放行判定另由 qa-engineer / tech-lead 在 launch-acceptance 承接）
 - 关联需求：`docs/artifacts/2026-07-06-memory-storage-reliability/prd.md`
 - 关联测试计划：`docs/artifacts/2026-07-06-memory-storage-reliability/test-plan.md`
+
+## 实现核实与缺口（2026-08-11 收口）
+
+本 ADR 定义的是**运维就绪准入门禁**（一项治理决策），而非一段可执行代码。核实要区分两件事：
+
+- **门禁策略本身已被采纳**（故 `Accepted`）：准入所需的 artifact 骨架与部分告警/runbook 已建立。
+- **门禁尚未通过**（这是关键缺口）：`launch-acceptance.md` 明确标注 `当前状态 | blocked`，且大量证据项列为「未完成 / 阻塞」。**不得据此声明 memory storage 已满足企业内部生产级高可靠。**
+
+**已落地（门禁框架）：**
+
+- 准入 artifact 骨架存在：`docs/artifacts/2026-07-06-memory-storage-reliability/` 下有 `deployment-context.md`、`release-plan.md`、`launch-acceptance.md`、`backup-restore-runbook.md`、`test-plan.md` 等。
+- 告警规则已建：`monitoring/alerts/aetheris-alerts.yml` 覆盖 backend down、vector reconciliation（tenant mismatch / missing / orphan / content-hash mismatch / scanner stalled）、outbox processing slow 等（对应 backlog B-2，已完成）；Grafana dashboard `monitoring/grafana/provisioning/dashboards/aetheris-overview.json`。
+- liveness / readiness 探针已实现：`backend/src/routers/probes.rs`（`/livez`、`/readyz`，root、无鉴权），修正了 CLAUDE.md 记录的「无 liveness/readiness 探针」现状（对应 backlog B-3，已完成）。
+- 对账扫描器已接线（ADR-0002 W1.1）：`services/vector_reconciliation.rs` + `main.rs:116`。
+
+**尚未落地 / 缺口（门禁未通过）：**
+
+1. **launch-acceptance = blocked**：`launch-acceptance.md:8` 明确 `blocked`；`:64-70` 列出 tenant migration、backfill report、RLS missing-context tests、tenant negative tests、transaction fault injection、outbox/reconciliation E2E、PostgreSQL restore drill **全部未完成**。
+2. **无备份/恢复/failover 演练证据**：ADR-0005 已选型（托管优先），但 restore / failover / Qdrant rebuild / Neo4j restore 的**实际演练证据**尚未在仓内归档（日期/环境/命令/结果/残余风险/owner）。
+3. **部分告警仍待接线**：`monitoring/alerts-staged/aetheris-pending-instrumentation.yml` 中的告警依赖 backlog B-5 的 metrics instrumentation（当前恒为 0）才能真正触发。
+4. **应用等级 / RPO / RTO 未定档**：后续动作首项「确认目标应用等级、RPO、RTO」仍为 open（ADR-0001/0005 共同遗留）。
+
+> 收口口径：门禁**存在且被采纳**（Accepted），但**放行判定为 blocked**，与「文档声称 > 实现」的仓库历史问题保持一致的诚实表述——采纳门禁 ≠ 通过门禁。
 
 ## 背景与约束
 

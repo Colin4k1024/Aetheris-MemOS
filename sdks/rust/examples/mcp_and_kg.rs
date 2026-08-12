@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     let write_args = json!({
         "content": "Rust async/await is built on top of the Future trait. \
                     The tokio runtime drives futures to completion.",
-        "source_type": "documentation",
+        "source_type": "document",
         "title": "Rust Async Fundamentals"
     });
 

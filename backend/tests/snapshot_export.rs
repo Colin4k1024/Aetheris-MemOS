@@ -42,6 +42,9 @@ async fn init_test_db() {
                 statement_timeout: 5,
                 helper_threads: 1,
                 enforce_tls: false,
+                auto_migrate: false,
+                admin_url: None,
+                allow_sqlite_fallback: false,
             })
             .await
             .expect("initialize sqlite test database");

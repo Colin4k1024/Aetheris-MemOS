@@ -1,8 +1,9 @@
 //! RLS penetration test — proves knowledge_entries (LTM) tenant isolation is
 //! enforced at the PostgreSQL layer, not just by application-layer prefix checks.
 //!
-//! Skips (does not fail) when `DATABASE_URL` is unset, so the offline `cargo test`
-//! stays green. Run as the CI gate against a live PG:
+//! Reports as `ignored` when `DATABASE_URL` is unset (no false-green pass). The
+//! env-var guard inside the body still skips the test when `--include-ignored` is
+//! used without DATABASE_URL. Run as the CI gate against a live PG:
 //!
 //!   DATABASE_URL=postgres://memory:memory@localhost:5432/memory \
 //!     cargo test --test rls_isolation_pg -- --nocapture
@@ -29,6 +30,7 @@ const PROBE_ROLE: &str = "aetheris_rls_probe";
 const PROBE_PASSWORD: &str = "aetheris_rls_probe_pw";
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn ltm_rls_blocks_cross_tenant_reads_via_real_repository() {
     let Ok(admin_url) = std::env::var("DATABASE_URL") else {
         eprintln!("SKIP rls_isolation_pg: DATABASE_URL not set");

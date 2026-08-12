@@ -46,6 +46,9 @@ logs/
 # Internal planning (do not publish)
 .trae/
 
+# Agent tooling scratch state (opencode / swarm-code session continuation)
+.omo/
+.tsp/
 
 # Backend config (contains secrets)
 backend/config.toml
@@ -54,7 +57,11 @@ backend/local.toml
 
 # Python build artifacts
 sdks/python/*.egg-info/
-sdks/python/__pycache__/
+# Anchorless so it matches every package dir, not just sdks/python/ itself —
+# CPython writes a __pycache__ next to each module, so the old anchored pattern
+# missed adaptive_memory/__pycache__/ and tests/__pycache__/.
+__pycache__/
+*.py[cod]
 sdks/python/.eggs/
 .gstack/
 docker-compose.override.yml

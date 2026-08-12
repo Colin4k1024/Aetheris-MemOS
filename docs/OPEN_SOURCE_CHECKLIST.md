@@ -15,7 +15,7 @@
 | 敏感信息 | 用户迁移无预设账号 | 已清理 |
 | 敏感信息 | 文档与前端登录/Mock 使用占位符或 demo | 已清理 |
 | 项目清理 | [.gitignore](../.gitignore) 含 `.trae/`、`.env`、数据库文件等 | 已配置 |
-| CI | 根目录 [.github/workflows/backend-ci.yml](../.github/workflows/backend-ci.yml) | 已就绪 |
+| CI | 根目录 [.github/workflows/ci.yml](../.github/workflows/ci.yml)（backend + frontend 合并后的单一 workflow） | 已就绪 |
 
 ## 发布前待办（维护者）
 

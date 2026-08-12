@@ -1,0 +1,19 @@
+apiVersion: 1
+
+# Grafana dashboard provider. The whole provisioning tree is already bind-mounted
+# at /etc/grafana/provisioning (see docker-compose.yml grafana service), so the
+# dashboard JSON files in this directory are picked up automatically — no extra
+# volume is required. Grafana's file provider only loads *.json, so this .yaml is
+# ignored as a dashboard.
+providers:
+  - name: Aetheris
+    orgId: 1
+    folder: Aetheris
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

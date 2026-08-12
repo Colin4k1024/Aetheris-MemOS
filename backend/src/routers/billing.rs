@@ -2,13 +2,14 @@
 //!
 //! API endpoints for billing and usage tracking.
 
-use axum::extract::Path;
+use axum::extract::{Extension, Path};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
 
 use crate::services::usage_tracker::{MetricType, SubscriptionTier, UsageTracker};
+use crate::tenant::RequestTenantContext;
 use crate::{json_ok, JsonResult};
 
 // Global usage tracker instance
@@ -66,8 +67,12 @@ pub struct QuotaStatusResponse {
 }
 
 /// Initialize tenant for billing
-pub async fn init_tenant(Json(req): Json<InitTenantRequest>) -> JsonResult<serde_json::Value> {
+pub async fn init_tenant(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<InitTenantRequest>,
+) -> JsonResult<serde_json::Value> {
     req.validate()?;
+    tenant_ctx.authorize_path_tenant(&req.tenant_id)?;
     info!(
         "Initializing billing for tenant {} with tier {:?}",
         req.tenant_id, req.tier
@@ -85,8 +90,12 @@ pub async fn init_tenant(Json(req): Json<InitTenantRequest>) -> JsonResult<serde
 }
 
 /// Record usage
-pub async fn record_usage(Json(req): Json<RecordUsageRequest>) -> JsonResult<serde_json::Value> {
+pub async fn record_usage(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<RecordUsageRequest>,
+) -> JsonResult<serde_json::Value> {
     req.validate()?;
+    tenant_ctx.authorize_path_tenant(&req.tenant_id)?;
     info!(
         "Recording {} units for tenant {}",
         req.quantity, req.tenant_id
@@ -102,8 +111,12 @@ pub async fn record_usage(Json(req): Json<RecordUsageRequest>) -> JsonResult<ser
 }
 
 /// Get usage for tenant
-pub async fn get_usage(Json(req): Json<GetUsageRequest>) -> JsonResult<UsageResponse> {
+pub async fn get_usage(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<GetUsageRequest>,
+) -> JsonResult<UsageResponse> {
     req.validate()?;
+    tenant_ctx.authorize_path_tenant(&req.tenant_id)?;
     info!("Getting usage for tenant {}", req.tenant_id);
 
     let now = chrono::Utc::now().timestamp();
@@ -128,7 +141,11 @@ pub async fn get_usage(Json(req): Json<GetUsageRequest>) -> JsonResult<UsageResp
 }
 
 /// Get current usage
-pub async fn get_current_usage(Path(tenant_id): Path<String>) -> JsonResult<UsageResponse> {
+pub async fn get_current_usage(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(tenant_id): Path<String>,
+) -> JsonResult<UsageResponse> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Getting current usage for tenant {}", tenant_id);
 
     let usage = get_usage_tracker()
@@ -150,7 +167,11 @@ pub async fn get_current_usage(Path(tenant_id): Path<String>) -> JsonResult<Usag
 }
 
 /// Get quota status
-pub async fn get_quota_status(Path(tenant_id): Path<String>) -> JsonResult<QuotaStatusResponse> {
+pub async fn get_quota_status(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(tenant_id): Path<String>,
+) -> JsonResult<QuotaStatusResponse> {
+    tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Getting quota status for tenant {}", tenant_id);
 
     let status = get_usage_tracker().check_quota(&tenant_id).await;

@@ -1,6 +1,7 @@
 //! PR-1 integration test — verifies the tenant GUC executor against a real
-//! PostgreSQL. Skips (does not fail) when `DATABASE_URL` is unset, so the offline
-//! `cargo test` stays green; run it as the CI gate with a live PG:
+//! PostgreSQL. Reports as `ignored` when `DATABASE_URL` is unset (no false-green
+//! pass). The env-var guard inside the body still skips the test when
+//! `--include-ignored` is used without DATABASE_URL. Run as the CI gate:
 //!
 //!   DATABASE_URL=postgres://memory:memory@localhost:5432/memory \
 //!     cargo test --test tenant_scope_pg
@@ -9,6 +10,7 @@ use backend::db::tenant_scope::{begin_tenant_tx, TENANT_GUC};
 use backend::tenant::TenantId;
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn tenant_guc_is_set_within_tx_and_does_not_leak() {
     let Ok(url) = std::env::var("DATABASE_URL") else {
         eprintln!("SKIP tenant_guc test: DATABASE_URL not set");

@@ -6,9 +6,9 @@ import {
   ProFormText,
 } from '@ant-design/pro-components';
 import { useIntl, useRequest } from '@umijs/max';
-import { Col, Descriptions, message, Row, Tabs, Tag } from 'antd';
+import { Descriptions, message, Tabs, Tag } from 'antd';
 import { useState } from 'react';
-import { ChartCard, MemoryWeightBadge } from '@/components/MemorySystem';
+import { ChartCard } from '@/components/MemorySystem';
 import { CHART_HEIGHT } from '@/config/appConfig';
 import { analyzeTaskCharacteristics } from '@/services/memory';
 
@@ -23,7 +23,14 @@ const TaskInputForm: React.FC<TaskInputFormProps> = ({ onSubmit, loading }) => (
   <ChartCard title="任务特征分析">
     <ProForm
       onFinish={onSubmit}
-      submitter={{ searchConfig: { submitText: '开始分析' } }}
+      submitter={{
+        searchConfig: { submitText: '开始分析' },
+        // Enter loading during submit: antd's Button intercepts clicks while loading
+        // (prevents double-submit) and does not set native `disabled`, so the submit
+        // button stays focusable — focus is not lost when loading ends. Do not add
+        // `disabled: loading` here, which would remove the native focus.
+        submitButtonProps: { loading },
+      }}
     >
       <ProFormText
         name="content"

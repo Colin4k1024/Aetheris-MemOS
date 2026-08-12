@@ -2,12 +2,28 @@ import { request } from '@umijs/max';
 
 // ========== 决策追踪历史 ==========
 
-/** 获取决策追踪列表 GET /api/v1/memory/traces */
+/**
+ * 获取决策追踪列表 GET /api/v1/memory/traces
+ *
+ * Backend contract (ListTracesQuery in routers/memory.rs) accepts only:
+ *   - task_id: Option<String>  (filter traces by task)
+ *   - limit:   Option<i32>      (cap number of returned rows)
+ *
+ * There is NO `offset` or `page` field on this endpoint, so server-side
+ * pagination is unavailable until the backend adds an offset field.
+ *
+ * Response shape is `{ traces: [...] }` — the backend's ListTracesResponse
+ * (routers/memory.rs:140) has an explicit #[serde(rename = "traces")] and
+ * returns NO `data` and NO `total` key.
+ *
+ * NOTE: this function is currently unwired (no caller). The MemoryDecisionTrace
+ * page uses `getDecisionTrace` (singular) against POST /adaptive/trace instead.
+ */
 export async function getDecisionTraces(
-  params?: { page?: number; pageSize?: number; taskId?: string },
+  params?: { task_id?: string; limit?: number },
   options?: { [key: string]: any },
 ) {
-  return request<{ data: API.DecisionTraceItem[]; total: number }>('/api/v1/memory/traces', {
+  return request<{ traces: API.DecisionTraceItem[] }>('/api/v1/memory/traces', {
     method: 'GET',
     params,
     ...(options || {}),

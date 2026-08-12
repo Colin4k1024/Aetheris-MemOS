@@ -18,8 +18,19 @@ import { createStyles } from 'antd-style';
 import React, { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Footer } from '@/components';
-import { getFakeCaptcha, login } from '@/services/memory/auth';
+import {
+  getFakeCaptcha,
+  type LoginParams,
+  login,
+} from '@/services/memory/auth';
 import Settings from '../../../../config/defaultSettings';
+
+// 登录表单的本地 UI 状态：记录失败状态与登录方式，用于展示错误提示。
+// 这与 auth.ts 的 LoginResult（登录接口响应）是两个概念，不要混用。
+type LoginFormState = {
+  status?: string;
+  type?: string;
+};
 
 const useStyles = createStyles(({ token }) => {
   return {
@@ -88,28 +99,16 @@ const LoginMessage: React.FC<{
 };
 
 const Login: React.FC = () => {
-  const [userLoginState, setUserLoginState] = useState<
-    Partial<API.LoginResult>
-  >({});
+  const [userLoginState, setUserLoginState] = useState<Partial<LoginFormState>>(
+    {},
+  );
   const [type, setType] = useState<string>('account');
   const { initialState, setInitialState } = useModel('@@initialState');
   const { styles } = useStyles();
   const { message } = App.useApp();
   const intl = useIntl();
 
-  const fetchUserInfo = async () => {
-    const userInfo = await initialState?.fetchUserInfo?.();
-    if (userInfo) {
-      flushSync(() => {
-        setInitialState((s) => ({
-          ...s,
-          currentUser: userInfo,
-        }));
-      });
-    }
-  };
-
-  const handleSubmit = async (values: API.LoginParams) => {
+  const handleSubmit = async (values: LoginParams) => {
     try {
       // 登录
       const msg = await login({ ...values, type });
@@ -200,7 +199,7 @@ const Login: React.FC = () => {
           }}
           actions={[<ActionIcons key="icons" />]}
           onFinish={async (values) => {
-            await handleSubmit(values as API.LoginParams);
+            await handleSubmit(values as LoginParams);
           }}
         >
           <Tabs

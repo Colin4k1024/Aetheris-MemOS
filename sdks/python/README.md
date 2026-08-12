@@ -82,8 +82,10 @@ Record retrieval feedback using the agent-facing contract.
 
 ### Low-level Memory API
 
-#### store_stm(user_id, agent_id, content, session_type="default", role="user")
-Store content in short-term memory.
+#### store_stm(user_id, agent_id, content, session_type="conversation", role="user")
+Store content in short-term memory. `session_type` must be a value the server
+accepts (an invalid value raises `MemoryApiError` whose message lists the valid
+set — the server is the single source of truth).
 
 #### store_ltm(source_id, source_type, content, title=None)
 Store content in long-term memory.

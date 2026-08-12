@@ -285,12 +285,17 @@ pub async fn list_entities(
     })
 }
 
+// `deny_unknown_fields`: see the rationale on `ListSessionsQuery`
+// (routers/memory_storage.rs) — an unknown query parameter must 400 rather than
+// deserialize to `None` and silently drop the caller's filter.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RelatedEntitiesQuery {
     pub limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ListEntitiesQuery {
     pub entity_type: Option<String>,
     pub limit: Option<usize>,

@@ -121,6 +121,18 @@ pub async fn post_login(
     Ok((jar.add(cookie), Json(odata)))
 }
 
+/// Deliberately **not** `deny_unknown_fields` — the one documented exemption from
+/// the D-i rule (enforced by `every_query_struct_denies_unknown_fields` in
+/// `routers/mod.rs`, which allows an opt-out only with this exact marker).
+///
+/// ALLOWS_UNKNOWN_QUERY_PARAMS: this backs `/login/account`, a magic-link style
+/// entry point whose URL travels through email clients, chat apps and link
+/// shorteners — all of which append their own tracking parameters (`utm_*`,
+/// `fbclid`, ...). Rejecting unknown parameters here would turn a decorated link
+/// into a failed login. The silent-drop hazard the rule guards against does not
+/// apply: `token` is the only parameter, and when it is absent or misspelled the
+/// handler does not quietly return a narrowed result — it falls through to
+/// body-based credentials or returns an explicit 401/400.
 #[derive(Deserialize, Debug, Default)]
 pub struct TokenQuery {
     pub token: Option<String>,

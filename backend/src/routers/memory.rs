@@ -118,7 +118,14 @@ pub async fn select_memory_config_trace(
     json_ok(trace)
 }
 
+// `deny_unknown_fields`: see the rationale on `ListSessionsQuery`
+// (routers/memory_storage.rs). Note the contrast with `ExplainQuery` ~40 lines
+// below — these two live in the same file and use *opposite* conventions
+// (`task_id` here, `taskId` there). Both are pinned by the
+// `query_param_contract` tests in `routers/mod.rs`, because remembering which is
+// which is exactly what failed before.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListTracesQuery {
     pub task_id: Option<String>,
     pub limit: Option<i32>,
@@ -164,7 +171,14 @@ pub async fn get_decision_traces(
     json_ok(ListTracesResponse { traces })
 }
 
+// camelCase on the wire, and it must stay that way: the Python SDK's
+// `client.explain()` sends `traceId` / `taskId`
+// (`sdks/python/adaptive_memory/client.py`, pinned by its own
+// `test_explain_uses_rest_contract`). Renaming these to match the snake_case
+// sibling above would silently break that SDK, so the mismatch is preserved
+// deliberately rather than "cleaned up".
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExplainQuery {
     #[serde(rename = "traceId")]
     pub trace_id: Option<String>,
@@ -205,6 +219,13 @@ pub async fn explain_memory_selection(
     json_ok(ExplainResponse { traces })
 }
 
+/// Takes no query parameters at all.
+///
+/// ALLOWS_UNKNOWN_QUERY_PARAMS: an empty struct has no field for a parameter to
+/// be silently dropped *into*, so the D-i hazard cannot occur here. Adding
+/// `deny_unknown_fields` would instead make this endpoint reject any request
+/// carrying a stray parameter — a behaviour change with no safety gain. If this
+/// struct ever gains a field, delete this marker and add the attribute.
 #[derive(Deserialize, Debug, Default, ToSchema)]
 pub struct WorkflowEvidenceQuery {}
 
@@ -795,7 +816,12 @@ use crate::services::weight_adjuster::*;
 
 // ========== 记忆配置管理 API ==========
 
+// camelCase on the wire: `pages/MemoryManagement/index.tsx` maps ProTable's
+// params onto these exact keys (typed as `API.ListMemoryConfigsParams`). It
+// whitelists each field rather than spreading `params`, so `deny_unknown_fields`
+// is safe — ProTable's own bookkeeping keys never reach the backend.
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListMemoryConfigsRequest {
     pub page: Option<u32>,
     #[serde(rename = "pageSize")]
@@ -945,6 +971,13 @@ pub async fn get_memory_config(
 pub async fn create_memory_config(
     Json(req): Json<CreateMemoryConfigRequest>,
 ) -> JsonResult<serde_json::Value> {
+    // 校验 config_type（backlog D-k）。合法值的单一真相源是
+    // `models::memory_enums::ConfigType`（与 migration 的 `CHECK (config_type IN (...))`
+    // 由防漂移测试锁定一致）。此前直接把 req.config_type 绑进 INSERT，非法值以 DB check
+    // 违约（HTTP 500 内部错误）暴露；现在在写入边界拒绝并返回 400，错误消息列出合法值。
+    let config_type = crate::models::memory_enums::ConfigType::parse(&req.config_type)
+        .map_err(crate::AppError::BadRequest)?;
+
     let config_id = ulid::Ulid::new().to_string();
 
     // 创建 MemoryConfigRow
@@ -953,7 +986,7 @@ pub async fn create_memory_config(
         user_id: req.user_id,
         agent_id: req.agent_id,
         config_name: req.config_name,
-        config_type: req.config_type,
+        config_type: config_type.as_str().to_string(),
         stm_enabled: req.stm_enabled as i16,
         stm_max_length: req.stm_max_length,
         stm_retention_hours: req.stm_retention_hours,
@@ -1052,7 +1085,12 @@ pub async fn update_memory_config(
         existing.config_name = name;
     }
     if let Some(ct) = update_req.config_type {
-        existing.config_type = ct;
+        // 校验 config_type（backlog D-k）：仅在调用方显式提供该字段时校验并写入，
+        // 未提供则保留既有值。合法值真相源同 create（`ConfigType`）。此前直接覆写，
+        // 非法值以 DB check 违约（HTTP 500）暴露；现在返回 400 并列出合法值。
+        let ct = crate::models::memory_enums::ConfigType::parse(&ct)
+            .map_err(crate::AppError::BadRequest)?;
+        existing.config_type = ct.as_str().to_string();
     }
     if let Some(val) = update_req.stm_enabled {
         existing.stm_enabled = val as i16;

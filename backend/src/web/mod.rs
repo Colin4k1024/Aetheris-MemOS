@@ -5,11 +5,9 @@
 #![allow(dead_code)]
 
 pub mod cors;
-pub mod jwt;
 pub mod rate_limit;
 
 pub use cors::cors_layer;
-pub use jwt::auth_middleware;
 pub use rate_limit::rate_limit_middleware as rate_limit_layer;
 
 use axum::{

@@ -6,6 +6,7 @@ pub mod agent;
 pub mod dry_run;
 pub mod evidence;
 pub mod memory;
+pub mod memory_enums;
 pub mod performance;
 pub mod procedural;
 pub mod resource;

@@ -49,7 +49,7 @@ async fn test_approval_request_and_approve() {
 
     // Approve the request
     manager
-        .approve(&output.approval_id, "admin_user")
+        .approve(&output.approval_id, "admin_user", None)
         .await
         .unwrap();
 
@@ -212,7 +212,7 @@ async fn test_multiple_approvals_same_workflow() {
 
     // Approve first one
     manager
-        .approve(&output1.approval_id, "admin_user")
+        .approve(&output1.approval_id, "admin_user", None)
         .await
         .unwrap();
 

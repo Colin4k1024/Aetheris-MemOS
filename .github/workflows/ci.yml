@@ -17,6 +17,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      sdk-rust: ${{ steps.filter.outputs.sdk-rust }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -28,6 +29,9 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            sdk-rust:
+              - 'sdks/rust/**'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -53,22 +57,45 @@ jobs:
           --health-timeout=5s
           --health-retries=10
 
+      # Backend uses gRPC on 6334 (config.toml [qdrant]); 6333 is REST, mapped
+      # only for the health-check probe (mirrors docker-compose.yml).
+      qdrant:
+        image: qdrant/qdrant:v1.9.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd="bash -c 'echo > /dev/tcp/localhost/6333'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=10s
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned, NOT @stable. `cargo fmt --all -- --check` below is a blocking
+        # gate and rustfmt's formatting changes between releases, so a floating
+        # @stable makes CI disagree with contributors' local rustfmt. Keep this
+        # version in sync with /rust-toolchain.toml.
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.96.1"
           components: clippy, rustfmt
 
       - name: Cache cargo
         uses: actions/cache@v4
         with:
+          # `backend/target`, not `target`: `actions/cache` resolves paths against
+          # the workspace root, while this job's `working-directory: backend` only
+          # affects `run:` steps. Caching bare `target` therefore archived a
+          # non-existent root directory and the compile cache never hit.
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/sqlx
-            target
+            backend/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
@@ -86,16 +113,214 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all
-        continue-on-error: true
         env:
           SQLX_OFFLINE: "true"
 
-      - name: Test
-        run: cargo test
+      # `--include-ignored` is REQUIRED, not optional. The cross-tenant RLS
+      # isolation tests are marked `#[ignore]` so that a developer running
+      # `cargo test` on a machine without Postgres sees an honest `ignored`
+      # instead of a false `ok`. Plain `cargo test` would therefore SKIP the
+      # most security-critical suite in the repo exactly where it CAN run.
+      # CI provides Postgres, so it must opt back in.
+      #
+      # `--tests` restricts this to unit + integration targets. Doc-tests are
+      # excluded here and run as their own step below, so that each set's
+      # `ignore` markers are respected independently: `--include-ignored` would
+      # otherwise force-run doc examples that are deliberately marked `ignore`.
+      #
+      # Tests needing services CI does not provide (Qdrant-backed e2e, Ollama)
+      # keep an internal env-var guard and still self-skip, so this is safe.
+      - name: Test (unit + integration, including PG-gated)
+        run: cargo test --tests -- --include-ignored
         timeout-minutes: 30
         env:
           DATABASE_URL: postgres://memory:memory@localhost:5432/memory
           SQLX_OFFLINE: "true"
+
+      # Doc-tests run separately so their own `ignore` markers are respected.
+      - name: Doc tests
+        run: cargo test --doc
+        timeout-minutes: 10
+        env:
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+          SQLX_OFFLINE: "true"
+
+      # Open-core gate, second channel (backlog A-3). Every step above builds the
+      # DEFAULT feature set, so on its own it proves only that the MIT build works.
+      # This step proves the enterprise build still compiles — without it, the
+      # `#[cfg(feature = "enterprise")]` code (routers/billing.rs and
+      # `billing_router`) is never type-checked by CI at all and would rot exactly
+      # the way sdks/rust did before E-7b.
+      #
+      # The two channels together are what makes the gate self-enforcing: an
+      # UNGATED reference to `billing::` breaks the default build above, and a
+      # BROKEN gated module breaks this one. The remaining failure mode — gating
+      # too much, which compiles in both channels — is covered by the
+      # `routers::enterprise_gate` tests.
+      #
+      # `check --all-targets` rather than `test`: this channel adds no new
+      # behaviour to exercise, only a route registration, and the tests already ran
+      # above. `--all-targets` still type-checks the test code inside the gated
+      # module.
+      - name: Check enterprise channel compiles
+        run: cargo check --all-targets --features enterprise
+        timeout-minutes: 20
+        env:
+          DATABASE_URL: postgres://memory:memory@localhost:5432/memory
+          SQLX_OFFLINE: "true"
+
+  # A2A agent-interop protocol channel. A SEPARATE job (not a step in `backend`)
+  # on purpose: the `a2a` feature pulls a2a-rs from a pinned GitHub rev, so a
+  # cold-cache build must reach GitHub over the network. Folding it into `backend`
+  # would put that job's security-critical suite (RLS isolation, fmt, clippy) at
+  # the mercy of GitHub availability — one network blip fetching a2a-rs would red
+  # the whole backend gate. A dedicated job contains that blast radius while STILL
+  # blocking the workflow: there is deliberately NO continue-on-error, so if the
+  # feature stops compiling or a test regresses, this job goes red.
+  #
+  # History worth keeping: `tests/a2a_integration.rs` is gated by a file-level
+  # `#![cfg(feature = "a2a")]`, so without this job the whole file compiled to
+  # nothing and its tests SILENTLY DID NOT EXIST — not failed, absent. Running them
+  # for the first time on 2026-08-11 immediately surfaced a real bug: the a2a router
+  # was merged without `auth_middleware`, so the handlers' `Extension<RequestTenant
+  # Context>` extractor failed and 4 of 7 returned 500. Fixed in backlog A-4b.
+  #
+  # No Postgres/Qdrant service and no DATABASE_URL: the crate uses runtime sqlx
+  # (`sqlx::query` / `.bind`), not compile-checked `query!` macros, so it builds
+  # fully offline, and these tests build the router in-process without a DB pool.
+  # The one test that does need real infra is `#[ignore]`d with its reason stated,
+  # so `cargo test` reports it as honestly skipped rather than silently passing.
+  backend-a2a:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        # Pinned to match the `backend` job (keep in sync with rust-toolchain.toml).
+        # No clippy/rustfmt components: this job only compiles.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.1"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          # `backend/target` for the same reason as the `backend` job: cache paths
+          # resolve against the workspace root, not this job's working-directory.
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          # Separate key from `backend`: the a2a feature set produces different
+          # artifacts and pulls the a2a-rs git dep the main cache never populates.
+          # The restore-keys fallback still warms the crate registry from that cache.
+          key: ${{ runner.os }}-cargo-a2a-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-a2a-
+            ${{ runner.os }}-cargo-
+
+      # Compiles the production bin + lib WITH the feature. This is what guards the
+      # `#[cfg(feature = "a2a")]` router mount in routers/mod.rs against bit-rot —
+      # code only reachable under the feature is otherwise never type-checked in CI.
+      - name: Build backend with a2a feature
+        run: cargo build --features a2a
+        timeout-minutes: 30
+        env:
+          SQLX_OFFLINE: "true"
+
+      # Compiles the integration target. Kept as its own step from the build so a
+      # test-only compile error is distinguishable from a lib/bin one in the log.
+      - name: Compile a2a integration tests
+        run: cargo test --features a2a --test a2a_integration --no-run
+        timeout-minutes: 15
+        env:
+          SQLX_OFFLINE: "true"
+
+      # Full suite, no filter and no allow-failure. An earlier revision of this job
+      # ran only the 3 tests that passed at the time, because the other 4 were red
+      # from the missing-auth bug; that filter is gone now A-4b has landed.
+      #
+      # Measured 2026-08-11 after the fix: 7 passed, 0 failed, 1 ignored.
+      # The ignored one is `test_rest_send_message` — it performs a real LTM write,
+      # so it needs a reachable embedding backend plus a DB. It carries an explicit
+      # `#[ignore]` reason, which is what makes `cargo test` report it as honestly
+      # skipped instead of quietly green. Run it under e2e infra with `--ignored`.
+      #
+      # Do NOT reintroduce a name filter or `|| true` here: a run that cannot fail
+      # is not a gate, and a filter silently narrows the moment someone adds a test.
+      - name: Run a2a integration tests
+        run: cargo test --features a2a --test a2a_integration
+        timeout-minutes: 15
+        env:
+          SQLX_OFFLINE: "true"
+
+  # Rust SDK crate (`sdks/rust`). A SEPARATE job because it is a STANDALONE crate,
+  # not a member of the backend workspace: there is no root Cargo.toml, backend's
+  # Cargo.toml declares no `[workspace]`, and sdks/rust ships its own Cargo.lock.
+  # The `backend` job runs everything under `working-directory: backend`, so its
+  # `cargo fmt --all` / `clippy` / `test` NEVER reached this crate — the whole SDK
+  # was invisible to CI. That gap is exactly how fmt drift accumulated here while
+  # backend stayed clean (backlog E-7b): the same "門禁存在但不覆盖" pattern as the
+  # frontend lint flag, one directory over.
+  #
+  # No Postgres/Qdrant and no SQLX_OFFLINE: this is a thin reqwest HTTP client with
+  # no sqlx dependency, so it builds and tests fully offline. The tests are the
+  # `.query()` URL-construction suite from E-4/#28.
+  #
+  # `cargo clippy --all-targets` (not plain `--all`) is deliberate: it type-checks
+  # the examples too, which plain `cargo test`/`clippy` skip. That guards against
+  # the D-j/#77 class of bug — an SDK example compiled with an illegal enum value —
+  # from silently rotting. Plain `cargo test` already covers doctests, so no
+  # separate doc-test step is needed.
+  sdk-rust:
+    needs: changes
+    if: needs.changes.outputs.sdk-rust == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/rust
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        # Pinned, NOT @stable — same reason as the `backend` job: `cargo fmt --all
+        # -- --check` below is a blocking gate and rustfmt's formatting changes
+        # between releases. The repo-root rust-toolchain.toml (1.96.1) already
+        # applies to this crate (rustup walks up the tree), but pin explicitly here
+        # too so the gate does not silently depend on file-resolution order.
+        # Keep in sync with /rust-toolchain.toml and the backend jobs.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.1"
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            sdks/rust/target
+          key: ${{ runner.os }}-cargo-sdk-rust-${{ hashFiles('sdks/rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-sdk-rust-
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets
+
+      - name: Test
+        run: cargo test
 
   frontend:
     needs: changes
@@ -118,9 +343,28 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # Blocking as of 2026-08-11 (backlog E-3). This step carried
+      # `continue-on-error: true` while the repo had 22 blocking lint failures
+      # (8 biome errors + 14 tsc errors), which made it a gate that could not
+      # fail — the exact "門禁存在但不起作用" pattern this remediation targets.
+      # Those were cleared (real fixes; one reviewed inline biome-ignore for a
+      # DOMPurify false positive), so the flag is gone and lint now blocks.
+      #
+      # `npm run lint` runs `biome:lint && tsc --noEmit`. tsc is the half that
+      # earns the gate: it caught a live ReferenceError (a component using `intl`
+      # without `useIntl()`) that had been shipping unnoticed.
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
+      # NOT wiring `npm test` here yet (backlog E-11b, deferred).
+      #
+      # The jest suite does run on Node 24 (E-11/#80 fixed the infra), but an
+      # independent re-check on Node 20 — the version THIS job pins — failed with
+      # `Jest: Failed to parse the TypeScript config file jest.config.ts /
+      # Parse config file failed: [config/config.ts]`, not the 6-passing run a
+      # prior verification reported. Until that discrepancy is resolved on Node
+      # 20 specifically, adding the step would either red the pipeline or invite
+      # a `continue-on-error` — and a suite that cannot fail is not a gate, which
+      # is the exact anti-pattern the lint flag above was removed for.
       - name: Build
         run: npm run build

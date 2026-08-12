@@ -22,6 +22,12 @@ const BATCH_SIZE: i64 = 32;
 const MAX_ATTEMPTS: i32 = 8;
 const STALE_LOCK_SECS: i64 = 120;
 const RECLAIM_EVERY_N_LOOPS: u32 = 15;
+/// Publish the pending-queue depth and the memory-inventory gauges every N loops
+/// rather than on every 2s poll, so `outbox_pending_total`,
+/// `memory_ltm_entries_total` and `memory_stm_sessions_active` track reality
+/// without a full-table COUNT on each cycle. Mirrors [`RECLAIM_EVERY_N_LOOPS`];
+/// ~30s at the 2s poll.
+const PUBLISH_PENDING_EVERY_N_LOOPS: u32 = 15;
 
 /// Start the outbox worker (idempotent). No-op when not on PostgreSQL.
 pub fn init_outbox_worker() {
@@ -59,6 +65,36 @@ async fn run_loop(worker_id: &str) {
             }
         }
 
+        // Publish the pending backlog on a throttle. `== 1` fires on the first
+        // loop so the gauge reflects reality immediately at startup instead of
+        // holding its registered 0 for the first ~30s (which would read as an
+        // empty queue even when it is not).
+        if loops % PUBLISH_PENDING_EVERY_N_LOOPS == 1 {
+            match vector_outbox::count_pending(pool()).await {
+                Ok(n) => exporter.set_outbox_pending(n as f64),
+                Err(e) => warn!("outbox count_pending: {}", e),
+            }
+
+            // Memory-inventory gauges (memory_ltm_entries_total /
+            // memory_stm_sessions_active) piggyback on this loop rather than a
+            // dedicated task: it is the only always-on PostgreSQL background loop
+            // (started whenever PG is configured), so death of the loop is already
+            // observable via the OutboxBacklogHigh / OutboxProcessingSlow alerts on
+            // the pending gauge it shares. A separate refresher would have no such
+            // liveness coverage without minting an otherwise-unactioned staleness
+            // metric. A COUNT that errors leaves the gauge at its previous value —
+            // zeroing on a transient DB blip would fabricate an "empty" reading,
+            // the exact false-calm this instrumentation exists to avoid.
+            match crate::db::ltm::count_active_entries(pool()).await {
+                Ok(n) => exporter.set_ltm_entries_total(n as f64),
+                Err(e) => warn!("inventory count_active_entries: {}", e),
+            }
+            match crate::db::stm::count_active_sessions(pool()).await {
+                Ok(n) => exporter.set_stm_sessions_active(n as f64),
+                Err(e) => warn!("inventory count_active_sessions: {}", e),
+            }
+        }
+
         let start = std::time::Instant::now();
         match process_batch(worker_id).await {
             Ok(0) => {
@@ -83,18 +119,30 @@ async fn process_batch(worker_id: &str) -> Result<usize, crate::AppError> {
         return Ok(0);
     }
 
+    let exporter = get_exporter();
+
     let qdrant = match get_qdrant_client() {
         Ok(c) => c,
         Err(e) => {
             for ev in &events {
-                let _ = vector_outbox::mark_failed(
-                    pool(),
-                    &ev.event_id,
-                    ev.attempt_count,
-                    MAX_ATTEMPTS,
-                    &format!("qdrant client unavailable: {e}"),
-                )
-                .await;
+                // A dead Qdrant client fails every claimed event's delivery. Count
+                // Upsert events as upsert failures (Delete has no counter — see the
+                // delivery loop below) and record any dead-letter escalation.
+                if ev.operation == OutboxOperation::Upsert {
+                    exporter.inc_outbox_qdrant_upsert_failure();
+                }
+                if let Ok(vector_outbox::MarkFailedOutcome::DeadLettered) =
+                    vector_outbox::mark_failed(
+                        pool(),
+                        &ev.event_id,
+                        ev.attempt_count,
+                        MAX_ATTEMPTS,
+                        &format!("qdrant client unavailable: {e}"),
+                    )
+                    .await
+                {
+                    exporter.inc_outbox_dead_letter();
+                }
             }
             return Err(crate::AppError::Internal(format!(
                 "qdrant client unavailable: {e}"
@@ -105,8 +153,18 @@ async fn process_batch(worker_id: &str) -> Result<usize, crate::AppError> {
     let mut handled = 0usize;
     for ev in events {
         let result = deliver_one(&qdrant, &ev).await;
+        // The Qdrant upsert counters track Upsert deliveries only: the metric
+        // names say `upsert`, and Delete is a distinct operation with no counter.
+        // "Failure" here is the whole delivery attempt (including a pre-flight
+        // payload/vector decode error in `deliver_one`), not just a Qdrant-side
+        // rejection — otherwise permanently-undeliverable events would never show
+        // in the failure rate before they dead-letter.
+        let is_upsert = ev.operation == OutboxOperation::Upsert;
         match result {
             Ok(()) => {
+                if is_upsert {
+                    exporter.inc_outbox_qdrant_upsert_success();
+                }
                 if let Err(e) = vector_outbox::mark_applied(pool(), &ev.event_id).await {
                     error!(event_id = %ev.event_id, "mark_applied failed: {}", e);
                 } else {
@@ -114,20 +172,27 @@ async fn process_batch(worker_id: &str) -> Result<usize, crate::AppError> {
                 }
             }
             Err(err) => {
+                if is_upsert {
+                    exporter.inc_outbox_qdrant_upsert_failure();
+                }
                 warn!(
                     event_id = %ev.event_id,
                     entry_id = %ev.entry_id,
                     "outbox delivery failed: {}",
                     err
                 );
-                let _ = vector_outbox::mark_failed(
-                    pool(),
-                    &ev.event_id,
-                    ev.attempt_count,
-                    MAX_ATTEMPTS,
-                    &err,
-                )
-                .await;
+                if let Ok(vector_outbox::MarkFailedOutcome::DeadLettered) =
+                    vector_outbox::mark_failed(
+                        pool(),
+                        &ev.event_id,
+                        ev.attempt_count,
+                        MAX_ATTEMPTS,
+                        &err,
+                    )
+                    .await
+                {
+                    exporter.inc_outbox_dead_letter();
+                }
                 handled += 1;
             }
         }

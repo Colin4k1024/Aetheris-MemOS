@@ -105,3 +105,12 @@ pub struct StoreLtmRequest {
 pub struct StoreLtmResponse {
     pub entry_id: String,
 }
+
+/// Session list response (paginated)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionListResponse {
+    pub sessions: Vec<Session>,
+    pub total: usize,
+    pub limit: i32,
+    pub offset: i32,
+}

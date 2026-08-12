@@ -133,22 +133,25 @@ See [why-axum.md](why-axum.md) for web framework migration notes and [ARCHITECTU
 
 ---
 
-## v0.8 — Distributed Cluster (Q4)
+## v0.8 — Distributed Coordination (Q4)
 
-**Theme:** Horizontally Scalable Memory
+**Theme:** In-Process Coordination & High Availability Strategy
 
 ### Architecture Modules
 
-| Module      | Location                                                    | Status      |
-| ----------- | ----------------------------------------------------------- | ----------- |
-| Distributed | `src/distributed/` (node, replication, sharding, consensus) | Implemented |
+| Module      | Location                                                              | Status      |
+| ----------- | --------------------------------------------------------------------- | ----------- |
+| Distributed | `src/distributed/` (epoch_manager, interrupt_propagator, lease_coordinator, signaling_bus) | Implemented |
 
-### Planned
+> **Note:** This module provides in-process coordination primitives only (single node).
+> High availability and cluster-level scaling are delegated to managed infrastructure per [ADR-0005-ha-infrastructure-selection.md](adr/ADR-0005-ha-infrastructure-selection.md).
 
-- **Node discovery** — Cluster membership and heartbeats
-- **Replication** — Multi-replica sync
-- **Sharding** — Consistent hash-based sharding
-- **Consensus** — Leader election (Raft)
+### Not Planned (Self-Built)
+
+- **Node discovery** — Delegated to managed infrastructure
+- **Replication** — Delegated to managed infrastructure
+- **Sharding** — Delegated to managed infrastructure
+- **Consensus** — Delegated to managed infrastructure (no hand-rolled Raft)
 
 ---
 

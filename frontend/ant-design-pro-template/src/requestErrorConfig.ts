@@ -17,6 +17,8 @@ interface ResponseStructure {
   data: any;
   errorCode?: number;
   errorMessage?: string;
+  // 后端在部分错误响应中使用 `message` 而非 `errorMessage`，响应拦截器两者都读
+  message?: string;
   showType?: ErrorShowType;
 }
 
@@ -135,7 +137,7 @@ export const errorConfig: RequestConfig = {
       const token = localStorage.getItem('jwt_token');
       if (token && config.headers) {
         // 设置 Authorization header
-        config.headers['Authorization'] = `Bearer ${token}`;
+        config.headers.Authorization = `Bearer ${token}`;
       }
 
       return config;

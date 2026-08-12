@@ -22,7 +22,10 @@ use crate::{json_ok, JsonResult};
 pub struct ApprovalCallbackRequest {
     /// User performing the action
     pub user_id: String,
-    /// Optional reason for rejection
+    /// Optional note recording why the approval was granted. Persisted to the
+    /// approval's `resolution_reason` and surfaced in the audit trail. Previously
+    /// this field was accepted and silently discarded (D-g) — and the doc comment
+    /// said "reason for rejection", which this endpoint cannot produce.
     #[serde(default)]
     pub reason: Option<String>,
 }
@@ -125,7 +128,11 @@ pub async fn approve_workflow(
     // }
 
     manager
-        .approve(&pending.approval_id, &request.user_id)
+        .approve(
+            &pending.approval_id,
+            &request.user_id,
+            request.reason.as_deref(),
+        )
         .await
         .map_err(|e: AppError| match e {
             AppError::NotFound(_) => e,

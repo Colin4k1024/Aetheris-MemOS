@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
 use crate::config;
+use crate::services::prometheus_exporter::get_exporter;
 use crate::tenant::RequestTenantContext;
 use crate::AppError;
 
@@ -37,13 +38,22 @@ pub struct JwtClaims {
 /// Returns `AppError::Unauthorized` if the token is missing, malformed,
 /// expired, or fails signature verification.
 pub fn authenticate(token: &str) -> Result<(JwtClaims, RequestTenantContext), AppError> {
-    let claims = decode_token_claims(token)
-        .ok_or_else(|| AppError::Unauthorized("Token is invalid or expired".to_string()))?;
+    let Some(claims) = decode_token_claims(token) else {
+        // A malformed/bad-signature token and — because jsonwebtoken validates
+        // `exp` by default — an already-expired one both land here, so
+        // `invalid_token` is the dominant reason. The explicit `expired` branch
+        // below is a rarely-hit belt-and-suspenders.
+        get_exporter().inc_auth_failure("invalid_token");
+        return Err(AppError::Unauthorized(
+            "Token is invalid or expired".to_string(),
+        ));
+    };
 
     // Explicit expiry check — jwtwebtoken's Validation does this by default,
     // but we double-check to be explicit about the security boundary.
     let now = OffsetDateTime::now_utc().unix_timestamp();
     if claims.exp < now {
+        get_exporter().inc_auth_failure("expired");
         return Err(AppError::Unauthorized("Token has expired".to_string()));
     }
 
@@ -113,6 +123,7 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, A
     // Reject tokens in query strings (security: prevent token leakage in logs/referrer)
     if let Some(query) = req.uri().query() {
         if query.contains("token=") || query.contains("jwt_token=") {
+            get_exporter().inc_auth_failure("query_param_token");
             return Err(AppError::Unauthorized(
                 "Token query parameter not supported. Use httpOnly cookie or Authorization header."
                     .to_string(),
@@ -120,10 +131,14 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, A
         }
     }
 
-    let token = extract_token(&req)
-        .ok_or_else(|| AppError::Unauthorized("Missing authentication token".to_string()))?;
+    let token = extract_token(&req).ok_or_else(|| {
+        get_exporter().inc_auth_failure("missing_token");
+        AppError::Unauthorized("Missing authentication token".to_string())
+    })?;
 
-    // Delegate to the transport-agnostic authenticator core.
+    // Delegate to the transport-agnostic authenticator core. Its own invalid/
+    // expired failures are counted inside `authenticate()` (so all transports
+    // share that accounting) — we must NOT re-count them here.
     let (claims, tenant_ctx) = authenticate(&token)?;
 
     req.extensions_mut().insert(claims);

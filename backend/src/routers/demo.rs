@@ -6,6 +6,7 @@ use serde::Deserialize;
 use crate::AppResult;
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HelloQuery {
     pub name: Option<String>,
 }

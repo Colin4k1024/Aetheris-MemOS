@@ -167,10 +167,26 @@ impl ApprovalManager {
         Ok(approval_id)
     }
 
-    /// Approve a pending approval
-    pub async fn approve(&self, approval_id: &str, approver: &str) -> Result<(), AppError> {
-        self.resolve_approval(approval_id, approver, ApprovalStatus::Approved, None)
-            .await
+    /// Approve a pending approval, optionally recording why.
+    ///
+    /// `reason` is `Option` because an approval — unlike a rejection — does not
+    /// require justification. It is threaded through rather than dropped so the
+    /// resolution note an approver supplies actually lands in
+    /// `PendingApproval::resolution_reason` and shows up in the audit trail; the
+    /// HTTP layer previously accepted a `reason` field and discarded it (D-g).
+    pub async fn approve(
+        &self,
+        approval_id: &str,
+        approver: &str,
+        reason: Option<&str>,
+    ) -> Result<(), AppError> {
+        self.resolve_approval(
+            approval_id,
+            approver,
+            ApprovalStatus::Approved,
+            reason.map(str::to_string),
+        )
+        .await
     }
 
     /// Reject a pending approval with a reason
@@ -345,12 +361,76 @@ mod tests {
             ApprovalStatus::Pending
         );
 
-        manager.approve(&approval_id, "admin_user").await.unwrap();
+        manager
+            .approve(&approval_id, "admin_user", None)
+            .await
+            .unwrap();
 
         assert_eq!(
             manager.get_status(&approval_id).await.unwrap(),
             ApprovalStatus::Approved
         );
+    }
+
+    /// An approver's note must survive into the record (D-g). `approve` used to
+    /// hardcode `None` for the reason while the HTTP layer accepted one, so the
+    /// justification for granting an approval was dropped on the floor — an audit
+    /// gap, since the record showed *who* approved but never *why*.
+    #[tokio::test]
+    async fn approve_persists_the_supplied_reason() {
+        let manager = ApprovalManager::get_instance();
+
+        let node = ApprovalNode::new(
+            "test-reason",
+            "admin",
+            Duration::from_secs(300),
+            EscalationPolicy::AutoReject,
+        );
+        let approval_id = manager
+            .request_approval(&node, "workflow-reason", vec![1])
+            .await
+            .unwrap();
+
+        manager
+            .approve(&approval_id, "admin_user", Some("budget signed off"))
+            .await
+            .unwrap();
+
+        let record = manager.get_approval(&approval_id).await.unwrap();
+        assert_eq!(record.status, ApprovalStatus::Approved);
+        assert_eq!(record.resolved_by.as_deref(), Some("admin_user"));
+        assert_eq!(
+            record.resolution_reason.as_deref(),
+            Some("budget signed off"),
+            "the approver's note must be recorded, not discarded"
+        );
+    }
+
+    /// Approving without a note stays valid — a reason is optional on approval
+    /// (unlike rejection, where `reject` requires one).
+    #[tokio::test]
+    async fn approve_without_reason_leaves_it_empty() {
+        let manager = ApprovalManager::get_instance();
+
+        let node = ApprovalNode::new(
+            "test-no-reason",
+            "admin",
+            Duration::from_secs(300),
+            EscalationPolicy::AutoReject,
+        );
+        let approval_id = manager
+            .request_approval(&node, "workflow-no-reason", vec![1])
+            .await
+            .unwrap();
+
+        manager
+            .approve(&approval_id, "admin_user", None)
+            .await
+            .unwrap();
+
+        let record = manager.get_approval(&approval_id).await.unwrap();
+        assert_eq!(record.status, ApprovalStatus::Approved);
+        assert_eq!(record.resolution_reason, None);
     }
 
     #[tokio::test]

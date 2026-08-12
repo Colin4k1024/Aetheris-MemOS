@@ -52,9 +52,51 @@ pub struct DbConfig {
     /// creation.
     #[serde(default = "default_helper_threads")]
     pub helper_threads: usize,
+    /// Whether to run database migrations automatically at startup.
+    ///
+    /// Running migrations requires DDL privileges (CREATE on schema), so the
+    /// application should normally NOT do it. Leave `false` in production and
+    /// run migrations as a separate owner-privileged step (e.g. `sqlx migrate
+    /// run`). When `false`, the application verifies that the schema is up to
+    /// date and fails fast if any migration is missing.
+    ///
+    /// Set to `true` only for local development where the database connection
+    /// already holds DDL privileges.
+    #[serde(default = "default_false")]
+    pub auto_migrate: bool,
+
     /// Whether to enforce that all the database connections are encrypted with TLS.
     #[serde(default = "default_false")]
     pub enforce_tls: bool,
+
+    /// Optional owner/BYPASSRLS maintenance connection URL for cross-tenant
+    /// operations that must run outside Row Level Security (e.g. Qdrant
+    /// tenant-metadata backfill).
+    ///
+    /// When set, a separate small connection pool (max 2) is created at
+    /// startup using this URL.  The pool is NOT used for any regular query;
+    /// it is only consumed by the backfill endpoint.
+    ///
+    /// **Default is `None` (disabled).**  The backfill endpoint returns an
+    /// explicit error until an operator deliberately configures this.
+    #[serde(default)]
+    pub admin_url: Option<String>,
+
+    /// Whether an empty [`Self::url`] may silently fall back to a local SQLite
+    /// database.
+    ///
+    /// **Defaults to `false`, and that default is a security control.** SQLite
+    /// has no Row Level Security, so the fallback drops *all* database-layer
+    /// tenant isolation — the multi-tenant guarantee then rests entirely on
+    /// every application query passing the right `tenant_id`. A production
+    /// deployment that loses its `DATABASE_URL` (empty env var, stripped
+    /// config, bad secret injection) must **fail to boot**, not quietly come up
+    /// with weaker isolation than the operator believes it has.
+    ///
+    /// Set to `true` (or `APP_DB_ALLOW_SQLITE_FALLBACK=true`) only for local
+    /// development. Doing so prints a startup banner, mirroring `jwt.disabled`.
+    #[serde(default = "default_false")]
+    pub allow_sqlite_fallback: bool,
 }
 
 fn default_helper_threads() -> usize {
