@@ -23,6 +23,21 @@ use crate::tenant::TenantId;
 /// parameter without it being declared in `postgresql.conf`.
 pub const TENANT_GUC: &str = "aetheris.tenant_id";
 
+/// GUC key the *self-membership* policies read via `current_setting(USER_GUC, true)`.
+///
+/// Exists because one question cannot be answered under a tenant-keyed policy
+/// alone: "which orgs does this user belong to". That is a read ACROSS tenants for
+/// a single user, and scoping it by tenant would require already knowing the org
+/// you are trying to discover. `tenants` and `tenant_members` therefore carry a
+/// second permissive policy keyed on this GUC (see
+/// `migrations/20260812000100_org_tenant_model.sql`).
+///
+/// Those policies are `FOR SELECT` only — deliberately no `WITH CHECK`. A
+/// write-capable self policy would let a caller insert their own membership into
+/// an arbitrary org, i.e. self-service privilege escalation. Writes stay on the
+/// tenant-keyed path, which requires already being scoped to that org.
+pub const USER_GUC: &str = "aetheris.user_id";
+
 /// Begin a transaction with the tenant GUC set transaction-locally.
 ///
 /// Every RLS-protected statement executed on the returned transaction is scoped to
@@ -45,6 +60,39 @@ pub async fn begin_tenant_tx<'a>(
         .execute(&mut *tx)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to set tenant GUC: {e}")))?;
+
+    Ok(tx)
+}
+
+/// Begin a transaction scoped to a *user* rather than a tenant, for the
+/// cross-tenant membership lookups behind switch-org.
+///
+/// Sets [`USER_GUC`] and **not** [`TENANT_GUC`], so inside this transaction the
+/// only rows visible are the caller's own `tenant_members` rows and the `tenants`
+/// rows they are a member of. Every other RLS-protected table fail-closes to zero
+/// rows, because their policies read the tenant GUC and it is unset here — which
+/// is the intended blast radius: this transaction exists to answer "what orgs am
+/// I in", not to read tenant data.
+///
+/// Deliberately a **separate function** rather than a parameter on
+/// [`begin_tenant_tx`]: that one has 51 production call sites, and widening its
+/// signature to thread an almost-always-irrelevant argument through all of them
+/// would be a large diff whose only purpose is to serve two callers here.
+pub async fn begin_user_tx<'a>(
+    pool: &'a PgPool,
+    user_id: &str,
+) -> Result<Transaction<'a, Postgres>, AppError> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to begin user transaction: {e}")))?;
+
+    sqlx::query("SELECT set_config($1, $2, true)")
+        .bind(USER_GUC)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to set user GUC: {e}")))?;
 
     Ok(tx)
 }

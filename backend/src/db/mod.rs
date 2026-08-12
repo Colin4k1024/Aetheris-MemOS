@@ -42,6 +42,7 @@ pub mod neo4j;
 #[allow(dead_code)]
 pub mod performance;
 pub mod stm;
+pub mod tenant_members;
 pub mod tenant_scope;
 pub mod vector_outbox;
 #[allow(dead_code)]

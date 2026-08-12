@@ -413,6 +413,30 @@ mod tests {
         );
     }
 
+    /// `services::rbac::Role` lives outside this module, but its guard belongs
+    /// here with the other enum↔migration checks so there is one place to look —
+    /// and so it reuses `parse_check_in_values` instead of growing a second parser.
+    ///
+    /// This one guards an **authorization** enum: a `Role` variant the CHECK does
+    /// not accept cannot be written (the insert fails), and a CHECK value the enum
+    /// does not know is rejected by `Role::from_db_str` and treated as no
+    /// membership. Either direction of drift silently costs someone access rather
+    /// than granting it, which makes it quiet rather than harmless.
+    #[test]
+    fn anti_drift_tenant_member_role_matches_migration_check() {
+        let sql = include_str!("../../migrations/20260812000100_org_tenant_model.sql");
+        let migration_values = parse_check_in_values(sql, "role");
+        let enum_values: Vec<String> = crate::services::rbac::Role::ALL
+            .iter()
+            .map(|r| r.to_string())
+            .collect();
+        assert_eq!(
+            migration_values, enum_values,
+            "Role::ALL drifted from the tenant_members.role CHECK clause; \
+             update whichever is wrong so both agree"
+        );
+    }
+
     #[test]
     fn anti_drift_config_type_matches_migration_check() {
         let sql = include_str!("../../migrations/20240101000006_memory_management.sql");

@@ -92,6 +92,29 @@ impl Role {
             Role::Reader => 0,
         }
     }
+
+    /// Every role, in the same order as the `tenant_members.role` CHECK clause.
+    ///
+    /// The order is load-bearing: `anti_drift_tenant_member_role_matches_migration_check`
+    /// (in `models/memory_enums.rs`, where the other enum↔migration guards live)
+    /// compares this sequence against the migration text.
+    pub const ALL: [Role; 4] = [Role::Owner, Role::Admin, Role::Member, Role::Reader];
+
+    /// Parse a role as stored in `tenant_members.role`.
+    ///
+    /// Returns `None` for anything unrecognised rather than defaulting. The
+    /// caller is making an authorization decision, so an unparseable value must
+    /// fail **closed** — defaulting to `Reader` would silently grant read access
+    /// on corrupt data, and defaulting to anything higher is obviously worse.
+    ///
+    /// The stored column is `TEXT` and this conversion is explicit and fallible,
+    /// rather than mapping the column straight onto the enum in a row struct: a
+    /// row carrying a value written by a future (or buggy) version must not make
+    /// the whole query fail to decode. Same constraint recorded for the other
+    /// CHECK-backed enums in backlog D-k.
+    pub fn from_db_str(value: &str) -> Option<Role> {
+        Role::ALL.into_iter().find(|r| r.to_string() == value)
+    }
 }
 
 impl std::fmt::Display for Role {
