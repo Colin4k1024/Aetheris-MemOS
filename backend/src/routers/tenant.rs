@@ -290,7 +290,9 @@ pub async fn list_roles(
     tenant_ctx.authorize_path_tenant(&tenant_id)?;
     info!("Listing roles for tenant {}", tenant_id);
 
-    let roles = get_rbac_service().list_roles(&tenant_id).await;
+    // `list_roles` now reads `tenant_members` and so can fail; `?` propagates the
+    // database error rather than the previous infallible in-memory read.
+    let roles = get_rbac_service().list_roles(&tenant_id).await?;
 
     json_ok(RoleListResponse {
         roles: roles

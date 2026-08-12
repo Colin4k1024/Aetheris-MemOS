@@ -253,6 +253,47 @@ pub async fn governance_middleware(req: Request, next: Next) -> Result<Response,
         return Ok(next.run(req).await);
     };
 
+    // Data-plane RBAC. Relocated here from `GovernanceHookImpl::pre_store` /
+    // `pre_search` (C-3 / PR-2b) — the check itself is not new, its home is.
+    //
+    // Roles now live in `tenant_members`, so the lookup is a database read and
+    // has to be awaited. The `GovernanceHook` trait chain is synchronous all the
+    // way down, so it cannot perform it. Doing the authorization here and leaving
+    // the hooks to quota is what makes that possible.
+    //
+    // Two things improve as a side effect. The hook mapped a *string* action to a
+    // Permission and defaulted anything unrecognised to `Read`, so a new operation
+    // class would have been silently under-classified; `operation_to_permission`
+    // is exhaustive over `Operation` and fails to compile instead. And the REST
+    // data plane, the REST admin plane (`enforce_permission` above) and A2A
+    // (`a2a::handler::enforce_governance`) now share one mapping rather than three.
+    //
+    // Ordering is deliberate: authorization runs BEFORE the quota hooks, so a
+    // caller who may not perform the operation is rejected without consuming or
+    // being charged quota.
+    let required = crate::services::rbac::operation_to_permission(operation);
+    if !get_rbac_service()
+        .has_permission(tenant_ctx.tenant_id.as_str(), &tenant_ctx.user_id, required)
+        .await
+    {
+        crate::services::audit_writer::record_audit(
+            crate::db::audit::AuditEvent::new("governance.rbac_denied", "governance")
+                .tenant(tenant_ctx.tenant_id.as_str())
+                .actor(tenant_ctx.user_id.clone())
+                .resource_id(path.clone())
+                .with_metadata(&serde_json::json!({
+                    "outcome": "denied",
+                    "reason": "rbac_permission",
+                    "required_permission": format!("{required:?}"),
+                    "operation": operation.as_str(),
+                    "method": method.as_str(),
+                })),
+        );
+        return Err(AppError::Forbidden(
+            "Insufficient role permissions".to_string(),
+        ));
+    }
+
     let ctx = HookContext::new(tenant_ctx.tenant_id.to_string(), operation, path.clone())
         .with_user(tenant_ctx.user_id.clone())
         .with_param("method", method.as_str());
@@ -313,11 +354,9 @@ async fn enforce_permission(
         return Ok(next.run(req).await);
     };
 
-    let allowed = get_rbac_service().blocking_has_permission(
-        tenant_ctx.tenant_id.as_str(),
-        &tenant_ctx.user_id,
-        required,
-    );
+    let allowed = get_rbac_service()
+        .has_permission(tenant_ctx.tenant_id.as_str(), &tenant_ctx.user_id, required)
+        .await;
 
     if !allowed {
         // Audit the denial on the best-effort async writer, mirroring the MCP call

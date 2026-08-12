@@ -14,7 +14,7 @@ use crate::services::audit_writer;
 use crate::services::memory_fusion::MemoryFusionService;
 use crate::services::memory_search::MemorySearchService;
 use crate::services::memory_storage::MemoryStorageService;
-use crate::services::rbac::{get_rbac_service, Permission};
+use crate::services::rbac::{get_rbac_service, operation_to_permission, Permission};
 use crate::tenant::RequestTenantContext;
 
 use super::skills::MemorySkill;
@@ -126,14 +126,6 @@ fn skill_to_operation(skill: &MemorySkill) -> Operation {
 /// Exhaustive on purpose — a new `Operation` variant fails to COMPILE until its
 /// permission is decided here, so the RBAC gate can never silently skip a new
 /// operation class.
-fn operation_to_permission(operation: Operation) -> Permission {
-    match operation {
-        Operation::Store => Permission::Write,
-        Operation::Update => Permission::Write,
-        Operation::Delete => Permission::Delete,
-        Operation::Search => Permission::Read,
-    }
-}
 
 impl A2AHandler {
     pub fn new() -> Self {
@@ -225,11 +217,13 @@ impl A2AHandler {
     ) -> Result<(), A2AError> {
         // --- Gate 1: RBAC permission (independent of enterprise hooks) ---
         let permission = operation_to_permission(operation);
-        let allowed = get_rbac_service().blocking_has_permission(
-            tenant_ctx.tenant_id.as_str(),
-            &tenant_ctx.user_id,
-            permission,
-        );
+        let allowed = get_rbac_service()
+            .has_permission(
+                tenant_ctx.tenant_id.as_str(),
+                &tenant_ctx.user_id,
+                permission,
+            )
+            .await;
         if !allowed {
             audit_writer::record_audit(
                 AuditEvent::new("a2a.handle_message", "a2a_skill")
@@ -809,10 +803,18 @@ mod tests {
     // enterprise hook set, which is the case in this pure unit harness.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// A self-tenant caller (tenant_id == user_id) is auto-granted Owner by the
-    /// RBAC service, so every operation class is allowed. This is the honest
-    /// "today" behaviour: the gate is wired but same-tenant callers pass until an
-    /// org-level tenant model (C-3) makes roles differ.
+    /// A self-tenant caller is allowed for every operation class — **because this
+    /// harness runs on the non-PostgreSQL fallback**, not because of the old
+    /// auto-grant.
+    ///
+    /// C-3 removed the in-memory auto-grant: roles come from `tenant_members` now
+    /// and no row means denied. But `db::is_postgres()` is false in a pure unit
+    /// test (no pool is initialised), so `RbacService::get_role` takes its SQLite
+    /// branch, which still grants Owner for `tenant_id == user_id`.
+    ///
+    /// So this pins the **fallback** path, and says so rather than reading as
+    /// evidence that the database-backed path works. That path needs a live
+    /// PostgreSQL and is covered by `tests/tenant_members_pg.rs`.
     #[tokio::test]
     async fn self_tenant_caller_is_allowed_for_all_operations() {
         let handler = A2AHandler::new();

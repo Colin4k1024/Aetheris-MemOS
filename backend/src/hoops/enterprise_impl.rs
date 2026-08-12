@@ -183,26 +183,39 @@ impl RbacHookImpl {
         }
     }
 
-    /// Synchronous permission check with lazy Owner auto-grant.
+    /// **Deny-only stub.** This hook no longer performs authorization.
     ///
-    /// Delegates to [`RbacService::blocking_has_permission`] which uses a
-    /// synchronous `std::sync::RwLock` — lock contention never produces a
-    /// spurious `false` (the reader blocks until the lock is available).
+    /// The RBAC decision moved to `hoops::governance::governance_middleware`
+    /// (C-3 / PR-2b): roles live in `tenant_members`, so the lookup is an async
+    /// database read and this trait is synchronous. There is no correct answer
+    /// this method can compute, so it returns `false` and says why in a log
+    /// rather than guessing.
     ///
-    /// ## Auto-grant behaviour
+    /// `false` — not `true` — because a stub on an authorization path must fail
+    /// closed. Nothing in production reaches it today (`GovernanceHookImpl` no
+    /// longer calls it), so the denial is inert; if some future caller does wire
+    /// it up, it will get an obviously-broken deny with an explanation instead of
+    /// a silent blanket allow.
     ///
-    /// When no role is recorded for `(tenant_id, user_id)` and the two IDs are
-    /// equal (single-user tenant), the Owner role is lazily granted.  This makes
-    /// governance functional without a bootstrap flow.  See `rbac.rs` module docs
-    /// for the full design rationale and limitations.
-    pub fn blocking_has_permission(
+    /// The old string→Permission mapping it used to apply defaulted unknown
+    /// actions to `Read`, which is exactly the kind of quiet under-classification
+    /// the exhaustive `rbac::operation_to_permission` now prevents.
+    fn deny_with_reason(
         &self,
         tenant_id: &str,
         user_id: &str,
-        permission: Permission,
+        resource: &str,
+        action: &str,
     ) -> bool {
-        self.rbac
-            .blocking_has_permission(tenant_id, user_id, permission)
+        tracing::warn!(
+            tenant = %tenant_id,
+            user = %user_id,
+            resource = %resource,
+            action = %action,
+            "RbacHookImpl::check_permission is a deny-only stub since C-3; \
+             authorization belongs to governance_middleware. Denying."
+        );
+        false
     }
 }
 
@@ -214,26 +227,10 @@ impl RbacHook for RbacHookImpl {
         resource: &str,
         action: &str,
     ) -> bool {
-        // Map action to permission
-        let permission = match action.to_lowercase().as_str() {
-            "read" | "get" | "list" => Permission::Read,
-            "write" | "create" | "store" | "update" => Permission::Write,
-            "delete" | "remove" => Permission::Delete,
-            "manage" => Permission::Manage,
-            "manage_memory" => Permission::ManageMemory,
-            "manage_agents" => Permission::ManageAgents,
-            "manage_tenant" => Permission::ManageTenant,
-            "manage_billing" => Permission::ManageBilling,
-            "delete_tenant" => Permission::DeleteTenant,
-            _ => Permission::Read, // Default to read for unknown actions
-        };
-
-        let result = self.blocking_has_permission(tenant_id, user_id, permission);
-
+        let result = self.deny_with_reason(tenant_id, user_id, resource, action);
         if !result {
             self.log_denial(tenant_id, user_id, resource, action);
         }
-
         result
     }
 
@@ -476,20 +473,15 @@ impl GovernanceHook for GovernanceHookImpl {
             ));
         }
 
-        if let Some(user_id) = &ctx.user_id {
-            if !self
-                .rbac
-                .check_permission(&ctx.tenant_id, user_id, &ctx.resource, "write")
-            {
-                self.record_audit(AuditEvent::new(
-                    ctx.tenant_id.clone(),
-                    "pre_store".to_string(),
-                    "rbac_denied".to_string(),
-                    AuditResult::Denied,
-                ));
-                return HookDecision::Deny("Insufficient role permissions".to_string());
-            }
-        }
+        // RBAC is NOT checked here. It moved to `hoops::governance::governance_middleware`
+        // in C-3 / PR-2b, which runs it before this hook — see that call site for
+        // the reasoning. In short: roles now live in `tenant_members`, so the
+        // lookup is a database read, and this trait is synchronous.
+        //
+        // Leaving a second, weaker check here would be worse than removing it: it
+        // mapped a string action to a Permission with an "unknown → Read" default,
+        // so the two planes could disagree about the same request. This hook's job
+        // is quota.
 
         HookDecision::Allow
     }
@@ -507,20 +499,8 @@ impl GovernanceHook for GovernanceHookImpl {
             return HookDecision::Deny("Search quota exceeded".to_string());
         }
 
-        if let Some(user_id) = &ctx.user_id {
-            if !self
-                .rbac
-                .check_permission(&ctx.tenant_id, user_id, &ctx.resource, "read")
-            {
-                self.record_audit(AuditEvent::new(
-                    ctx.tenant_id.clone(),
-                    "pre_search".to_string(),
-                    "rbac_denied".to_string(),
-                    AuditResult::Denied,
-                ));
-                return HookDecision::Deny("Insufficient role permissions".to_string());
-            }
-        }
+        // RBAC is NOT checked here — see the note in `pre_store`. Authorization
+        // runs in `governance_middleware` before this hook; this one does quota.
 
         HookDecision::Allow
     }
