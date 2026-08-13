@@ -5,7 +5,6 @@ pub enum MemorySkill {
     MemorySearch,
     MemoryStore,
     MemoryFusion,
-    MemoryStatus,
     KnowledgeGraph,
 }
 
@@ -28,7 +27,6 @@ impl MemorySkill {
             "memory_search" => Some(Self::MemorySearch),
             "memory_store" => Some(Self::MemoryStore),
             "memory_fusion" => Some(Self::MemoryFusion),
-            "memory_status" => Some(Self::MemoryStatus),
             "knowledge_graph" => Some(Self::KnowledgeGraph),
             _ => None,
         }
@@ -39,7 +37,6 @@ impl MemorySkill {
             Self::MemorySearch => "memory_search",
             Self::MemoryStore => "memory_store",
             Self::MemoryFusion => "memory_fusion",
-            Self::MemoryStatus => "memory_status",
             Self::KnowledgeGraph => "knowledge_graph",
         }
     }

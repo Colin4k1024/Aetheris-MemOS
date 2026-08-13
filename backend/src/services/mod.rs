@@ -3,6 +3,7 @@ pub mod adaptive_telemetry;
 pub mod agent;
 pub mod agent_identity;
 pub mod analyzer;
+pub mod atom_extractor;
 pub mod approval_manager;
 #[allow(dead_code)]
 pub mod audit_writer;
@@ -77,6 +78,10 @@ pub mod weight_decay;
 #[allow(dead_code)]
 pub mod weight_strategy;
 pub mod write_queue;
+
+pub mod distillation;
+pub mod recall;
+pub mod skill;
 
 pub use analyzer::*;
 pub use conflict_detector::*;

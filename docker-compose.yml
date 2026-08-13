@@ -8,17 +8,13 @@ services:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:5432:5432"
     environment:
       POSTGRES_USER: memory
-      POSTGRES_PASSWORD: memory
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: memory
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # P1: Create non-BYPASSRLS application role for RLS enforcement.
-      # The default `memory` user is superuser → RLS policies are NO-OP.
-      # Use `aetheris_app` for application connections to enforce RLS.
-      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U memory -d memory"]
       interval: 5s
@@ -30,8 +26,8 @@ services:
     image: qdrant/qdrant:v1.9.4
     restart: unless-stopped
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:6333:6333"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -46,13 +42,13 @@ services:
     image: neo4j:5
     restart: unless-stopped
     ports:
-      - "7474:7474"   # HTTP browser
-      - "7687:7687"   # Bolt protocol
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:7474:7474"   # HTTP browser
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:7687:7687"   # Bolt protocol
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
     environment:
-      NEO4J_AUTH: neo4j/password
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_memory_pagecache_size: 512M
       NEO4J_server_memory_heap_max__size: 512M
@@ -68,7 +64,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning
@@ -105,17 +101,17 @@ services:
         condition: service_started
     environment:
       APP_CONFIG: docker.toml
-      # Override secrets via env — takes precedence over docker.toml.
-      # Auth is ON by default; refuse to start without a real secret.
-      APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong 32+ char random value — see .env.example (openssl rand -hex 32)}
-      APP_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+      # Secrets are required; the environment takes precedence over docker.toml.
+      APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      APP_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
+      DATABASE_URL: postgres://memory:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/memory
     volumes:
       - backend_data:/app/data
       - backend_logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8008/ || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/api/v1/memory/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -173,10 +169,6 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      # LIVE alert rules (referenced by rule_files in prometheus.yml). The
-      # alerts-staged/ dir is intentionally NOT mounted — those rules target
-      # metrics that are not yet instrumented and must not be loaded.
-      - ./monitoring/alerts:/etc/prometheus/alerts:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -199,7 +191,7 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
       GF_USERS_ALLOW_SIGN_UP: "false"
     depends_on:
       prometheus:

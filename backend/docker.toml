@@ -5,35 +5,12 @@ listen_addr = "0.0.0.0:8008"
 
 [db]
 # Docker 内使用 PostgreSQL
-#
-# ⚠️  LOCAL DEVELOPMENT ONLY — this password matches docker/initdb/01-create-app-role.sql.
-#     Production and staging MUST override DATABASE_URL with a credential from a
-#     secrets manager (Vault, AWS Secrets Manager, k8s secrets, etc.) and must never
-#     use this default. The role is intentionally NOSUPERUSER NOBYPASSRLS so that
-#     Row Level Security is actually enforced.
-#
-#     Administrative cross-tenant maintenance uses the separate db.admin_url setting.
-#
-# ⚠️  OPERATOR PREREQUISITE for EXISTING databases:
-#     If the aetheris_app role was created by the migration (not by docker/initdb),
-#     it has NO password. The connection will fail with "password authentication failed"
-#     until an operator runs:
-#
-#       ALTER ROLE aetheris_app WITH LOGIN PASSWORD '<managed-secret>';
-#
-#     In production/staging, the password MUST come from a secrets manager and be
-#     rotated regularly. For local development:
-#
-#       ALTER ROLE aetheris_app WITH LOGIN PASSWORD 'aetheris_app';
-url = "postgres://aetheris_app:aetheris_app@postgres:5432/memory"
+# Docker Compose requires POSTGRES_PASSWORD and injects DATABASE_URL at runtime.
+url = "postgres://memory:REPLACE_WITH_POSTGRES_PASSWORD@postgres:5432/memory"
 
 [jwt]
 secret = "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET"
 expiry = 3600
-# Authentication is ON by default. Provide a strong secret via APP_JWT_SECRET
-# (compose passes it through). Only set `disabled = true` for a throwaway local
-# demo that binds loopback — never for a 0.0.0.0 deployment, since disabling auth
-# collapses every request into a single "anonymous" tenant.
 disabled = false
 
 [log]
@@ -59,9 +36,7 @@ host = "qdrant"
 port = 6334
 collection_name = "long_term_memory"
 vector_dimension = 768
-# Cosine matches the retrieval layer (higher score = more similar, in [0,1]).
-# NOTE: existing collections must be dropped & recreated for a metric change to apply.
-distance_type = "Cosine"
+distance_type = "Euclid"
 
 [rerank]
 # Rerank 重排序配置（本机 Ollama）
@@ -77,7 +52,7 @@ timeout_seconds = 30
 host = "neo4j"
 port = 7687
 username = "neo4j"
-password = "password"
+password = "REPLACE_WITH_NEO4J_PASSWORD_OR_USE_APP_NEO4J_PASSWORD"
 database = "neo4j"
 
 [redis]
