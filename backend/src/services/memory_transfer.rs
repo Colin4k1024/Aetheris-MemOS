@@ -6,6 +6,8 @@ use tracing::{error, info, instrument, warn};
 
 use crate::db::pool;
 use crate::db::stm::{STMRepository, Session};
+use crate::models::distillation::DistillationJobType;
+use crate::services::distillation::DistillationService;
 use crate::services::memory_storage::MemoryStorageService;
 use crate::tenant::{get_default_tenant, TenantId};
 use crate::AppError;
@@ -230,6 +232,22 @@ impl MemoryTransferService {
                                     session.session_id,
                                     entry_ids.len()
                                 );
+
+                                // Trigger async distillation (L0→L1)
+                                if let Err(e) = DistillationService::enqueue_job(
+                                    tenant_id,
+                                    user_id,
+                                    agent_id,
+                                    &session.session_id,
+                                    DistillationJobType::L0ToL1,
+                                )
+                                .await
+                                {
+                                    warn!(
+                                        "Failed to enqueue distillation for session {}: {}",
+                                        session.session_id, e
+                                    );
+                                }
                             }
                             Err(e) => {
                                 error!("Failed to transfer session {}: {}", session.session_id, e);

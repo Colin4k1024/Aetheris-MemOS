@@ -3,6 +3,8 @@ use sqlx::prelude::*;
 use utoipa::ToSchema;
 
 pub mod agent;
+pub mod agent_equip;
+pub mod distillation;
 pub mod dry_run;
 pub mod evidence;
 pub mod memory;
@@ -10,6 +12,7 @@ pub mod memory_enums;
 pub mod performance;
 pub mod procedural;
 pub mod resource;
+pub mod skill;
 pub mod task;
 pub mod validation;
 

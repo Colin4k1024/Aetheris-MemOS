@@ -3,394 +3,116 @@ use a2a::types::{
     TaskStatus,
 };
 use serde_json::{json, Value};
-use tracing::{info, warn};
+use std::collections::HashMap;
+use tokio::sync::RwLock;
 
-use crate::db::audit::AuditEvent;
-use crate::db::{self, kg::KGRepository, pool};
-use crate::hoops::enterprise::{
-    try_enterprise_hooks, HookContext, HookDecision, HookResult, Operation,
+use crate::{
+    services::{
+        memory_fusion::MemoryFusionService, memory_search::MemorySearchService,
+        memory_storage::MemoryStorageService,
+    },
+    tenant::TenantId,
 };
-use crate::services::audit_writer;
-use crate::services::memory_fusion::MemoryFusionService;
-use crate::services::memory_search::MemorySearchService;
-use crate::services::memory_storage::MemoryStorageService;
-use crate::services::rbac::{get_rbac_service, operation_to_permission, Permission};
-use crate::tenant::RequestTenantContext;
 
 use super::skills::MemorySkill;
 
-/// A2A handler that delegates to real memory services.
-///
-/// Each handler method receives a `tenant_ctx` (from the A2A auth middleware)
-/// and calls the actual memory service layer — no more format! placeholders.
-pub struct A2AHandler {}
-
-/// Metadata key a caller sets to name the skill it wants explicitly, e.g.
-/// `{"skill": "memory_store"}`. The values are the ids the agent card advertises
-/// (`MemorySkill::id`), so a caller that read the card already knows them.
-pub const SKILL_METADATA_KEY: &str = "skill";
-
-/// Keywords that unambiguously mean "put this into memory".
-///
-/// Deliberately conservative. Every word added here also makes more phrases
-/// *ambiguous* (write + read → `None` → general query), so only words whose
-/// write intent is not in doubt belong. "keep", "note" and "write" were
-/// considered and rejected as too generic — "keep searching" is not a write.
-const WRITE_INTENT_KEYWORDS: &[&str] =
-    &["store", "remember", "save", "persist", "memorize", "record"];
-
-/// Why an A2A message could not be handled, at the granularity the transports
-/// need in order to answer the caller truthfully.
-///
-/// [`A2AHandler::handle_message`] previously returned a bare `String` and every
-/// transport mapped it to "internal error" — REST `500`, JSON-RPC `-32603`. That
-/// is wrong for two of the three cases here, and actively misleading for one: the
-/// governance denial added in A-4c reported an *authorization decision* as a
-/// server fault, so neither the caller nor an on-call engineer reading logs could
-/// tell "you may not do this" from "we are broken". Retrying is the correct
-/// response to a 500 and the useless response to a 403.
-///
-/// Same defect class as D-a (`CHECK`-constraint violations surfacing as 500
-/// instead of 400), one layer up: the status code has to carry which side owns
-/// the problem.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum A2AError {
-    /// The caller asked for something malformed — today, a `skill` metadata id no
-    /// skill answers to. Retrying unchanged cannot help.
-    InvalidRequest(String),
-    /// The caller is authenticated but not permitted to perform this operation.
-    Denied(String),
-    /// A genuine server-side failure. This is the only variant a caller should
-    /// retry, and the only one that should page anyone.
-    Internal(String),
+#[derive(Clone)]
+struct StoredTask {
+    task: Task,
+    tenant_id: TenantId,
 }
 
-impl A2AError {
-    /// Human-readable detail, for logs and for the error body sent to the caller.
-    pub fn message(&self) -> &str {
-        match self {
-            Self::InvalidRequest(m) | Self::Denied(m) | Self::Internal(m) => m,
-        }
-    }
+pub struct A2AHandler {
+    tasks: RwLock<HashMap<String, StoredTask>>,
 }
-
-impl std::fmt::Display for A2AError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message())
-    }
-}
-
-/// Existing `Result<_, String>` paths inside this module keep working via `?` and
-/// land on [`A2AError::Internal`].
-///
-/// That default is deliberate and correct for them: every one of those strings
-/// comes from a service-layer failure (DB, embedding backend, serialization), not
-/// from a caller mistake. The two non-internal outcomes are constructed
-/// explicitly, so a *new* client-error path cannot inherit `Internal` by accident
-/// — it has to be written down.
-impl From<String> for A2AError {
-    fn from(message: String) -> Self {
-        Self::Internal(message)
-    }
-}
-
-/// Map each A2A memory skill to the governance [`Operation`] it performs.
-///
-/// This lives next to the dispatch `match` in [`A2AHandler::handle_message`] and
-/// is anchored on the same [`MemorySkill`] enum, so it cannot drift silently: the
-/// match is **exhaustive** (no `_` arm), so adding a `MemorySkill` variant fails
-/// to COMPILE until a mapping is added here. A new skill therefore cannot gain a
-/// handler without also gaining a governance decision. This is strictly stronger
-/// than the sibling `routers/mcp.rs::tool_to_operation`, which keys on a `&str`
-/// and can only guard against drift with a runtime test.
-///
-/// | Skill            | Operation | Reason                              |
-/// |------------------|-----------|-------------------------------------|
-/// | `MemoryStore`    | Store     | `handle_memory_store` writes to LTM |
-/// | `MemorySearch`   | Search    | read-only LTM query                 |
-/// | `MemoryFusion`   | Search    | read-only cross-layer query         |
-/// | `MemoryStatus`   | Search    | read-only layer counts              |
-/// | `KnowledgeGraph` | Search    | read-only KG entity query           |
-fn skill_to_operation(skill: &MemorySkill) -> Operation {
-    match skill {
-        MemorySkill::MemoryStore => Operation::Store,
-        MemorySkill::MemorySearch => Operation::Search,
-        MemorySkill::MemoryFusion => Operation::Search,
-        MemorySkill::MemoryStatus => Operation::Search,
-        MemorySkill::KnowledgeGraph => Operation::Search,
-    }
-}
-
-/// Map a governance [`Operation`] to the RBAC [`Permission`] the caller must hold.
-///
-/// Exhaustive on purpose — a new `Operation` variant fails to COMPILE until its
-/// permission is decided here, so the RBAC gate can never silently skip a new
-/// operation class.
 
 impl A2AHandler {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            tasks: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub async fn get_task(&self, tenant_id: &TenantId, task_id: &str) -> Option<Task> {
+        self.tasks
+            .read()
+            .await
+            .get(task_id)
+            .filter(|stored| stored.tenant_id == *tenant_id)
+            .map(|stored| stored.task.clone())
+    }
+
+    pub async fn list_tasks(&self, tenant_id: &TenantId) -> Vec<Task> {
+        self.tasks
+            .read()
+            .await
+            .values()
+            .filter(|stored| stored.tenant_id == *tenant_id)
+            .map(|stored| stored.task.clone())
+            .collect()
     }
 
     pub async fn handle_message(
         &self,
         request: SendMessageRequest,
-        tenant_ctx: &RequestTenantContext,
-    ) -> Result<SendMessageResponse, A2AError> {
+        tenant_id: TenantId,
+    ) -> Result<SendMessageResponse, String> {
+        self.handle_message_for_task(request, tenant_id, uuid::Uuid::new_v4().to_string())
+            .await
+    }
+
+    pub async fn handle_message_for_task(
+        &self,
+        request: SendMessageRequest,
+        tenant_id: TenantId,
+        task_id: String,
+    ) -> Result<SendMessageResponse, String> {
+        let failed_request = request.clone();
         let message = &request.message;
-        let skill_id = self.detect_skill(message)?;
-
-        info!(
-            tenant = %tenant_ctx.tenant_id,
-            skill = ?skill_id,
-            "A2A message received"
-        );
-
-        // --- In-handler governance (A-4c) ---
-        // Every A2A skill is dispatched over the same POST /a2a/jsonrpc (or
-        // /a2a/rest/messages) path, so the REST governance middleware — which keys
-        // off HTTP method + path — cannot tell a write (memory_store) from a read
-        // (search / status / kg). Governance is therefore applied here, where the
-        // skill is known, exactly as routers/mcp.rs::call_tool does for MCP tools.
-        //
-        // Gate at the call site (mirrors mcp.rs's `governance_op`): when JWT auth is
-        // disabled (dev mode) there is no meaningful identity to enforce against, so
-        // both the gate and the post-store quota count are skipped.
-        let governed_op = if crate::config::get().jwt.disabled {
-            None
-        } else {
-            skill_id.as_ref().map(skill_to_operation)
-        };
-        if let Some(op) = governed_op {
-            self.enforce_governance(op, tenant_ctx).await?;
-        }
+        let skill_id = self.detect_skill(message);
 
         let response = match skill_id {
-            Some(MemorySkill::MemorySearch) => self.handle_memory_search(request, tenant_ctx).await,
-            Some(MemorySkill::MemoryStore) => self.handle_memory_store(request, tenant_ctx).await,
-            Some(MemorySkill::MemoryFusion) => self.handle_memory_fusion(request, tenant_ctx).await,
-            Some(MemorySkill::MemoryStatus) => self.handle_memory_status(request, tenant_ctx).await,
+            Some(MemorySkill::MemorySearch) => {
+                self.handle_memory_search(request, &tenant_id, task_id.clone())
+                    .await
+            }
+            Some(MemorySkill::MemoryStore) => {
+                self.handle_memory_store(request, &tenant_id, task_id.clone())
+                    .await
+            }
+            Some(MemorySkill::MemoryFusion) => {
+                self.handle_memory_fusion(request, &tenant_id, task_id.clone())
+                    .await
+            }
             Some(MemorySkill::KnowledgeGraph) => {
-                self.handle_knowledge_graph(request, tenant_ctx).await
+                self.handle_knowledge_graph(request, &tenant_id, task_id.clone())
+                    .await
             }
             None => self.handle_general_query(request).await,
         };
 
-        // Count quota usage only after a *successful* Store, mirroring
-        // governance_middleware / mcp.rs. A failed or denied write must not
-        // increment. post_store_usage is a no-op without enterprise hooks.
-        if governed_op == Some(Operation::Store) && response.is_ok() {
-            Self::post_store_usage(tenant_ctx);
+        if let Err(error) = &response {
+            self.store_failed_task(failed_request, &tenant_id, error, task_id)
+                .await;
         }
 
-        // Skill handlers still fail with `String`; those are all service-layer
-        // failures, so `From<String>` lands them on `Internal`.
-        response.map_err(A2AError::from)
+        response
     }
 
-    /// Apply in-handler governance for one A2A operation, mirroring the
-    /// `routers/mcp.rs::call_tool` pipeline. Two independent gates:
-    ///
-    /// 1. **RBAC permission** — consulted through the global RBAC service, the
-    ///    *same* singleton `hoops::governance::enforce_permission` uses. This is
-    ///    the gate that is always live: it holds even when the enterprise hook set
-    ///    is not initialised (e.g. a SQLite dev backend), satisfying the C-1
-    ///    constraint that the strong-typed authorization path not depend on
-    ///    enterprise hooks.
-    /// 2. **Quota** — enterprise governance pre-hooks (`pre_store` / `pre_search`
-    ///    …), which only bite when the enterprise hook set is wired (PG-backed).
-    ///    Absent, this half is a no-op — same as mcp.rs.
-    ///
-    /// Honest scope of today's effect: every authenticated user is Owner of their
-    /// own single-user tenant (`tenant_id == user_id`; backlog C-3), so the RBAC
-    /// gate returns Allow for same-tenant callers and only starts *denying* once an
-    /// org-level tenant model (where `tenant_id != user_id`) lands. What changes
-    /// now is that the grant *source* goes from nonexistent to present — the gate
-    /// point is in place so differentiated enforcement takes effect automatically
-    /// when C-3 lands. `blocking_has_permission` (not the async `get_role`) is used
-    /// deliberately: it auto-grants Owner for a self-tenant caller, so it does not
-    /// spuriously deny the anonymous/self-tenant identities that reach this path.
-    async fn enforce_governance(
-        &self,
-        operation: Operation,
-        tenant_ctx: &RequestTenantContext,
-    ) -> Result<(), A2AError> {
-        // --- Gate 1: RBAC permission (independent of enterprise hooks) ---
-        let permission = operation_to_permission(operation);
-        let allowed = get_rbac_service()
-            .has_permission(
-                tenant_ctx.tenant_id.as_str(),
-                &tenant_ctx.user_id,
-                permission,
-            )
-            .await;
-        if !allowed {
-            audit_writer::record_audit(
-                AuditEvent::new("a2a.handle_message", "a2a_skill")
-                    .tenant(tenant_ctx.tenant_id.as_str())
-                    .actor(tenant_ctx.user_id.clone())
-                    .with_metadata(&json!({
-                        "operation": operation.as_str(),
-                        "outcome": "denied",
-                        "reason": "rbac_permission",
-                        "required_permission": format!("{permission:?}"),
-                    })),
-            );
-            warn!(
-                tenant = %tenant_ctx.tenant_id,
-                operation = %operation.as_str(),
-                "A2A message denied: insufficient role permissions"
-            );
-            return Err(A2AError::Denied(
-                "Insufficient role permissions".to_string(),
-            ));
-        }
+    fn detect_skill(&self, message: &Message) -> Option<MemorySkill> {
+        let text = self.extract_text(message).to_lowercase();
 
-        // --- Gate 2: Quota (only when enterprise hooks are wired) ---
-        if let Some(hooks) = try_enterprise_hooks() {
-            let ctx = HookContext::new(
-                tenant_ctx.tenant_id.to_string(),
-                operation,
-                "/a2a".to_string(),
-            )
-            .with_user(tenant_ctx.user_id.clone());
-
-            let decision = match operation {
-                Operation::Store => hooks.pre_store(&ctx),
-                Operation::Search => hooks.pre_search(&ctx),
-                Operation::Update => hooks.pre_update(&ctx),
-                Operation::Delete => hooks.pre_delete(&ctx),
-            };
-
-            if let HookDecision::Deny(reason) = decision {
-                audit_writer::record_audit(
-                    AuditEvent::new("a2a.handle_message", "a2a_skill")
-                        .tenant(tenant_ctx.tenant_id.as_str())
-                        .actor(tenant_ctx.user_id.clone())
-                        .with_metadata(&json!({
-                            "operation": operation.as_str(),
-                            "outcome": "denied",
-                            "reason": "governance",
-                            "detail": reason,
-                        })),
-                );
-                warn!(
-                    tenant = %tenant_ctx.tenant_id,
-                    operation = %operation.as_str(),
-                    reason = %reason,
-                    "A2A message denied by governance"
-                );
-                return Err(A2AError::Denied(reason));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Increment quota usage after a successful Store, mirroring
-    /// `governance_middleware` / `call_tool`. No-op when the enterprise hook set is
-    /// absent. The caller ensures this only runs for a successful, governed store.
-    fn post_store_usage(tenant_ctx: &RequestTenantContext) {
-        if let Some(hooks) = try_enterprise_hooks() {
-            let ctx = HookContext::new(
-                tenant_ctx.tenant_id.to_string(),
-                Operation::Store,
-                "/a2a".to_string(),
-            )
-            .with_user(tenant_ctx.user_id.clone());
-            hooks.post_store(&ctx, &HookResult::success());
-        }
-    }
-
-    /// Resolve which skill this message is asking for.
-    ///
-    /// Two tiers, deliberately in this order:
-    ///
-    /// 1. **Explicit** — `message.metadata["skill"]` ([`SKILL_METADATA_KEY`]),
-    ///    resolved through [`MemorySkill::from_id`], i.e. the same ids the agent
-    ///    card advertises. A caller that read the card can say what it wants and
-    ///    get exactly that, with no guessing in the loop. An id that is *present
-    ///    but unknown* is an [`A2AError::InvalidRequest`], never a quiet fallback
-    ///    to guessing — silently doing something other than what was asked is the
-    ///    defect this function is being fixed for, so it must not be the handling
-    ///    of a malformed request either.
-    /// 2. **Heuristic** — keyword matching. Best effort, and now **fail-closed**:
-    ///    no recognisable signal yields `None`, which dispatches to
-    ///    `handle_general_query` (a harmless echo that names the available
-    ///    skills) instead of silently running something.
-    ///
-    /// ## What was wrong (D-g2)
-    ///
-    /// The heuristic used to end in `else => Some(MemorySkill::MemorySearch)`, so
-    /// it never returned `None` and `handle_message`'s `None => general_query` arm
-    /// was **unreachable**. Write intent phrased without one of the three
-    /// hardcoded write keywords — "persist this", "memorize this note" — fell
-    /// through to that `else` and performed a *search*: the caller believed it had
-    /// stored data, got a success response, and nothing anywhere said otherwise.
-    ///
-    /// This was never a write-gate bypass — the request never reaches the write
-    /// handler, so A-4c's governance still holds — which is why it is a
-    /// correctness / data-awareness defect rather than a security one.
-    ///
-    /// ## Why mixed intent yields `None`
-    ///
-    /// When a message matches both a write keyword and a read keyword, if-else
-    /// order used to silently decide. Neither direction is safe to guess:
-    /// downgrading a write loses the caller's data with a success response, and
-    /// upgrading a read to a write would *create* data nobody asked for. So mixed
-    /// signal is treated as no signal and the caller is asked to be explicit.
-    ///
-    /// Read-vs-read ties keep the original priority order — those branches are all
-    /// non-mutating, so picking one is harmless and it preserves today's behaviour
-    /// for phrases like "search the knowledge graph".
-    fn detect_skill(&self, message: &Message) -> Result<Option<MemorySkill>, A2AError> {
-        if let Some(id) = Self::explicit_skill_id(message) {
-            return MemorySkill::from_id(id).map(Some).ok_or_else(|| {
-                let known = MemorySkill::ALL
-                    .iter()
-                    .map(|s| s.id())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                A2AError::InvalidRequest(format!("Unknown skill '{id}'. Available skills: {known}"))
-            });
-        }
-
-        Ok(Self::infer_skill(
-            &self.extract_text(message).to_lowercase(),
-        ))
-    }
-
-    /// The `skill` metadata value, when the caller set it to a string.
-    fn explicit_skill_id(message: &Message) -> Option<&str> {
-        message.metadata.as_ref()?.get(SKILL_METADATA_KEY)?.as_str()
-    }
-
-    /// Keyword heuristic over the message text. See [`A2AHandler::detect_skill`]
-    /// for why this fails closed instead of defaulting to search.
-    fn infer_skill(text: &str) -> Option<MemorySkill> {
-        let wants_write = WRITE_INTENT_KEYWORDS.iter().any(|kw| text.contains(kw));
-        let read_skill = Self::infer_read_skill(text);
-
-        match (wants_write, read_skill) {
-            (true, None) => Some(MemorySkill::MemoryStore),
-            (false, Some(skill)) => Some(skill),
-            // Mixed read+write signal, or no signal at all: do not guess.
-            (true, Some(_)) | (false, None) => None,
-        }
-    }
-
-    /// Read-intent categories, in the original priority order. All non-mutating,
-    /// so a first-match-wins tie-break among them is safe.
-    fn infer_read_skill(text: &str) -> Option<MemorySkill> {
         if text.contains("search") || text.contains("find") || text.contains("query") {
             Some(MemorySkill::MemorySearch)
+        } else if text.contains("store") || text.contains("remember") || text.contains("save") {
+            Some(MemorySkill::MemoryStore)
         } else if text.contains("fusion")
             || text.contains("all layers")
             || text.contains("comprehensive")
         {
             Some(MemorySkill::MemoryFusion)
         } else if text.contains("status") || text.contains("health") || text.contains("stats") {
-            Some(MemorySkill::MemoryStatus)
+            None
         } else if text.contains("knowledge") || text.contains("entity") || text.contains("graph") {
             Some(MemorySkill::KnowledgeGraph)
         } else {
@@ -416,269 +138,124 @@ impl A2AHandler {
     async fn handle_memory_search(
         &self,
         request: SendMessageRequest,
-        tenant_ctx: &RequestTenantContext,
+        tenant_id: &TenantId,
+        task_id: String,
     ) -> Result<SendMessageResponse, String> {
+        self.ensure_memory_services_ready()?;
         let text = self.extract_text(&request.message);
-
-        // MemorySearchService is a unit struct with static methods.
-        // search_ltm_for_tenant: (tenant_id, query, top_k, enable_rerank, min_score)
-        let results = MemorySearchService::search_ltm_for_tenant(
-            &tenant_ctx.tenant_id,
-            &text,
-            10,
-            None,
-            None,
-        )
-        .await
-        .map_err(|e| format!("Memory search failed: {e}"))?;
-
-        let result_count = results.len();
-        let response_text = if results.is_empty() {
-            format!("No memories found for query: '{}'", text)
-        } else {
-            let summaries: Vec<String> = results
-                .iter()
-                .take(5)
-                .map(|r| {
-                    let content = r.content.chars().take(100).collect::<String>();
-                    format!("- {} (score: {:.2})", content, r.score)
-                })
-                .collect();
-            format!(
-                "Found {} memories for '{}':\n{}",
-                result_count,
-                text,
-                summaries.join("\n")
-            )
-        };
-
+        let result = MemoryFusionService::query(&text, tenant_id, Some(10))
+            .await
+            .map_err(|error| format!("Memory search failed: {error}"))?;
         self.create_response(
+            task_id,
             request,
-            response_text,
+            tenant_id,
+            "Memory search completed".to_string(),
             json!({
                 "skill": "memory_search",
-                "result_count": result_count,
-                "query": text
+                "result": result
             }),
         )
+        .await
     }
 
     async fn handle_memory_store(
         &self,
         request: SendMessageRequest,
-        tenant_ctx: &RequestTenantContext,
+        tenant_id: &TenantId,
+        task_id: String,
     ) -> Result<SendMessageResponse, String> {
+        self.ensure_memory_services_ready()?;
         let text = self.extract_text(&request.message);
-
-        // MemoryStorageService::store_ltm_for_tenant: (tenant_id, source_id, source_type, content, title)
-        //
-        // `source_type` MUST be one of the values `SourceType::parse` accepts
-        // (document/api/database/web/user_input) — the previous "a2a_message"
-        // was not, so every A2A store was rejected with 400 at the boundary
-        // before any DB/embedding work. "user_input" is the honest label for
-        // caller-provided content and matches what the sibling MCP write handler
-        // uses (routers/mcp.rs `handle_memory_write`).
-        let result = MemoryStorageService::store_ltm_for_tenant(
-            &tenant_ctx.tenant_id,
-            &format!("a2a:{}", uuid::Uuid::new_v4()),
-            "user_input",
+        let (session_id, message_id) = MemoryStorageService::store_stm_for_tenant(
+            tenant_id,
+            "a2a",
+            "a2a",
+            "conversation",
+            "user",
             &text,
-            None,
+            4_000,
+            24,
+            request.message.context_id.as_deref(),
         )
         .await
-        .map_err(|e| format!("Memory store failed: {e}"))?;
-
-        let response_text = format!(
-            "Memory stored successfully. Entry ID: {}, Status: {}",
-            result.entry_id, result.index_status
-        );
+        .map_err(|error| format!("Memory store failed: {error}"))?;
 
         self.create_response(
+            task_id,
             request,
-            response_text,
+            tenant_id,
+            "Memory stored in stm layer".to_string(),
             json!({
                 "skill": "memory_store",
-                "entry_id": result.entry_id,
-                "index_status": result.index_status
+                "layer": "stm",
+                "sessionId": session_id,
+                "messageId": message_id,
             }),
         )
+        .await
     }
 
     async fn handle_memory_fusion(
         &self,
         request: SendMessageRequest,
-        tenant_ctx: &RequestTenantContext,
+        tenant_id: &TenantId,
+        task_id: String,
     ) -> Result<SendMessageResponse, String> {
+        self.ensure_memory_services_ready()?;
         let text = self.extract_text(&request.message);
-
-        // MemoryFusionService::query: (query, tenant_id, limit)
-        let fusion_result = MemoryFusionService::query(&text, &tenant_ctx.tenant_id, Some(20))
+        let result = MemoryFusionService::query(&text, tenant_id, Some(20))
             .await
-            .map_err(|e| format!("Memory fusion failed: {e}"))?;
-
-        let response_text = format!(
-            "Memory fusion completed for '{}': STM={}, LTM={}, KG={}, MM={}, Merged={}",
-            text,
-            fusion_result.layer_results.stm.len(),
-            fusion_result.layer_results.ltm.len(),
-            fusion_result.layer_results.kg.len(),
-            fusion_result.layer_results.mm.len(),
-            fusion_result.merged_results.len()
-        );
-
+            .map_err(|error| format!("Memory fusion failed: {error}"))?;
         self.create_response(
+            task_id,
             request,
-            response_text,
+            tenant_id,
+            "Memory fusion query completed".to_string(),
             json!({
                 "skill": "memory_fusion",
-                "stm_count": fusion_result.layer_results.stm.len(),
-                "ltm_count": fusion_result.layer_results.ltm.len(),
-                "kg_count": fusion_result.layer_results.kg.len(),
-                "mm_count": fusion_result.layer_results.mm.len(),
-                "merged_count": fusion_result.merged_results.len()
+                "result": result
             }),
         )
-    }
-
-    async fn handle_memory_status(
-        &self,
-        request: SendMessageRequest,
-        tenant_ctx: &RequestTenantContext,
-    ) -> Result<SendMessageResponse, String> {
-        let pg_pool = pool();
-
-        // Get real counts from each memory layer
-        let stm_count = db::stm::STMRepository::get_active_user_ids(pg_pool, &tenant_ctx.tenant_id)
-            .await
-            .map(|ids| ids.len())
-            .unwrap_or(0);
-
-        // LTM: use list_entities equivalent via search with empty query or direct count
-        // Since LTMRepository has no count_by_tenant, use a search with limit 1 to verify connectivity
-        let ltm_accessible =
-            MemorySearchService::search_ltm_for_tenant(&tenant_ctx.tenant_id, "", 1, None, None)
-                .await
-                .map(|r| !r.is_empty() || true) // connectivity check
-                .unwrap_or(false);
-
-        // KG: list_entities takes (pool, tenant_id, entity_type, limit, offset)
-        let kg_result = KGRepository::list_entities(
-            pg_pool,
-            &tenant_ctx.tenant_id,
-            None, // all entity types
-            Some(1),
-            Some(0),
-        )
-        .await;
-        let kg_entities = kg_result.map(|r| r.total).unwrap_or(0);
-
-        let overall_healthy = ltm_accessible;
-
-        let response_text = format!(
-            "Memory system status: STM active users={}, KG entities={}, Overall={}",
-            stm_count,
-            kg_entities,
-            if overall_healthy {
-                "healthy"
-            } else {
-                "degraded"
-            }
-        );
-
-        self.create_response(
-            request,
-            response_text,
-            json!({
-                "skill": "memory_status",
-                "stm_active_users": stm_count,
-                "kg_entities": kg_entities,
-                "overall_healthy": overall_healthy
-            }),
-        )
+        .await
     }
 
     async fn handle_knowledge_graph(
         &self,
         request: SendMessageRequest,
-        tenant_ctx: &RequestTenantContext,
+        tenant_id: &TenantId,
+        task_id: String,
     ) -> Result<SendMessageResponse, String> {
+        self.ensure_memory_services_ready()?;
         let text = self.extract_text(&request.message);
-
-        // Use search_entries_by_entity_for_tenant (actual method name)
-        let entities = KGRepository::search_entries_by_entity_for_tenant(
-            pool(),
-            &tenant_ctx.tenant_id,
-            &text,
-            10,
-        )
-        .await
-        .map_err(|e| format!("Knowledge graph query failed: {e}"))?;
-
-        let entity_count = entities.len();
-        let response_text = if entities.is_empty() {
-            format!("No entities found for query: '{}'", text)
-        } else {
-            let summaries: Vec<String> = entities
-                .iter()
-                .take(5)
-                .map(|e| format!("- {} ({})", e.entity_name, e.entity_type))
-                .collect();
-            format!(
-                "Found {} entities for '{}':\n{}",
-                entity_count,
-                text,
-                summaries.join("\n")
-            )
-        };
-
+        let results = MemorySearchService::search_by_entity_for_tenant(tenant_id, &text, Some(10))
+            .await
+            .map_err(|error| format!("Knowledge graph search failed: {error}"))?;
         self.create_response(
+            task_id,
             request,
-            response_text,
+            tenant_id,
+            "Knowledge graph query completed".to_string(),
             json!({
                 "skill": "knowledge_graph",
-                "entity_count": entity_count,
-                "query": text
+                "results": results
             }),
         )
+        .await
     }
 
-    /// Terminal fallback when no skill could be resolved.
-    ///
-    /// Reachable for the first time as of D-g2 — `detect_skill` used to end in
-    /// `else => Some(MemorySearch)`, so this arm was dead code. Now that it is
-    /// where an unresolved message actually lands, the reply has to be *useful*:
-    /// it names the accepted skill ids and the metadata key that selects them.
-    /// Failing closed into a dead end ("How can I help you?") would just relocate
-    /// the original problem — the caller still would not learn how to get the
-    /// write it asked for.
     async fn handle_general_query(
         &self,
-        request: SendMessageRequest,
+        _request: SendMessageRequest,
     ) -> Result<SendMessageResponse, String> {
-        let text = self.extract_text(&request.message);
-        let known = MemorySkill::ALL
-            .iter()
-            .map(|s| s.id())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let response_text = format!(
-            "Could not determine which memory operation '{text}' is asking for, so nothing \
-             was executed. Set message metadata \"{SKILL_METADATA_KEY}\" to one of: {known}."
-        );
-
-        self.create_response(
-            request,
-            response_text,
-            json!({
-                "skill": "general",
-                "available_skills": MemorySkill::ALL.iter().map(|s| s.id()).collect::<Vec<_>>(),
-            }),
-        )
+        Err("Unsupported A2A operation. Use one of the advertised memory skills.".to_string())
     }
 
-    fn create_response(
+    async fn create_response(
         &self,
+        task_id: String,
         request: SendMessageRequest,
+        tenant_id: &TenantId,
         text: String,
         metadata: Value,
     ) -> Result<SendMessageResponse, String> {
@@ -692,7 +269,7 @@ impl A2AHandler {
         let response_message = Message {
             message_id,
             context_id: Some(context_id.clone()),
-            task_id: None,
+            task_id: Some(task_id.clone()),
             role: Role::Agent,
             parts: vec![Part::text(text)],
             metadata: None,
@@ -700,7 +277,6 @@ impl A2AHandler {
             reference_task_ids: None,
         };
 
-        let task_id = uuid::Uuid::new_v4().to_string();
         let task = Task {
             id: task_id,
             context_id,
@@ -711,369 +287,67 @@ impl A2AHandler {
             },
             artifacts: Some(vec![]),
             history: Some(vec![request.message, response_message]),
+            metadata: Some(HashMap::from([("result".to_string(), metadata)])),
+        };
+
+        self.tasks.write().await.insert(
+            task.id.clone(),
+            StoredTask {
+                task: task.clone(),
+                tenant_id: tenant_id.clone(),
+            },
+        );
+        Ok(SendMessageResponse::Task(task))
+    }
+
+    async fn store_failed_task(
+        &self,
+        request: SendMessageRequest,
+        tenant_id: &TenantId,
+        error: &str,
+        task_id: String,
+    ) {
+        let context_id = request
+            .message
+            .context_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let response_message = Message {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            context_id: Some(context_id.clone()),
+            task_id: Some(task_id.clone()),
+            role: Role::Agent,
+            parts: vec![Part::text(error.to_string())],
+            metadata: None,
+            extensions: None,
+            reference_task_ids: None,
+        };
+        let task = Task {
+            id: task_id.clone(),
+            context_id,
+            status: TaskStatus {
+                state: TaskState::Failed,
+                message: Some(response_message.clone()),
+                timestamp: Some(chrono::Utc::now()),
+            },
+            artifacts: Some(vec![]),
+            history: Some(vec![request.message, response_message]),
             metadata: None,
         };
 
-        Ok(SendMessageResponse::Task(task))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Governance mapping (A-4c). Mirrors routers/mcp.rs's `tool_to_operation`
-    // tests, but the enum-keyed match here is exhaustive, so the mapping's
-    // completeness is enforced by the COMPILER, not only these tests. The
-    // anti-drift guard below still exists to prove the *write* skill stays a
-    // write — a mis-mapping (e.g. someone flipping MemoryStore to Search to
-    // "fix" a quota complaint) compiles fine but would let A2A writes past the
-    // write gate, so it must be caught by a test.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn store_skill_maps_to_store_operation() {
-        assert_eq!(
-            skill_to_operation(&MemorySkill::MemoryStore),
-            Operation::Store
+        self.tasks.write().await.insert(
+            task_id,
+            StoredTask {
+                task,
+                tenant_id: tenant_id.clone(),
+            },
         );
     }
 
-    #[test]
-    fn read_skills_map_to_search_operation() {
-        for skill in MemorySkill::ALL
-            .iter()
-            .filter(|s| !matches!(s, MemorySkill::MemoryStore))
-        {
-            assert_eq!(
-                skill_to_operation(skill),
-                Operation::Search,
-                "{skill:?} must be a read operation"
-            );
+    fn ensure_memory_services_ready(&self) -> Result<(), String> {
+        if crate::db::DATABASE_POOL.get().is_none() {
+            return Err("Memory services are not initialized".to_string());
         }
-    }
-
-    /// Anti-drift guard, structural rather than a hardcoded list: it walks
-    /// [`MemorySkill::ALL`] and asserts that exactly ONE variant — `MemoryStore` —
-    /// governs as a write. If a future edit makes a *second* skill a Store, or
-    /// drops the Store mapping from `MemoryStore`, the count breaks. See the
-    /// negative-control test that proves this bites.
-    ///
-    /// Routed through `ALL` rather than a local array so a newly added variant
-    /// reaches this guard automatically; `ALL`'s own completeness is in turn
-    /// pinned against the agent card by
-    /// `skills::skill_id_tests::advertised_skill_ids_and_all_are_the_same_set`.
-    #[test]
-    fn exactly_one_skill_is_a_write() {
-        let writes: Vec<&MemorySkill> = MemorySkill::ALL
-            .iter()
-            .filter(|s| matches!(skill_to_operation(s), Operation::Store))
-            .collect();
-        assert_eq!(
-            writes.len(),
-            1,
-            "exactly one skill must govern as a write; found {writes:?}"
-        );
-        assert!(
-            matches!(writes[0], MemorySkill::MemoryStore),
-            "the single write skill must be MemoryStore, not {:?}",
-            writes[0]
-        );
-    }
-
-    #[test]
-    fn operation_permission_mapping_is_least_privilege() {
-        assert_eq!(operation_to_permission(Operation::Store), Permission::Write);
-        assert_eq!(
-            operation_to_permission(Operation::Update),
-            Permission::Write
-        );
-        assert_eq!(
-            operation_to_permission(Operation::Delete),
-            Permission::Delete
-        );
-        assert_eq!(operation_to_permission(Operation::Search), Permission::Read);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // enforce_governance behaviour. These exercise the RBAC gate (gate 1), which
-    // is the half that is live today and does not depend on enterprise hooks
-    // (C-1 constraint). The quota gate (gate 2) is a no-op without a wired
-    // enterprise hook set, which is the case in this pure unit harness.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// A self-tenant caller is allowed for every operation class — **because this
-    /// harness runs on the non-PostgreSQL fallback**, not because of the old
-    /// auto-grant.
-    ///
-    /// C-3 removed the in-memory auto-grant: roles come from `tenant_members` now
-    /// and no row means denied. But `db::is_postgres()` is false in a pure unit
-    /// test (no pool is initialised), so `RbacService::get_role` takes its SQLite
-    /// branch, which still grants Owner for `tenant_id == user_id`.
-    ///
-    /// So this pins the **fallback** path, and says so rather than reading as
-    /// evidence that the database-backed path works. That path needs a live
-    /// PostgreSQL and is covered by `tests/tenant_members_pg.rs`.
-    #[tokio::test]
-    async fn self_tenant_caller_is_allowed_for_all_operations() {
-        let handler = A2AHandler::new();
-        let ctx = RequestTenantContext::new("a2a-self-tenant-user");
-        for op in [
-            Operation::Search,
-            Operation::Store,
-            Operation::Update,
-            Operation::Delete,
-        ] {
-            assert!(
-                handler.enforce_governance(op, &ctx).await.is_ok(),
-                "self-tenant Owner must be allowed for {op:?}"
-            );
-        }
-    }
-
-    /// A cross-tenant caller (tenant_id != user_id) with no recorded role holds no
-    /// permission — the RBAC gate denies. This proves the gate is a real check and
-    /// not hardwired to Allow: it is exactly the separation that takes effect once
-    /// C-3 decouples tenant_id from user_id. A write must be denied harder than a
-    /// read here (both deny today because the caller has no role at all).
-    #[tokio::test]
-    async fn cross_tenant_caller_without_role_is_denied() {
-        let handler = A2AHandler::new();
-        // tenant_id != user_id, so blocking_has_permission does NOT auto-grant.
-        let ctx = RequestTenantContext {
-            tenant_id: crate::tenant::TenantId::from_string("org-tenant"),
-            user_id: "outsider-user".to_string(),
-        };
-        for op in [Operation::Search, Operation::Store, Operation::Delete] {
-            let err = handler
-                .enforce_governance(op, &ctx)
-                .await
-                .expect_err("cross-tenant caller with no role must be denied");
-            assert!(
-                matches!(err, A2AError::Denied(_)),
-                "an authorization decision must classify as Denied (→403), not as a \
-                 server fault (→500), got: {err:?}"
-            );
-            assert!(
-                err.message().contains("Insufficient role permissions"),
-                "denial reason should be the RBAC message, got: {err}"
-            );
-        }
-    }
-
-    /// `handle_message` must actually *call* the gate before dispatching.
-    ///
-    /// The tests above prove `enforce_governance` denies when invoked, but none of
-    /// them would notice if the call at the top of `handle_message` were deleted —
-    /// the gate would still pass its own unit tests while every request sailed
-    /// past it. That is the "gate exists but is not wired" shape this remediation
-    /// batch keeps finding, so it is pinned structurally here: the governance call
-    /// must appear in `handle_message`, and it must appear *before* the dispatch
-    /// `match`, since authorizing after the write has already run is no gate at
-    /// all.
-    #[test]
-    fn handle_message_enforces_governance_before_dispatch() {
-        let src = include_str!("handler.rs");
-        let body = src
-            .split("pub async fn handle_message")
-            .nth(1)
-            .expect("handle_message must exist");
-
-        let gate = body.find("enforce_governance").expect(
-            "handle_message must call enforce_governance — without it every A2A skill, \
-                     including the memory_store write, runs with no RBAC or quota check",
-        );
-        let dispatch = body
-            .find("Some(MemorySkill::MemoryStore) =>")
-            .expect("handle_message must dispatch MemoryStore");
-
-        assert!(
-            gate < dispatch,
-            "enforce_governance must run BEFORE the skill dispatch; authorizing after \
-             handle_memory_store has already written is not a gate"
-        );
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Skill resolution (D-g2). The bug: `detect_skill` ended in
-    // `else => Some(MemorySearch)`, so write intent phrased without one of three
-    // hardcoded keywords silently performed a READ and returned success. Never a
-    // write-gate bypass (the request never reaches the write handler), but the
-    // caller believed its data was stored.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    fn text_message(text: &str) -> Message {
-        Message::new(Role::User, vec![Part::text(text.to_string())])
-    }
-
-    fn message_with_skill(text: &str, skill_id: &str) -> Message {
-        let mut message = text_message(text);
-        message.metadata = Some(
-            [(SKILL_METADATA_KEY.to_string(), json!(skill_id))]
-                .into_iter()
-                .collect(),
-        );
-        message
-    }
-
-    #[test]
-    fn explicit_skill_metadata_wins_over_keyword_guessing() {
-        // Text screams "search"; metadata says store. The caller's explicit
-        // statement of intent must beat the heuristic — that is the entire point
-        // of offering an explicit channel.
-        let handler = A2AHandler::new();
-        let message = message_with_skill("find and search everything", "memory_store");
-
-        assert_eq!(
-            handler.detect_skill(&message),
-            Ok(Some(MemorySkill::MemoryStore))
-        );
-    }
-
-    #[test]
-    fn every_advertised_skill_id_is_selectable_via_metadata() {
-        let handler = A2AHandler::new();
-        for skill in MemorySkill::ALL {
-            let message = message_with_skill("anything at all", skill.id());
-            assert_eq!(
-                handler.detect_skill(&message),
-                Ok(Some(skill)),
-                "'{}' is advertised on the agent card but not selectable",
-                skill.id()
-            );
-        }
-    }
-
-    #[test]
-    fn unknown_explicit_skill_id_is_rejected_rather_than_guessed() {
-        // Falling back to the heuristic here would re-create the very defect this
-        // change fixes: the caller asked for X, got Y, and was told it succeeded.
-        let handler = A2AHandler::new();
-        let message = message_with_skill("store this", "memory_stroe");
-
-        let err = handler
-            .detect_skill(&message)
-            .expect_err("an unresolvable skill id must be an error, not a fallback");
-
-        assert!(
-            matches!(err, A2AError::InvalidRequest(_)),
-            "a bad skill id is the caller's mistake, so it must not be Internal: {err:?}"
-        );
-        assert!(
-            err.message().contains("memory_stroe") && err.message().contains("memory_store"),
-            "the rejection must name what was rejected and what is valid, else the 400 \
-             is unactionable: {}",
-            err.message()
-        );
-    }
-
-    #[test]
-    fn write_intent_without_the_legacy_keywords_is_no_longer_downgraded_to_search() {
-        // The D-g2 regression lock. Each of these is unambiguous write intent that
-        // the old three-keyword list ("store"/"remember"/"save") missed, so each
-        // used to fall through to `else => Some(MemorySearch)`.
-        let handler = A2AHandler::new();
-        for text in ["persist this for me", "memorize this note", "record this"] {
-            assert_eq!(
-                handler.detect_skill(&text_message(text)),
-                Ok(Some(MemorySkill::MemoryStore)),
-                "'{text}' is write intent and must not resolve to a read"
-            );
-        }
-    }
-
-    #[test]
-    fn unrecognised_text_yields_no_skill_instead_of_defaulting_to_search() {
-        // Previously impossible: detect_skill could not return None, which made
-        // handle_message's `None => handle_general_query` arm dead code.
-        let handler = A2AHandler::new();
-        for text in ["hello there", "what is the weather"] {
-            assert_eq!(
-                handler.detect_skill(&text_message(text)),
-                Ok(None),
-                "'{text}' carries no memory-operation signal and must not be guessed"
-            );
-        }
-    }
-
-    #[test]
-    fn mixed_read_and_write_intent_is_not_guessed_either_way() {
-        // Both directions are unsafe to guess: downgrading loses the caller's data
-        // silently, upgrading would create data nobody asked for.
-        let handler = A2AHandler::new();
-        for text in ["save the search results", "find and remember this"] {
-            assert_eq!(
-                handler.detect_skill(&text_message(text)),
-                Ok(None),
-                "'{text}' mixes read and write intent; if-else order must not decide it"
-            );
-        }
-    }
-
-    #[test]
-    fn read_only_ties_keep_the_original_priority_order() {
-        // Ties among non-mutating skills stay first-match-wins, so behaviour for
-        // existing phrasings does not shift. Only read/write ambiguity is fatal.
-        let handler = A2AHandler::new();
-        assert_eq!(
-            handler.detect_skill(&text_message("search the knowledge graph")),
-            Ok(Some(MemorySkill::MemorySearch))
-        );
-    }
-
-    #[test]
-    fn non_string_skill_metadata_falls_through_to_the_heuristic() {
-        // `{"skill": 7}` is not a skill id. Treating it as an explicit selection
-        // would mean rejecting on a key we never promised to accept as a number;
-        // the heuristic still applies and still fails closed.
-        let handler = A2AHandler::new();
-        let mut message = text_message("hello there");
-        message.metadata = Some(
-            [(SKILL_METADATA_KEY.to_string(), json!(7))]
-                .into_iter()
-                .collect(),
-        );
-
-        assert_eq!(handler.detect_skill(&message), Ok(None));
-    }
-
-    #[test]
-    fn governance_denial_is_a_denial_not_an_internal_error() {
-        // Guards the classification, which is what the transports key off. A
-        // denial reported as Internal tells the caller to retry a request that
-        // will never succeed, and pages someone for a working authorization check.
-        let denied = A2AError::Denied("Insufficient role permissions".to_string());
-        assert!(!matches!(denied, A2AError::Internal(_)));
-
-        // Service-layer strings still default to Internal via `From<String>`.
-        assert_eq!(
-            A2AError::from("qdrant unreachable".to_string()),
-            A2AError::Internal("qdrant unreachable".to_string())
-        );
-    }
-
-    /// Structural guard: the two denial sites in `enforce_governance` must
-    /// construct `A2AError::Denied`. Both were plain `String` before this change
-    /// and therefore surfaced as 500 / JSON-RPC -32603.
-    #[test]
-    fn both_governance_denial_paths_are_classified_as_denied() {
-        let src = include_str!("handler.rs");
-        let body = src
-            .split("async fn enforce_governance")
-            .nth(1)
-            .expect("enforce_governance must exist");
-        let body = &body[..body.find("\n    async fn ").unwrap_or(body.len())];
-
-        let denials = body.matches("A2AError::Denied").count();
-        assert_eq!(
-            denials, 2,
-            "enforce_governance has two denial paths (RBAC and quota); both must be \
-             A2AError::Denied so the caller gets 403 rather than 500. Found {denials}"
-        );
-        assert!(
-            !body.contains("return Err(reason)"),
-            "the quota denial must not return a bare String — that lands on Internal"
-        );
+        Ok(())
     }
 }

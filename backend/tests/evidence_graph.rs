@@ -165,6 +165,13 @@ async fn list_workflow_evidence_returns_nodes_and_edges_in_sequence_order() {
         .expect("list workflow evidence");
 
     assert_eq!(listed.run.run_id, recorded.run.run_id);
+    assert_eq!(listed.nodes, recorded.nodes);
+    assert_eq!(listed.edges, recorded.edges);
+    assert!(
+        listed.verification.verified,
+        "persisted evidence verification failed: {:?}",
+        listed.verification.violations
+    );
     assert_eq!(
         listed
             .nodes
@@ -219,6 +226,10 @@ async fn select_memory_trace_persist_trace_record_keeps_legacy_blob_and_workflow
     assert_eq!(traces[0].task_id, trace.task_id);
     assert!(!traces[0].trace_id.is_empty());
     assert_eq!(evidence.run.workflow_id, trace.task_id);
-    assert!(evidence.verification.verified);
+    assert!(
+        evidence.verification.verified,
+        "evidence verification failed: {:?}",
+        evidence.verification.violations
+    );
     assert!(!evidence.run.run_id.is_empty());
 }

@@ -74,6 +74,9 @@ impl EvidenceGraphRepository {
     // `sqlx::query` / `sqlx::query_as` instead of backend-locked `sqlx::query!` / `sqlx::query_as!`.
     pub async fn create_run(mut run: WorkflowEvidenceRun) -> Result<WorkflowEvidenceRun, AppError> {
         run.sequence_number = Self::next_run_sequence(&run.workflow_id).await?;
+        let tool_invocations = json_text(&run.tool_invocations)?;
+        let context_snapshot = json_text(&run.context_snapshot)?;
+        let metadata = json_text(&run.metadata)?;
 
         match DATABASE_POOL.get() {
             Some(DatabasePool::Postgres(pool)) => {
@@ -93,9 +96,9 @@ impl EvidenceGraphRepository {
                 .bind(run.sequence_number)
                 .bind(&run.prev_hash)
                 .bind(&run.node_hash)
-                .bind(Json(&run.tool_invocations))
-                .bind(Json(&run.context_snapshot))
-                .bind(Json(&run.metadata))
+                .bind(&tool_invocations)
+                .bind(&context_snapshot)
+                .bind(&metadata)
                 .execute(pool)
                 .await
                 .map_err(|err| db_error("create workflow evidence run", err))?;
@@ -117,9 +120,9 @@ impl EvidenceGraphRepository {
                 .bind(run.sequence_number)
                 .bind(&run.prev_hash)
                 .bind(&run.node_hash)
-                .bind(Json(&run.tool_invocations))
-                .bind(Json(&run.context_snapshot))
-                .bind(Json(&run.metadata))
+                .bind(&tool_invocations)
+                .bind(&context_snapshot)
+                .bind(&metadata)
                 .execute(pool)
                 .await
                 .map_err(|err| db_error("create workflow evidence run", err))?;
@@ -136,6 +139,9 @@ impl EvidenceGraphRepository {
 
     pub async fn append_nodes(nodes: &[WorkflowEvidenceNode]) -> Result<(), AppError> {
         for node in nodes {
+            let tool_invocations = json_text(&node.tool_invocations)?;
+            let context_snapshot = json_text(&node.context_snapshot)?;
+            let metadata = json_text(&node.metadata)?;
             match DATABASE_POOL.get() {
                 Some(DatabasePool::Postgres(pool)) => {
                     sqlx::query(
@@ -161,9 +167,9 @@ impl EvidenceGraphRepository {
                     .bind(&node.timestamp)
                     .bind(&node.llm_input_hash)
                     .bind(&node.llm_output_hash)
-                    .bind(Json(&node.tool_invocations))
-                    .bind(Json(&node.context_snapshot))
-                    .bind(Json(&node.metadata))
+                    .bind(&tool_invocations)
+                    .bind(&context_snapshot)
+                    .bind(&metadata)
                     .bind(&node.prev_hash)
                     .bind(&node.node_hash)
                     .execute(pool)
@@ -194,9 +200,9 @@ impl EvidenceGraphRepository {
                     .bind(&node.timestamp)
                     .bind(&node.llm_input_hash)
                     .bind(&node.llm_output_hash)
-                    .bind(Json(&node.tool_invocations))
-                    .bind(Json(&node.context_snapshot))
-                    .bind(Json(&node.metadata))
+                    .bind(&tool_invocations)
+                    .bind(&context_snapshot)
+                    .bind(&metadata)
                     .bind(&node.prev_hash)
                     .bind(&node.node_hash)
                     .execute(pool)
@@ -216,6 +222,9 @@ impl EvidenceGraphRepository {
 
     pub async fn append_edges(edges: &[WorkflowEvidenceEdge]) -> Result<(), AppError> {
         for edge in edges {
+            let tool_invocations = json_text(&edge.tool_invocations)?;
+            let context_snapshot = json_text(&edge.context_snapshot)?;
+            let metadata = json_text(&edge.metadata)?;
             match DATABASE_POOL.get() {
                 Some(DatabasePool::Postgres(pool)) => {
                     sqlx::query(
@@ -241,9 +250,9 @@ impl EvidenceGraphRepository {
                     .bind(&edge.target_node_id)
                     .bind(&edge.edge_kind)
                     .bind(&edge.timestamp)
-                    .bind(Json(&edge.tool_invocations))
-                    .bind(Json(&edge.context_snapshot))
-                    .bind(Json(&edge.metadata))
+                    .bind(&tool_invocations)
+                    .bind(&context_snapshot)
+                    .bind(&metadata)
                     .bind(&edge.prev_hash)
                     .bind(&edge.node_hash)
                     .execute(pool)
@@ -274,9 +283,9 @@ impl EvidenceGraphRepository {
                     .bind(&edge.target_node_id)
                     .bind(&edge.edge_kind)
                     .bind(&edge.timestamp)
-                    .bind(Json(&edge.tool_invocations))
-                    .bind(Json(&edge.context_snapshot))
-                    .bind(Json(&edge.metadata))
+                    .bind(&tool_invocations)
+                    .bind(&context_snapshot)
+                    .bind(&metadata)
                     .bind(&edge.prev_hash)
                     .bind(&edge.node_hash)
                     .execute(pool)
@@ -614,4 +623,9 @@ impl From<WorkflowEvidenceEdgeRow> for WorkflowEvidenceEdge {
 fn db_error(context: &str, err: sqlx::Error) -> AppError {
     error!(context, error = %err, "workflow evidence repository failure");
     AppError::DatabaseQuery(format!("{context}: {err}"))
+}
+
+fn json_text(value: &impl serde::Serialize) -> Result<String, AppError> {
+    serde_json::to_string(value)
+        .map_err(|err| AppError::Serialization(format!("serialize workflow evidence JSON: {err}")))
 }

@@ -28,6 +28,7 @@ pub mod audit;
 #[allow(dead_code)]
 pub mod config_archetypes;
 pub mod decision_trace;
+pub mod distillation;
 pub mod event_store;
 pub mod evidence_graph;
 pub mod kg;

@@ -223,13 +223,15 @@ fn build_evidence_nodes_for_run(
     let mut previous_hash = None;
 
     for (index, stage) in stages.into_iter().enumerate() {
+        let input = normalize_json_for_storage(stage.input)?;
+        let output = normalize_json_for_storage(stage.output)?;
         let timestamp = (started_at + Duration::seconds(index as i64)).to_rfc3339();
         let tool_invocation = build_tool_invocation(
             &format!("scheduler_{}", stage.node_kind),
             attempt_id,
             index as i64,
-            &stage.input,
-            &stage.output,
+            &input,
+            &output,
         )?;
         let mut metadata = BTreeMap::new();
         metadata.insert("trace_kind".to_string(), json!("scheduler_decision"));
@@ -239,8 +241,8 @@ fn build_evidence_nodes_for_run(
         let mut context_snapshot = BTreeMap::new();
         context_snapshot.insert("task_id".to_string(), json!(trace.task_id));
         context_snapshot.insert("stage".to_string(), json!(stage.node_kind));
-        context_snapshot.insert("input".to_string(), stage.input.clone());
-        context_snapshot.insert("output".to_string(), stage.output.clone());
+        context_snapshot.insert("input".to_string(), input.clone());
+        context_snapshot.insert("output".to_string(), output.clone());
 
         let mut node = WorkflowEvidenceNode {
             node_id: Ulid::new().to_string(),
@@ -251,8 +253,8 @@ fn build_evidence_nodes_for_run(
             sequence_number: index as i64,
             node_kind: stage.node_kind.to_string(),
             timestamp,
-            llm_input_hash: hash_json(&stage.input)?,
-            llm_output_hash: hash_json(&stage.output)?,
+            llm_input_hash: hash_json(&input)?,
+            llm_output_hash: hash_json(&output)?,
             tool_invocations: vec![tool_invocation],
             context_snapshot,
             metadata,
@@ -525,10 +527,18 @@ fn canonicalize_json(value: Value) -> Value {
 }
 
 fn value_to_map(value: Value) -> Result<WorkflowEvidenceMap, AppError> {
-    match canonicalize_json(value) {
+    match normalize_json_for_storage(value)? {
         Value::Object(map) => Ok(map.into_iter().collect()),
         other => Ok(BTreeMap::from([("value".to_string(), other)])),
     }
+}
+
+fn normalize_json_for_storage(value: Value) -> Result<Value, AppError> {
+    let serialized = serde_json::to_string(&canonicalize_json(value)).map_err(|err| {
+        AppError::Serialization(format!("serialize json value for storage: {err}"))
+    })?;
+    serde_json::from_str(&serialized)
+        .map_err(|err| AppError::Serialization(format!("parse normalized json value: {err}")))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
