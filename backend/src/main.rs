@@ -162,6 +162,18 @@ async fn main() {
     .expect("Failed to initialize memory transfer service");
     tracing::info!("Memory transfer service initialized successfully");
 
+    // Issue #84/#88: start the distillation worker. Distillation is enabled by
+    // default (DistillationConfig::default) and `memory_transfer` auto-enqueues
+    // L0→L1 jobs after each STM→LTM transfer — but the worker that drains the
+    // `distillation_jobs` queue was never started, so jobs sat `pending`
+    // forever. Starting it closes the 采集→提炼 half of the loop (real L1
+    // extraction via AtomExtractor → `distillation_atoms`; L2/L3 remain
+    // placeholders). Non-critical: log+continue on failure rather than aborting
+    // startup — the app is usable without background distillation.
+    if let Err(e) = crate::services::distillation::init_distillation_service().await {
+        tracing::warn!("Distillation worker failed to start (non-critical): {e}");
+    }
+
     let app = axum_routers::create_router().layer(hoops::cors_hoop());
     tracing::info!("🔄 Listening on {}", &config.listen_addr);
 
