@@ -323,6 +323,8 @@ pub fn root() -> Router {
                 .put(agent::update_equipment)
                 .delete(agent::delete_equipment),
         )
+        // Loadout — atomic snapshot of an agent's bound assets (#89)
+        .route("/agents/{agent_id}/loadout", get(agent::get_loadout))
         // Complete agent info
         .route(
             "/agents/{agent_id}/complete",

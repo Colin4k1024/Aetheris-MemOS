@@ -162,6 +162,40 @@ impl AgentService {
         self.equipment_repo.delete(tenant_id, id).await
     }
 
+    /// Resolve the agent's effective loadout: all bound equipment, grouped by
+    /// asset type (tenant-scoped). Satisfies #89's "agent resolves loadout
+    /// atomically" — one read, one snapshot.
+    pub async fn resolve_loadout(
+        &self,
+        tenant_id: &TenantId,
+        agent_id: &str,
+    ) -> Result<crate::models::agent_equip::Loadout, AppError> {
+        let equipment = self
+            .equipment_repo
+            .list_by_agent(tenant_id, agent_id)
+            .await?;
+        let mut skills = Vec::new();
+        let mut l1_memories = Vec::new();
+        let mut l2_scenes = Vec::new();
+        let mut l3_personas = Vec::new();
+        for eq in equipment {
+            match eq.asset_type.as_str() {
+                "skill" => skills.push(eq),
+                "l1_memory" => l1_memories.push(eq),
+                "l2_scene" => l2_scenes.push(eq),
+                "l3_persona" => l3_personas.push(eq),
+                _ => {} // unknown asset_type — ignore (forward-compat)
+            }
+        }
+        Ok(crate::models::agent_equip::Loadout {
+            agent_id: agent_id.to_string(),
+            skills,
+            l1_memories,
+            l2_scenes,
+            l3_personas,
+        })
+    }
+
     // =========================================================================
     // Episode Operations
     // =========================================================================
