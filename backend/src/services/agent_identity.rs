@@ -4,8 +4,11 @@ use crate::db::agent::{
     AgentBehaviorProfileRepository, AgentCapabilityRepository, AgentEpisodeRepository,
     AgentRepository, AgentSelfModelRepository,
 };
+use crate::db::agent_equip::AgentEquipmentRepository;
 use crate::error::AppError;
 use crate::models::agent::*;
+use crate::models::agent_equip::{AgentEquipment, CreateEquipmentRequest, UpdateEquipmentRequest};
+use crate::tenant::TenantId;
 use sqlx::PgPool;
 
 pub struct AgentService {
@@ -14,6 +17,7 @@ pub struct AgentService {
     episode_repo: AgentEpisodeRepository,
     self_model_repo: AgentSelfModelRepository,
     behavior_profile_repo: AgentBehaviorProfileRepository,
+    equipment_repo: AgentEquipmentRepository,
 }
 
 impl AgentService {
@@ -23,6 +27,7 @@ impl AgentService {
             capability_repo: AgentCapabilityRepository::new(pool.clone()),
             episode_repo: AgentEpisodeRepository::new(pool.clone()),
             self_model_repo: AgentSelfModelRepository::new(pool.clone()),
+            equipment_repo: AgentEquipmentRepository::new(pool.clone()),
             behavior_profile_repo: AgentBehaviorProfileRepository::new(pool),
         }
     }
@@ -108,6 +113,53 @@ impl AgentService {
     /// Delete capability
     pub async fn delete_capability(&self, capability_id: &str) -> Result<(), AppError> {
         self.capability_repo.delete(capability_id).await
+    }
+
+    // =========================================================================
+    // Equipment Operations (#89) — tenant-scoped asset bindings
+    // =========================================================================
+
+    /// Bind an asset to an agent (tenant-scoped).
+    pub async fn create_equipment(
+        &self,
+        tenant_id: &TenantId,
+        agent_id: &str,
+        req: CreateEquipmentRequest,
+    ) -> Result<String, AppError> {
+        self.equipment_repo.create(tenant_id, agent_id, req).await
+    }
+
+    /// List equipment bound to an agent (tenant-scoped).
+    pub async fn list_equipment(
+        &self,
+        tenant_id: &TenantId,
+        agent_id: &str,
+    ) -> Result<Vec<AgentEquipment>, AppError> {
+        self.equipment_repo.list_by_agent(tenant_id, agent_id).await
+    }
+
+    /// Get a single equipment binding (tenant-scoped).
+    pub async fn get_equipment(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+    ) -> Result<Option<AgentEquipment>, AppError> {
+        self.equipment_repo.get(tenant_id, id).await
+    }
+
+    /// Partial update of an equipment binding (tenant-scoped).
+    pub async fn update_equipment(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        req: UpdateEquipmentRequest,
+    ) -> Result<bool, AppError> {
+        self.equipment_repo.update(tenant_id, id, req).await
+    }
+
+    /// Delete an equipment binding (tenant-scoped).
+    pub async fn delete_equipment(&self, tenant_id: &TenantId, id: &str) -> Result<bool, AppError> {
+        self.equipment_repo.delete(tenant_id, id).await
     }
 
     // =========================================================================

@@ -16,6 +16,7 @@ pub mod skill;
 pub mod task;
 pub mod validation;
 
+pub use agent_equip::*;
 pub use dry_run::*;
 pub use evidence::*;
 pub use memory::*;

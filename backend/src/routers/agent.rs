@@ -1,7 +1,7 @@
 //! Agent API routes - Identity and Self-Model management
 
 use axum::{
-    extract::{Path, Query},
+    extract::{Extension, Path, Query},
     routing::{get, post, put},
     Json, Router,
 };
@@ -10,7 +10,9 @@ use serde::Deserialize;
 use crate::db;
 use crate::error::AppError;
 use crate::models::agent::*;
+use crate::models::agent_equip::{AgentEquipment, CreateEquipmentRequest, UpdateEquipmentRequest};
 use crate::services::agent_identity::AgentService;
+use crate::tenant::RequestTenantContext;
 
 pub fn router() -> Router {
     Router::new()
@@ -307,4 +309,79 @@ pub async fn get_agent_complete(
         .ok_or_else(|| AppError::NotFound(format!("Agent {} not found", agent_id)))?;
 
     Ok(Json(agent))
+}
+
+// ============================================================================
+// Equipment Handlers (#89) — tenant-scoped asset bindings.
+//
+// These are the FIRST agent sub-resource handlers to extract
+// `RequestTenantContext` (capabilities/episodes/behaviors are not yet
+// tenant-scoped — a pre-existing gap). The caller's tenant_id scopes every
+// read/write; the DB RLS policy fail-closes any path that forgets it.
+// ============================================================================
+
+pub async fn list_equipment(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<Vec<AgentEquipment>>, AppError> {
+    let pool = db::pool();
+    let service = AgentService::new(pool.clone());
+    let equipment = service
+        .list_equipment(&tenant_ctx.tenant_id, &agent_id)
+        .await?;
+    Ok(Json(equipment))
+}
+
+pub async fn add_equipment(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(agent_id): Path<String>,
+    Json(payload): Json<CreateEquipmentRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = db::pool();
+    let service = AgentService::new(pool.clone());
+    let id = service
+        .create_equipment(&tenant_ctx.tenant_id, &agent_id, payload)
+        .await?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+pub async fn get_equipment(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path((agent_id, equip_id)): Path<(String, String)>,
+) -> Result<Json<AgentEquipment>, AppError> {
+    let _ = agent_id; // path-scoping; the row is fetched by tenant + equip_id (RLS enforces)
+    let pool = db::pool();
+    let service = AgentService::new(pool.clone());
+    let equipment = service
+        .get_equipment(&tenant_ctx.tenant_id, &equip_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
+    Ok(Json(equipment))
+}
+
+pub async fn update_equipment(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path((agent_id, equip_id)): Path<(String, String)>,
+    Json(payload): Json<UpdateEquipmentRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let _ = agent_id;
+    let pool = db::pool();
+    let service = AgentService::new(pool.clone());
+    let updated = service
+        .update_equipment(&tenant_ctx.tenant_id, &equip_id, payload)
+        .await?;
+    Ok(Json(serde_json::json!({ "updated": updated })))
+}
+
+pub async fn delete_equipment(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path((agent_id, equip_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let _ = agent_id;
+    let pool = db::pool();
+    let service = AgentService::new(pool.clone());
+    let deleted = service
+        .delete_equipment(&tenant_ctx.tenant_id, &equip_id)
+        .await?;
+    Ok(Json(serde_json::json!({ "deleted": deleted })))
 }
