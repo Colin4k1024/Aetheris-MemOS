@@ -316,6 +316,21 @@ impl DistillationService {
             upserted += 1;
         }
 
+        // After consolidating, schedule L3 persona regeneration if the user has
+        // enough scenes. No dedup — upsert_persona is idempotent (version bump);
+        // a duplicate L2ToL3 just regenerates. Dedup is a follow-up.
+        let persona_threshold = config::get().distillation.persona_rebuild_scene_threshold;
+        if (existing.len() as u32) >= persona_threshold {
+            let _ = Self::enqueue_job(
+                tenant_id,
+                user_id,
+                agent_id,
+                "",
+                DistillationJobType::L2ToL3,
+            )
+            .await;
+        }
+
         info!(
             "L1->L2 consolidated scene {} for {}/{}: {} scenes upserted from {} atoms",
             scene_name,
@@ -328,16 +343,72 @@ impl DistillationService {
     }
 
     async fn process_l2_to_l3(
-        _tenant_id: &TenantId,
+        tenant_id: &TenantId,
         user_id: &str,
         agent_id: &str,
     ) -> Result<i32, AppError> {
-        // Placeholder -- Phase 2 will implement PersonaBuilder
-        info!(
-            "L2->L3 persona build placeholder for {}/{}",
-            user_id, agent_id
+        // Generate (or regenerate) the user's L3 persona from their L2 scenes
+        // via the LLM. The compute (prompt) is reused from the SQLite path's
+        // l3_persona; the LLM returns the persona text directly (no JSON parse,
+        // unlike L2). upsert_persona bumps version on conflict (idempotent).
+        let scenes = DistillationRepository::list_scenes(tenant_id, user_id, agent_id)
+            .await
+            .unwrap_or_default();
+        if scenes.is_empty() {
+            info!("L2->L3: no scenes for {}/{}, skipping", user_id, agent_id);
+            return Ok(0);
+        }
+
+        let existing = DistillationRepository::get_persona(tenant_id, user_id, agent_id)
+            .await
+            .unwrap_or_default();
+        let existing_text = existing
+            .as_ref()
+            .map(|p| p.profile_content.as_str())
+            .unwrap_or("(尚无画像)");
+
+        let scene_contents = scenes
+            .iter()
+            .map(|s| format!("## {}\n{}\n", s.scene_name, s.content))
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+
+        let user_prompt =
+            super::prompts::format_l3_persona_user_prompt(existing_text, &scene_contents);
+        let full_prompt = format!(
+            "{}\n\n{}",
+            super::prompts::L3_PERSONA_SYSTEM_PROMPT,
+            user_prompt
         );
-        Ok(0)
+
+        let llm = crate::services::llm::get_llm_service()
+            .map_err(|e| AppError::Internal(format!("LLM service unavailable: {e}")))?;
+        let persona_content = llm
+            .call_llm_public(&full_prompt)
+            .await
+            .map_err(|e| AppError::Internal(format!("L3 persona LLM call failed: {e}")))?;
+
+        let scene_ids: Vec<String> = scenes.iter().map(|s| s.id.clone()).collect();
+        let token_count = (persona_content.chars().count() as i32) / 4;
+
+        let _ = DistillationRepository::upsert_persona(
+            tenant_id,
+            user_id,
+            agent_id,
+            persona_content.trim(),
+            &scene_ids,
+            token_count,
+        )
+        .await;
+
+        info!(
+            "L2->L3 persona generated for {}/{}: {} scenes, content_len={}",
+            user_id,
+            agent_id,
+            scene_ids.len(),
+            persona_content.len()
+        );
+        Ok(1)
     }
 }
 
