@@ -25,10 +25,15 @@ impl MemoryProvider for LettaProvider {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
+        // Reserved stub — reports no capabilities so discovery never marks an
+        // unimplemented provider as available (#87). This stub is not reachable
+        // via `create_provider` (which rejects `ProviderType::Letta`); the
+        // all-false report is a defense-in-depth guarantee if it is ever
+        // instantiated directly.
         ProviderCapabilities {
-            supports_vector_search: true,
+            supports_vector_search: false,
             supports_graph: false,
-            supports_metadata_filter: true,
+            supports_metadata_filter: false,
             supports_eviction: false,
             max_entry_size_bytes: None,
         }

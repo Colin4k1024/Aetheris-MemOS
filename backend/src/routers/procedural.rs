@@ -255,7 +255,8 @@ pub struct ProviderCapabilitiesDto {
 
 pub async fn provider_health() -> JsonResult<ProviderHealthResponse> {
     let config = ProviderConfig::default();
-    let provider = create_provider(&config);
+    let provider = create_provider(&config)
+        .map_err(|e| crate::error::AppError::Internal(format!("failed to create provider: {e}")))?;
 
     let health = provider
         .health_check()
