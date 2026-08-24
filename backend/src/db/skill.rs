@@ -8,7 +8,7 @@
 
 use crate::db::tenant_scope::begin_tenant_tx;
 use crate::error::AppError;
-use crate::models::skill::{CreateSkillRequest, Skill, UpdateSkillRequest};
+use crate::models::skill::{CreateSkillRequest, PublishSkillRequest, Skill, UpdateSkillRequest};
 use crate::tenant::TenantId;
 use sqlx::PgPool;
 use ulid::Ulid;
@@ -167,5 +167,102 @@ impl SkillRepository {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to commit skill: {e}")))?;
         Ok(affected > 0)
+    }
+
+    /// Publish a new version of a skill (#90): insert a new row with
+    /// `version = max(tenant, name) + 1` and `status = 'active'`, carry over
+    /// name / owner_agent_id / visibility / source_session_ids from the old
+    /// version (plus any content fields the request omits), and mark the old
+    /// row `deprecated`. History is preserved (old rows are immutable). All
+    /// in one tenant-scoped transaction.
+    pub async fn publish_version(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        req: PublishSkillRequest,
+    ) -> Result<String, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+
+        // 1. Load the existing skill (for name + fields to carry over).
+        let existing = sqlx::query_as::<_, Skill>(
+            r#"
+            SELECT id, tenant_id, name, description, version, trigger_conditions,
+                   execution_steps, validation_rules, source_session_ids,
+                   owner_agent_id, visibility, status, embedding_model,
+                   embedding_dimension, created_at::text, updated_at::text
+            FROM skills WHERE tenant_id = $1 AND id = $2
+            "#,
+        )
+        .bind(tenant_id.as_str())
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to load skill: {e}")))?
+        .ok_or_else(|| AppError::NotFound("skill not found".to_string()))?;
+
+        // 2. Next version = max version for (tenant, name) + 1.
+        let (max_version,): (i32,) = sqlx::query_as(
+            "SELECT COALESCE(MAX(version), 0) FROM skills WHERE tenant_id = $1 AND name = $2",
+        )
+        .bind(tenant_id.as_str())
+        .bind(&existing.name)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get max skill version: {e}")))?;
+
+        // 3. Build the new row's content (carry over fields the request omits).
+        let triggers = match req.trigger_conditions {
+            Some(v) => serde_json::to_value(&v).unwrap_or_default(),
+            None => existing.trigger_conditions.clone(),
+        };
+        let steps = match req.execution_steps {
+            Some(v) => serde_json::to_value(&v).unwrap_or_default(),
+            None => existing.execution_steps.clone(),
+        };
+        let rules = match req.validation_rules {
+            Some(v) => serde_json::to_value(&v).unwrap_or_default(),
+            None => existing.validation_rules.clone(),
+        };
+        let description = req.description.unwrap_or_else(|| existing.description.clone());
+
+        let new_id = Ulid::new().to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO skills
+                (id, tenant_id, name, description, version, trigger_conditions,
+                 execution_steps, validation_rules, source_session_ids,
+                 owner_agent_id, visibility, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
+            "#,
+        )
+        .bind(&new_id)
+        .bind(tenant_id.as_str())
+        .bind(&existing.name)
+        .bind(&description)
+        .bind(max_version + 1)
+        .bind(&triggers)
+        .bind(&steps)
+        .bind(&rules)
+        .bind(&existing.source_session_ids)
+        .bind(&existing.owner_agent_id)
+        .bind(&existing.visibility)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to insert new skill version: {e}")))?;
+
+        // 4. Deprecate the old version (history preserved, immutable).
+        sqlx::query(
+            "UPDATE skills SET status = 'deprecated', updated_at = NOW() WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(tenant_id.as_str())
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to deprecate old skill version: {e}")))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to commit skill publish: {e}")))?;
+        Ok(new_id)
     }
 }
