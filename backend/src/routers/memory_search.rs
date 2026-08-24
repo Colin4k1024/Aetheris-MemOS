@@ -131,6 +131,7 @@ pub struct TripleHybridSearchResponse {
 }
 
 /// 搜索短期记忆
+#[utoipa::path(post, path = "/api/v1/memory/search/stm", tag = "search", responses((status = 200, description = "STM search results")))]
 pub async fn search_stm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<SearchSTMRequest>,
@@ -155,6 +156,7 @@ pub async fn search_stm(
 }
 
 /// 搜索长期记忆（向量搜索）
+#[utoipa::path(post, path = "/api/v1/memory/search/ltm", tag = "search", responses((status = 200, description = "LTM search results")))]
 pub async fn search_ltm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<SearchLTMRequest>,
@@ -355,6 +357,7 @@ pub async fn scored_search(
 }
 
 /// 获取所有知识条目列表
+#[utoipa::path(get, path = "/api/v1/memory/search/ltm", tag = "search", responses((status = 200, description = "LTM entries list")))]
 pub async fn list_ltm_entries(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
 ) -> JsonResult<crate::db::ltm::KnowledgeEntryListResponse> {

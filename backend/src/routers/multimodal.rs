@@ -77,6 +77,7 @@ fn default_limit() -> i32 {
 }
 
 /// 存储多模态记忆
+#[utoipa::path(post, path = "/api/mm/store", tag = "multimodal", request_body = StoreMMRequest, responses((status = 200, body = MMEntryListResponse, description = "Multimodal entry stored")))]
 pub async fn store_mm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(body): Json<StoreMMRequest>,
@@ -218,6 +219,7 @@ pub struct MMEntryListResponse {
 }
 
 /// 获取多模态记忆列表
+#[utoipa::path(get, path = "/api/mm/list", tag = "multimodal", responses((status = 200, description = "Multimodal entries list")))]
 pub async fn list_mm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(query): Query<ListMMQuery>,

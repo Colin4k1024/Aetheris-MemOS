@@ -118,6 +118,7 @@ pub struct BackfillQdrantTenantMetadataRequest {
 }
 
 /// 存储短期记忆
+#[utoipa::path(post, path = "/api/v1/memory/storage/stm", tag = "storage", responses((status = 200, description = "STM message stored")))]
 pub async fn store_stm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<StoreSTMRequest>,
@@ -149,6 +150,7 @@ pub async fn store_stm(
 }
 
 /// 存储长期记忆
+#[utoipa::path(post, path = "/api/v1/memory/storage/ltm", tag = "storage", request_body = StoreLTMRequest, responses((status = 200, body = crate::services::memory_storage::StoreLtmResult, description = "LTM entry stored")))]
 pub async fn store_ltm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<StoreLTMRequest>,
@@ -198,6 +200,7 @@ pub async fn transfer_stm_to_ltm(
 }
 
 /// 批量存储长期记忆
+#[utoipa::path(post, path = "/api/v1/memory/storage/batch-ltm", tag = "storage", responses((status = 200, description = "Batch LTM entries stored")))]
 pub async fn batch_store_ltm(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Json(req): Json<BatchStoreLTMRequest>,
@@ -235,6 +238,7 @@ pub async fn backfill_qdrant_tenant_metadata(
 }
 
 /// 获取所有会话列表
+#[utoipa::path(get, path = "/api/v1/memory/storage/sessions", tag = "storage", responses((status = 200, description = "STM session list")))]
 pub async fn list_sessions(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Query(params): Query<ListSessionsQuery>,
@@ -253,6 +257,7 @@ pub async fn list_sessions(
 }
 
 /// 获取会话消息
+#[utoipa::path(get, path = "/api/v1/memory/storage/stm/{session_id}", tag = "storage", responses((status = 200, description = "Session messages")))]
 pub async fn get_session_messages(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     Path(session_id): Path<String>,
