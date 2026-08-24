@@ -74,6 +74,10 @@ pub struct PrometheusExporter {
     /// Spill lines skipped during replay because they could not be parsed
     /// (truncated tail from a crash mid-write, or corruption).
     audit_truncated_skipped_total: prometheus::Counter,
+    /// Active WebSocket connections (#86)
+    ws_connections_active: prometheus::Gauge,
+    /// WebSocket events dropped because the client lagged behind the broadcast (#86)
+    ws_lagged_drops_total: prometheus::Counter,
     /// Prometheus registry for metric collection
     registry: prometheus::Registry,
 }
@@ -265,6 +269,18 @@ impl PrometheusExporter {
         )
         .expect("counter creation failed");
 
+        let ws_connections_active = prometheus::Gauge::new(
+            "ws_connections_active",
+            "Number of active WebSocket connections",
+        )
+        .expect("gauge creation failed");
+
+        let ws_lagged_drops_total = prometheus::Counter::new(
+            "ws_lagged_drops_total",
+            "WebSocket events dropped because the client lagged behind the broadcast",
+        )
+        .expect("counter creation failed");
+
         // Register all metrics with the registry
         registry
             .register(Box::new(stm_sessions_active.clone()))
@@ -343,6 +359,12 @@ impl PrometheusExporter {
         registry
             .register(Box::new(audit_truncated_skipped_total.clone()))
             .expect("failed to register audit_truncated_skipped_total");
+        registry
+            .register(Box::new(ws_connections_active.clone()))
+            .expect("failed to register ws_connections_active");
+        registry
+            .register(Box::new(ws_lagged_drops_total.clone()))
+            .expect("failed to register ws_lagged_drops_total");
 
         Self {
             stm_sessions_active,
@@ -370,6 +392,8 @@ impl PrometheusExporter {
             audit_replayed_total,
             audit_dropped_total,
             audit_truncated_skipped_total,
+            ws_connections_active,
+            ws_lagged_drops_total,
             registry,
         }
     }
@@ -444,6 +468,17 @@ impl PrometheusExporter {
     /// Increment outbox dead letter counter
     pub fn inc_outbox_dead_letter(&self) {
         self.outbox_dead_letter_total.inc();
+    }
+
+    /// Set the active WebSocket connection count (#86).
+    pub fn set_ws_connections_active(&self, count: f64) {
+        self.ws_connections_active.set(count);
+    }
+
+    /// Increment when a WS client lagged behind the broadcast and events were
+    /// dropped (#86) — a slow-consumer / backpressure signal.
+    pub fn inc_ws_lagged_drops(&self) {
+        self.ws_lagged_drops_total.inc();
     }
 
     /// Record outbox processing duration
@@ -653,6 +688,20 @@ mod tests {
 
         assert!(output.contains("memory_stm_sessions_active"));
         assert!(output.contains("memory_ltm_entries_total"));
+    }
+
+    #[test]
+    fn test_ws_metrics_registered() {
+        // #86: confirm the WS gauge + counter are registered. Live setter
+        // callers exist in handle_ws_connection (create/remove set the gauge,
+        // Lagged incs the counter) — see aetheris-metrics-mostly-dead.
+        let exporter = PrometheusExporter::new();
+        exporter.set_ws_connections_active(3.0);
+        exporter.inc_ws_lagged_drops();
+
+        let output = exporter.generate_prometheus_output();
+        assert!(output.contains("ws_connections_active"), "missing gauge: {output}");
+        assert!(output.contains("ws_lagged_drops_total"), "missing counter: {output}");
     }
 
     #[test]
