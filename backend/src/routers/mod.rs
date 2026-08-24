@@ -45,7 +45,9 @@ mod workflows;
 
 use std::sync::Arc;
 
+#[cfg(feature = "a2a")]
 use crate::a2a::a2a_router;
+#[cfg(feature = "a2a")]
 use crate::a2a::handler::A2AHandler;
 use crate::layers::procedural_layer::ProceduralMemoryLayer;
 use crate::{config, hoops, services::prometheus_exporter};
@@ -57,7 +59,8 @@ struct Assets;
 pub fn root() -> Router {
     let _ = &config::get().jwt;
     let auth_layer = middleware::from_fn(hoops::jwt::auth_middleware);
-    let rate_limit_state = hoops::rate_limit_state(100, 60);
+    let trusted_proxies = config::get().trusted_proxies.clone();
+    let rate_limit_state = hoops::rate_limit_state(100, 60, trusted_proxies.clone());
     let memory_rate_limit =
         middleware::from_fn_with_state(rate_limit_state, hoops::rate_limit_middleware);
 
@@ -421,10 +424,15 @@ pub fn root() -> Router {
         )
         .route_layer(auth_layer);
 
-    // A2A Protocol support
-    let a2a_base_url = format!("http://{}/api", config::get().listen_addr);
-    let a2a_handler = Arc::new(A2AHandler::new());
-    let a2a_routes = a2a_router(a2a_base_url, a2a_handler);
+    // A2A Protocol support — only mounted when the `a2a` feature is enabled.
+    // It is OFF by default (its git deps fetch during resolution); CI builds it
+    // in a dedicated job. See `lib.rs` and `Cargo.toml` [features].
+    #[cfg(feature = "a2a")]
+    let a2a_routes = {
+        let a2a_base_url = format!("http://{}/api", config::get().listen_addr);
+        let a2a_handler = Arc::new(A2AHandler::new());
+        a2a_router(a2a_base_url, a2a_handler)
+    };
 
     let api_router = Router::new()
         .route("/login", post(auth::post_login))
@@ -435,8 +443,9 @@ pub fn root() -> Router {
         .merge(protected_api_router)
         .merge(mcp::router())
         .merge(data_io::router())
-        .nest("/v1/tracing", tracing::router())
-        .merge(a2a_routes);
+        .nest("/v1/tracing", tracing::router());
+    #[cfg(feature = "a2a")]
+    let api_router = api_router.merge(a2a_routes);
 
     Router::new()
         .route("/", get(demo::hello))

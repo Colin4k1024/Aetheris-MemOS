@@ -2,9 +2,6 @@
 //!
 //! This module provides Axum-based API routes to replace Salvo.
 
-pub mod agent;
-pub mod auth;
-pub mod demo;
 pub mod distributed;
 
 use std::time::Instant;
@@ -96,7 +93,17 @@ mod tests {
 
         let output = get_exporter().generate_prometheus_output();
         assert!(output.contains("memory_requests_total{endpoint=\"/\",status=\"200\"}"));
-        assert!(output.contains("memory_request_duration_seconds_count 1"));
+        // The exporter is a process-global singleton shared across the whole
+        // test binary, so the duration count is not guaranteed to be exactly 1
+        // here — only to have grown by at least the one request this test made.
+        // Assert a positive count rather than the brittle exact-`1` form.
+        let duration_count = output
+            .lines()
+            .find(|l| l.starts_with("memory_request_duration_seconds_count"))
+            .and_then(|l| l.rsplit(' ').next())
+            .and_then(|v| v.parse::<u64>().ok())
+            .expect("memory_request_duration_seconds_count line present");
+        assert!(duration_count >= 1, "duration count should be >= 1, got {duration_count}");
         assert!(!output.contains("request_id=unbounded-value"));
     }
 }

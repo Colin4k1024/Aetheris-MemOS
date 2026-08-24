@@ -107,6 +107,22 @@ pub fn init() {
         config.db.backend = crate::config::DatabaseBackend::Sqlite;
     }
 
+    // APP_RECONCILIATION_INTERVAL_SECONDS — figment would map this to
+    // `reconciliation.interval.seconds` instead of `reconciliation.interval_seconds`,
+    // so spell it out explicitly.
+    if let Ok(val) = std::env::var("APP_RECONCILIATION_INTERVAL_SECONDS") {
+        if let Ok(secs) = val.parse::<u64>() {
+            config.reconciliation.interval_seconds = secs;
+        }
+    }
+
+    // APP_RECONCILIATION_MODE — explicit to avoid figment nested-key ambiguity.
+    if let Ok(mode) = std::env::var("APP_RECONCILIATION_MODE") {
+        if !mode.is_empty() {
+            config.reconciliation.mode = mode;
+        }
+    }
+
     if crate::config::CONFIG.set(config).is_err() {
         tracing::debug!("[config] Configuration already initialized; retaining existing value");
     }
@@ -161,6 +177,58 @@ pub struct MemoryTransferConfig {
     pub session_time_threshold: i32,
 }
 
+/// Vector reconciliation scanner configuration.
+///
+/// The scanner periodically compares PostgreSQL `knowledge_entries` against
+/// Qdrant points to detect four classes of drift: missing (DB entry with no
+/// Qdrant point), orphan (Qdrant point with no DB entry), tenant mismatch, and
+/// content-hash mismatch.  In `dry_run` mode the scan is **read-only** — it
+/// records drift rows, logs counts and updates Prometheus gauges but never
+/// enqueues outbox events.  In `repair` mode it additionally enqueues outbox
+/// events to fix the drift.
+///
+/// The scanner is enabled by default because leaving it disabled preserves the
+/// existing bug where vector drift is never detected.  `repair` mode enqueues
+/// bulk Qdrant writes and must be explicitly opted into — it should never be
+/// the default in committed configuration.
+///
+/// `mode` must be one of the values accepted by
+/// [`crate::db::vector_reconciliation::ReconciliationMode::parse`] — the
+/// scanner validates it once at startup and falls back to `dry_run` with a
+/// `WARN` if it does not parse, so a typo degrades to read-only rather than
+/// failing every scan.
+#[derive(Deserialize, Clone, Debug)]
+pub struct ReconciliationConfig {
+    /// Enable the periodic reconciliation scanner. Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Seconds between reconciliation scans. Default 3600 (1 hour).
+    /// Values below the scanner's floor are raised, with a `WARN`.
+    #[serde(default = "default_reconciliation_interval")]
+    pub interval_seconds: u64,
+    /// Scan mode: `"dry_run"` (read-only) or `"repair"` (enqueues outbox writes).
+    #[serde(default = "default_reconciliation_mode")]
+    pub mode: String,
+}
+
+impl Default for ReconciliationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_seconds: default_reconciliation_interval(),
+            mode: default_reconciliation_mode(),
+        }
+    }
+}
+
+fn default_reconciliation_interval() -> u64 {
+    3600
+}
+
+fn default_reconciliation_mode() -> String {
+    "dry_run".to_string()
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct ServerConfig {
     #[serde(default = "default_listen_addr")]
@@ -189,6 +257,13 @@ pub struct ServerConfig {
     pub recall: RecallConfig,
     #[serde(default)]
     pub skills: SkillsConfig,
+    #[serde(default)]
+    pub reconciliation: ReconciliationConfig,
+    /// Trusted reverse-proxy IPs whose `X-Forwarded-For` header is honoured by
+    /// the rate limiter. Empty (the default) → XFF is never trusted and the
+    /// direct peer IP is always used. Restored from 4eeecaa (lost in the merge).
+    #[serde(default)]
+    pub trusted_proxies: Vec<std::net::IpAddr>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
