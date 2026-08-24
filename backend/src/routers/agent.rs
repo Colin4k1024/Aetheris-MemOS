@@ -10,7 +10,9 @@ use serde::Deserialize;
 use crate::db;
 use crate::error::AppError;
 use crate::models::agent::*;
-use crate::models::agent_equip::{AgentEquipment, CreateEquipmentRequest, UpdateEquipmentRequest};
+use crate::models::agent_equip::{
+    AgentEquipment, CreateEquipmentRequest, Loadout, UpdateEquipmentRequest,
+};
 use crate::services::agent_identity::AgentService;
 use crate::tenant::RequestTenantContext;
 
@@ -384,4 +386,18 @@ pub async fn delete_equipment(
         .delete_equipment(&tenant_ctx.tenant_id, &equip_id)
         .await?;
     Ok(Json(serde_json::json!({ "deleted": deleted })))
+}
+
+/// Resolve the agent's effective loadout (all bound assets, grouped by type).
+/// GET /agents/{agent_id}/loadout
+pub async fn get_loadout(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<Loadout>, AppError> {
+    let pool = db::pool();
+    let service = AgentService::new(pool.clone());
+    let loadout = service
+        .resolve_loadout(&tenant_ctx.tenant_id, &agent_id)
+        .await?;
+    Ok(Json(loadout))
 }

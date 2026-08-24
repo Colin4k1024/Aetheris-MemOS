@@ -83,3 +83,16 @@ pub struct UpdateEquipmentRequest {
     pub condition: Option<serde_json::Value>,
     pub priority: Option<i32>,
 }
+
+/// Atomic snapshot of all assets bound to an agent, grouped by asset type
+/// (#89). A first increment: the binding rows grouped; resolving the actual
+/// asset bodies (skill/scene/persona content) by `asset_id` is a follow-up —
+/// callers can fetch each asset by id from its type-specific endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Loadout {
+    pub agent_id: String,
+    pub skills: Vec<AgentEquipment>,
+    pub l1_memories: Vec<AgentEquipment>,
+    pub l2_scenes: Vec<AgentEquipment>,
+    pub l3_personas: Vec<AgentEquipment>,
+}
