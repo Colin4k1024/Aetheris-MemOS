@@ -124,7 +124,15 @@ impl DistillationService {
                         .await
                     }
                     "l1_to_l2" => {
-                        Self::process_l1_to_l2(tenant_id, &job.user_id, &job.agent_id).await
+                        // The L1→L2 job carries the scene_name in `session_id`
+                        // (see process_l0_to_l1's enqueue).
+                        Self::process_l1_to_l2(
+                            tenant_id,
+                            &job.user_id,
+                            &job.agent_id,
+                            &job.session_id,
+                        )
+                        .await
                     }
                     "l2_to_l3" => {
                         Self::process_l2_to_l3(tenant_id, &job.user_id, &job.agent_id).await
@@ -226,16 +234,97 @@ impl DistillationService {
     }
 
     async fn process_l1_to_l2(
-        _tenant_id: &TenantId,
+        tenant_id: &TenantId,
         user_id: &str,
         agent_id: &str,
+        scene_name: &str,
     ) -> Result<i32, AppError> {
-        // Placeholder -- Phase 2 will implement SceneConsolidator
-        info!(
-            "L1->L2 consolidation placeholder for {}/{}",
-            user_id, agent_id
+        // Consolidate one scene's L1 atoms into an L2 scene document via the
+        // LLM. The compute (prompt + response parse) is reused from the SQLite
+        // path's l2_consolidator — it is backend-agnostic; only the atom/scene
+        // types differ, and we adapt them here to the PG L1Atom/L2Scene.
+        let atoms = DistillationRepository::get_atoms_for_scene(
+            tenant_id,
+            user_id,
+            agent_id,
+            scene_name,
+        )
+        .await?;
+        if atoms.is_empty() {
+            info!("L1->L2: no atoms for scene {}, skipping", scene_name);
+            return Ok(0);
+        }
+
+        let atoms_text = atoms
+            .iter()
+            .map(|a| {
+                format!(
+                    "- [{}] (scene: {}, type: {}, priority: {}) {}",
+                    a.id, a.scene_name, a.atom_type, a.priority, a.content
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Existing scenes let the LLM avoid duplicating them.
+        let existing = DistillationRepository::list_scenes(tenant_id, user_id, agent_id)
+            .await
+            .unwrap_or_default();
+        let scenes_text = if existing.is_empty() {
+            "(无现有场景)".to_string()
+        } else {
+            existing
+                .iter()
+                .map(|s| format!("- [{}] {} — {}", s.id, s.scene_name, s.content))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        let user_prompt =
+            super::prompts::format_l2_consolidation_user_prompt(&atoms_text, &scenes_text);
+        let full_prompt = format!(
+            "{}\n\n{}",
+            super::prompts::L2_CONSOLIDATION_SYSTEM_PROMPT,
+            user_prompt
         );
-        Ok(0)
+
+        let llm = crate::services::llm::get_llm_service()
+            .map_err(|e| AppError::Internal(format!("LLM service unavailable: {e}")))?;
+        let response = llm
+            .call_llm_public(&full_prompt)
+            .await
+            .map_err(|e| AppError::Internal(format!("L2 consolidation LLM call failed: {e}")))?;
+
+        let scene_updates = super::l2_consolidator::parse_consolidation_response(&response)
+            .map_err(|e| AppError::Internal(format!("L2 consolidation parse failed: {e}")))?;
+
+        let mut upserted = 0i32;
+        for update in &scene_updates {
+            // Rough token estimate (~4 chars/token); good enough for budgeting.
+            let token_count = (update.content.chars().count() as i32) / 4;
+            let _ = DistillationRepository::upsert_scene(
+                tenant_id,
+                user_id,
+                agent_id,
+                &update.name,
+                &update.name,
+                &update.content,
+                &update.atom_ids,
+                token_count,
+            )
+            .await;
+            upserted += 1;
+        }
+
+        info!(
+            "L1->L2 consolidated scene {} for {}/{}: {} scenes upserted from {} atoms",
+            scene_name,
+            user_id,
+            agent_id,
+            upserted,
+            atoms.len()
+        );
+        Ok(upserted)
     }
 
     async fn process_l2_to_l3(
