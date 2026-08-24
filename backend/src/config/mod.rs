@@ -273,6 +273,53 @@ pub struct JwtConfig {
     #[serde(default)]
     pub disabled: bool,
 }
+
+/// Known placeholder JWT secrets shipped in examples/templates. Booting with
+/// one while auth is enabled is a deterministic misconfiguration.
+const INSECURE_JWT_SECRETS: &[&str] = &[
+    "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET",
+    "change-me-in-production-32chars",
+    "change-me",
+    "changeme",
+    "secret",
+    "your-secret-key",
+];
+
+/// Minimum acceptable JWT secret length (bytes) when auth is enabled.
+const MIN_JWT_SECRET_LEN: usize = 32;
+
+/// Validate that the JWT signing secret is safe for a production startup.
+///
+/// Returns `Err` (so the caller can fail-fast) when authentication is enabled
+/// but the secret is a known placeholder or shorter than `MIN_JWT_SECRET_LEN`.
+/// When `jwt.disabled` is set (explicit local/dev mode) validation is skipped.
+pub fn validate_jwt_security(config: &ServerConfig) -> Result<(), String> {
+    check_jwt_secret(config.jwt.disabled, &config.jwt.secret)
+}
+
+fn check_jwt_secret(disabled: bool, secret: &str) -> Result<(), String> {
+    if disabled {
+        return Ok(());
+    }
+    let secret = secret.trim();
+    if INSECURE_JWT_SECRETS.contains(&secret) {
+        return Err(
+            "Insecure JWT secret: the configured value is a known placeholder. Set a strong \
+             random secret via the APP_JWT_SECRET environment variable (e.g. `openssl rand -hex 32`), \
+             or set jwt.disabled=true for local loopback dev only."
+                .to_string(),
+        );
+    }
+    if secret.len() < MIN_JWT_SECRET_LEN {
+        return Err(format!(
+            "Insecure JWT secret: must be at least {MIN_JWT_SECRET_LEN} characters (got {}). Set a \
+             strong random secret via the APP_JWT_SECRET environment variable (e.g. \
+             `openssl rand -hex 32`), or set jwt.disabled=true for local loopback dev only.",
+            secret.len()
+        ));
+    }
+    Ok(())
+}
 #[derive(Deserialize, Clone, Debug)]
 pub struct TlsConfig {
     pub cert: String,
