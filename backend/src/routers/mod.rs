@@ -34,6 +34,7 @@ mod openapi;
 mod planner;
 mod procedural;
 mod security;
+mod skill;
 #[allow(dead_code)]
 mod snapshot;
 #[allow(dead_code)]
@@ -422,6 +423,8 @@ pub fn root() -> Router {
             "/v1/planner",
             planner::router(std::sync::Arc::new(planner::PlannerState::new())),
         )
+        // Skill asset routes (#90) — tenant-scoped via RequestTenantContext
+        .nest("/v1/skills", skill::router())
         // Distillation pipeline routes
         .nest(
             "/v1/distillation",
