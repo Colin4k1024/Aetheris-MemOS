@@ -448,6 +448,8 @@ async fn handle_ws_connection(
 ) {
     let manager = ws_manager();
     let (session_id, mut broadcast_rx) = manager.create_session(tenant_ctx.clone()).await;
+    crate::services::prometheus_exporter::get_exporter()
+        .set_ws_connections_active(manager.connection_count().await as f64);
 
     // Send the Connected frame so the client knows its session_id.
     let connected = WsMessage {
@@ -466,6 +468,8 @@ async fn handle_ws_connection(
         .is_err()
     {
         manager.remove_session(&session_id).await;
+        crate::services::prometheus_exporter::get_exporter()
+            .set_ws_connections_active(manager.connection_count().await as f64);
         return;
     }
 
@@ -534,6 +538,8 @@ async fn handle_ws_connection(
                             skipped = n,
                             "WS client lagged, dropping events"
                         );
+                        crate::services::prometheus_exporter::get_exporter()
+                            .inc_ws_lagged_drops();
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -542,6 +548,8 @@ async fn handle_ws_connection(
     }
 
     manager.remove_session(&session_id).await;
+    crate::services::prometheus_exporter::get_exporter()
+        .set_ws_connections_active(manager.connection_count().await as f64);
 }
 
 async fn handle_ws_message(
