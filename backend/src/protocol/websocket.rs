@@ -5,7 +5,9 @@
 //! WebSocket upgrade handler (`ws_upgrade_handler`) authenticates during
 //! the HTTP handshake via `hoops::jwt::authenticate()`.
 //!
-//! `send_to_session` remains a placeholder until a real axum WS route is wired.
+//! `send_to_session` returns a truthful subscription check; the primary push
+//! path is `broadcast_event` + per-connection forward filtering. A real axum WS
+//! route is mounted at `/api/v1/ws` (see `routers::mod::root`).
 #![allow(dead_code)]
 
 use crate::hoops::jwt;
@@ -128,7 +130,7 @@ pub struct UnsubscribeRequest {
 }
 
 /// Event types for subscriptions
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     MemoryAdded,
@@ -136,6 +138,24 @@ pub enum EventType {
     MemoryDeleted,
     MemoryEvicted,
     LayerFull,
+}
+
+/// Lightweight event payload pushed over WebSocket — avoids carrying the full
+/// kernel `MemoryEntry` (which may hold `Binary`/`GraphData`) over the wire.
+/// `summary` is truncated to ~256 chars so a client can decide whether to
+/// fetch the full entry. `tenant_id` is present on every variant so the
+/// broadcast forward task can filter by tenant without deserializing deeply.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEventPayload {
+    pub id: String,
+    pub tenant_id: String,
+    pub layer: LayerType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Stored response
@@ -178,15 +198,30 @@ pub struct EventResponse {
     pub data: EventData,
 }
 
-/// Event data
+/// Event data — lightweight variants; every variant carries `tenant_id` so
+/// the broadcast forward task can filter by tenant.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
-    MemoryAdded(MemoryEntry),
-    MemoryUpdated { id: String, entry: MemoryEntry },
-    MemoryDeleted { id: String },
-    MemoryEvicted { ids: Vec<String> },
-    LayerFull { layer: LayerType, capacity: usize },
+    MemoryAdded(MemoryEventPayload),
+    MemoryUpdated {
+        id: String,
+        payload: MemoryEventPayload,
+    },
+    MemoryDeleted {
+        id: String,
+        layer: LayerType,
+        tenant_id: String,
+    },
+    MemoryEvicted {
+        ids: Vec<String>,
+        tenant_id: String,
+    },
+    LayerFull {
+        layer: LayerType,
+        capacity: usize,
+        tenant_id: String,
+    },
 }
 
 /// Error response
@@ -312,8 +347,10 @@ impl WsConnectionManager {
         }
     }
 
-    /// Broadcast an event to all subscribed connections.
-    pub async fn broadcast_event(&self, event: EventResponse) -> usize {
+    /// Broadcast an event to all subscribed connections. Synchronous and
+    /// non-blocking (`broadcast::Sender::send` never awaits) so callers can
+    /// fire-and-forget it from hot paths (memory write/delete chokepoints).
+    pub fn broadcast_event(&self, event: EventResponse) -> usize {
         self.event_tx.send(event).unwrap_or(0)
     }
 
@@ -322,25 +359,21 @@ impl WsConnectionManager {
         self.connections.read().await.len()
     }
 
-    /// Send event to a specific session (if subscribed).
+    /// Whether a session would receive `event`: the session must exist and
+    /// either have no subscriptions (receive-all default) or be subscribed to
+    /// this event type. NOTE: actual delivery happens via the broadcast
+    /// channel the forward task in `handle_ws_connection` drains — this is a
+    /// truthful query, not a send (the old stub always returned `true`).
     pub async fn send_to_session(&self, session_id: &str, event: EventResponse) -> bool {
         let connections = self.connections.read().await;
-        if let Some(conn) = connections.get(session_id) {
-            // Check if the connection is subscribed to this event type
-            let is_subscribed = conn.subscriptions.iter().any(|sub| {
-                matches!(&event.event_type, EventType::MemoryAdded if matches!(sub.event_type, EventType::MemoryAdded))
-                    || matches!(&event.event_type, EventType::MemoryUpdated if matches!(sub.event_type, EventType::MemoryUpdated))
-                    || matches!(&event.event_type, EventType::MemoryDeleted if matches!(sub.event_type, EventType::MemoryDeleted))
-                    || matches!(&event.event_type, EventType::MemoryEvicted if matches!(sub.event_type, EventType::MemoryEvicted))
-                    || matches!(&event.event_type, EventType::LayerFull if matches!(sub.event_type, EventType::LayerFull))
-            });
-
-            // For simplicity, always return true if session exists
-            // In real implementation, would send via WebSocket
-            true
-        } else {
-            false
-        }
+        let Some(conn) = connections.get(session_id) else {
+            return false;
+        };
+        conn.subscriptions.is_empty()
+            || conn
+                .subscriptions
+                .iter()
+                .any(|sub| sub.event_type == event.event_type)
     }
 
     /// Clean up old sessions (based on timestamp).
@@ -356,6 +389,30 @@ impl WsConnectionManager {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Global singleton — the WS manager is reached both from the axum upgrade
+// handler and from the memory write/delete chokepoints (static service methods
+// with no DI). Mirrors LLM_SERVICE / DATABASE_POOL.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static WS_MANAGER: std::sync::OnceLock<std::sync::Arc<WsConnectionManager>> =
+    std::sync::OnceLock::new();
+
+/// Get the global WebSocket connection manager. Panics if not initialized —
+/// `init_ws_manager()` MUST be called from `main` at startup.
+pub fn ws_manager() -> &'static std::sync::Arc<WsConnectionManager> {
+    WS_MANAGER.get().expect("WS_MANAGER not initialized")
+}
+
+/// Initialize the global WS manager singleton. Call once at startup (main.rs),
+/// before the HTTP server accepts connections.
+pub fn init_ws_manager() {
+    WS_MANAGER
+        .set(std::sync::Arc::new(WsConnectionManager::new()))
+        .ok()
+        .expect("WS_MANAGER already initialized");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Axum WebSocket upgrade handler with handshake auth (ADR-0007, P2 PR-3).
 //
 // Authenticates the HTTP upgrade request via `hoops::jwt::authenticate()`
@@ -364,22 +421,7 @@ impl WsConnectionManager {
 // ─────────────────────────────────────────────────────────────────────────────
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State as AxumState;
 use axum::response::IntoResponse;
-
-/// Shared state for the WebSocket handler.
-#[derive(Clone)]
-pub struct WsHandlerState {
-    pub manager: std::sync::Arc<WsConnectionManager>,
-}
-
-impl Default for WsHandlerState {
-    fn default() -> Self {
-        Self {
-            manager: std::sync::Arc::new(WsConnectionManager::new()),
-        }
-    }
-}
 
 /// Axum WebSocket upgrade handler.
 ///
@@ -396,7 +438,6 @@ impl Default for WsHandlerState {
 pub async fn ws_upgrade_handler(
     ws: WebSocketUpgrade,
     Extension(tenant_ctx): Extension<crate::tenant::RequestTenantContext>,
-    AxumState(_state): AxumState<WsHandlerState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_ws_connection(socket, tenant_ctx))
 }
@@ -405,50 +446,125 @@ async fn handle_ws_connection(
     mut socket: WebSocket,
     tenant_ctx: crate::tenant::RequestTenantContext,
 ) {
-    use crate::services::memory_search::MemorySearchService;
-    use crate::services::memory_storage::MemoryStorageService;
+    let manager = ws_manager();
+    let (session_id, mut broadcast_rx) = manager.create_session(tenant_ctx.clone()).await;
 
-    while let Some(Ok(msg)) = socket.recv().await {
-        let Message::Text(text) = msg else {
-            continue;
-        };
+    // Send the Connected frame so the client knows its session_id.
+    let connected = WsMessage {
+        msg_type: WsMessageType::Connected,
+        request_id: None,
+        payload: WsPayload::Connected(ConnectedResponse {
+            session_id: session_id.clone(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+        }),
+    };
+    if socket
+        .send(Message::Text(
+            serde_json::to_string(&connected).unwrap_or_default().into(),
+        ))
+        .await
+        .is_err()
+    {
+        manager.remove_session(&session_id).await;
+        return;
+    }
 
-        let response = match serde_json::from_str::<WsMessage>(&text) {
-            Ok(ws_msg) => {
-                let result = handle_ws_message(&ws_msg, &tenant_ctx).await;
-                serde_json::json!({
-                    "request_id": ws_msg.request_id,
-                    "success": result.is_ok(),
-                    "result": result.as_ref().ok(),
-                    "error": result.as_ref().err().map(|e| e.to_string()),
-                })
+    // Drive client→server (request/response) and server→client (broadcast
+    // push) concurrently. Either side breaking ends the connection.
+    loop {
+        tokio::select! {
+            // ── Client → Server ──
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        let response = match serde_json::from_str::<WsMessage>(&text) {
+                            Ok(ws_msg) => {
+                                let result = handle_ws_message(
+                                    &ws_msg, &tenant_ctx, &session_id, manager,
+                                ).await;
+                                serde_json::json!({
+                                    "request_id": ws_msg.request_id,
+                                    "success": result.is_ok(),
+                                    "result": result.as_ref().ok(),
+                                    "error": result.as_ref().err().map(|e| e.to_string()),
+                                })
+                            }
+                            Err(e) => serde_json::json!({
+                                "success": false,
+                                "error": format!("invalid message: {e}"),
+                            }),
+                        };
+                        if socket
+                            .send(Message::Text(response.to_string().into()))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Some(Ok(_)) => continue, // non-text frames ignored
+                    Some(Err(_)) | None => break,
+                }
             }
-            Err(e) => {
-                serde_json::json!({
-                    "success": false,
-                    "error": format!("invalid message: {e}"),
-                })
-            }
-        };
 
-        if socket
-            .send(Message::Text(response.to_string().into()))
-            .await
-            .is_err()
-        {
-            break;
+            // ── Server → Client (broadcast push) ──
+            event = broadcast_rx.recv() => {
+                match event {
+                    Ok(event) => {
+                        if should_forward_event(manager, &session_id, &tenant_ctx, &event).await {
+                            let msg = WsMessage {
+                                msg_type: WsMessageType::Event,
+                                request_id: None,
+                                payload: WsPayload::Event(event),
+                            };
+                            if socket
+                                .send(Message::Text(
+                                    serde_json::to_string(&msg).unwrap_or_default().into(),
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            skipped = n,
+                            "WS client lagged, dropping events"
+                        );
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
         }
     }
+
+    manager.remove_session(&session_id).await;
 }
 
 async fn handle_ws_message(
     msg: &WsMessage,
     tenant_ctx: &crate::tenant::RequestTenantContext,
+    session_id: &str,
+    manager: &WsConnectionManager,
 ) -> Result<serde_json::Value, String> {
     use crate::services::memory_search::MemorySearchService;
     use crate::services::memory_storage::MemoryStorageService;
 
     match &msg.payload {
+        WsPayload::Subscribe(req) => {
+            let sub_id = manager
+                .subscribe(session_id, req.event_type.clone())
+                .await
+                .ok_or_else(|| "session not found".to_string())?;
+            Ok(serde_json::json!({ "subscription_id": sub_id, "event_type": req.event_type }))
+        }
+        WsPayload::Unsubscribe(req) => {
+            let ok = manager.unsubscribe(session_id, &req.subscription_id).await;
+            Ok(serde_json::json!({ "unsubscribed": req.subscription_id, "ok": ok }))
+        }
         WsPayload::Search(req) => {
             let query = req.query.as_deref().unwrap_or("");
             let results = MemorySearchService::search_ltm_for_tenant(
@@ -477,6 +593,39 @@ async fn handle_ws_message(
         }
         _ => Err("unsupported operation".to_string()),
     }
+}
+
+/// Whether a broadcast `event` should be forwarded to `session_id`:
+/// tenant must match AND (no subscriptions = receive-all, OR subscribed to
+/// this event type). Slow-consumer / closed-connection handling lives in the
+/// caller's `select!` loop (send-failure breaks the loop).
+async fn should_forward_event(
+    manager: &WsConnectionManager,
+    session_id: &str,
+    tenant_ctx: &crate::tenant::RequestTenantContext,
+    event: &EventResponse,
+) -> bool {
+    // 1. Tenant check — every EventData variant carries tenant_id.
+    let event_tenant: &str = match &event.data {
+        EventData::MemoryAdded(p) => &p.tenant_id,
+        EventData::MemoryUpdated { payload, .. } => &payload.tenant_id,
+        EventData::MemoryDeleted { tenant_id, .. } => tenant_id,
+        EventData::MemoryEvicted { tenant_id, .. } => tenant_id,
+        EventData::LayerFull { tenant_id, .. } => tenant_id,
+    };
+    if event_tenant != tenant_ctx.tenant_id.as_str() {
+        return false;
+    }
+
+    // 2. Subscription check — empty subscriptions = receive all.
+    let Some(conn) = manager.get_connection(session_id).await else {
+        return false;
+    };
+    conn.subscriptions.is_empty()
+        || conn
+            .subscriptions
+            .iter()
+            .any(|sub| sub.event_type == event.event_type)
 }
 
 impl Default for WsConnectionManager {
@@ -567,5 +716,67 @@ mod tests {
 
         manager.remove_session(&session2).await;
         assert_eq!(manager.connection_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn broadcast_delivers_to_subscribed_receiver() {
+        let manager = WsConnectionManager::new();
+        let tenant_ctx = crate::tenant::RequestTenantContext::new("tenant-a");
+        let (_session_id, mut rx) = manager.create_session(tenant_ctx).await;
+
+        let event = EventResponse {
+            event_type: EventType::MemoryAdded,
+            data: EventData::MemoryAdded(MemoryEventPayload {
+                id: "id-1".to_string(),
+                tenant_id: "tenant-a".to_string(),
+                layer: LayerType::Ltm,
+                source_type: None,
+                summary: Some("s".to_string()),
+                metadata: None,
+            }),
+        };
+        // One receiver subscribed → broadcast returns 1 and the receiver gets it.
+        assert_eq!(manager.broadcast_event(event.clone()), 1);
+        let recv = rx.recv().await.unwrap();
+        assert_eq!(recv.event_type, EventType::MemoryAdded);
+    }
+
+    #[tokio::test]
+    async fn should_forward_filters_by_tenant_and_subscription() {
+        let manager = WsConnectionManager::new();
+        let tenant_a = crate::tenant::RequestTenantContext::new("tenant-a");
+        let (session_id, _rx) = manager.create_session(tenant_a.clone()).await;
+
+        let deleted = |tenant: &str| EventResponse {
+            event_type: EventType::MemoryDeleted,
+            data: EventData::MemoryDeleted {
+                id: "id".to_string(),
+                layer: LayerType::Ltm,
+                tenant_id: tenant.to_string(),
+            },
+        };
+        let added = |tenant: &str| EventResponse {
+            event_type: EventType::MemoryAdded,
+            data: EventData::MemoryAdded(MemoryEventPayload {
+                id: "id".to_string(),
+                tenant_id: tenant.to_string(),
+                layer: LayerType::Ltm,
+                source_type: None,
+                summary: None,
+                metadata: None,
+            }),
+        };
+
+        // No subscriptions → receive all (same tenant).
+        assert!(should_forward_event(&manager, &session_id, &tenant_a, &deleted("tenant-a")).await);
+        // Cross-tenant → never forwarded.
+        assert!(!should_forward_event(&manager, &session_id, &tenant_a, &deleted("tenant-b")).await);
+
+        // Subscribe to MemoryDeleted only.
+        manager.subscribe(&session_id, EventType::MemoryDeleted).await;
+        // Matching type + tenant → forwarded.
+        assert!(should_forward_event(&manager, &session_id, &tenant_a, &deleted("tenant-a")).await);
+        // Non-matching type (MemoryAdded) with an active subscription → filtered out.
+        assert!(!should_forward_event(&manager, &session_id, &tenant_a, &added("tenant-a")).await);
     }
 }

@@ -157,6 +157,24 @@ pub async fn forget_memory(
         }
     };
 
+    // Issue #86: fire-and-forget WS event only when something was actually deleted.
+    if deleted {
+        let layer_type = match layer.as_str() {
+            "stm" => crate::kernel::types::LayerType::Stm,
+            _ => crate::kernel::types::LayerType::Ltm,
+        };
+        let _ = crate::protocol::websocket::ws_manager().broadcast_event(
+            crate::protocol::websocket::EventResponse {
+                event_type: crate::protocol::websocket::EventType::MemoryDeleted,
+                data: crate::protocol::websocket::EventData::MemoryDeleted {
+                    id: req.memory_id.clone(),
+                    layer: layer_type,
+                    tenant_id: tenant_id.as_str().to_string(),
+                },
+            },
+        );
+    }
+
     Ok(MemoryForgetResponse {
         success: true,
         memory_id: req.memory_id,

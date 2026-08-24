@@ -323,6 +323,7 @@ pub fn root() -> Router {
         .nest("/v1", agent_routes)
         .nest("/v1/workflows", workflow_evidence_routes)
         .nest("/v1/memory", memory_routes)
+        .route("/v1/ws", get(crate::protocol::websocket::ws_upgrade_handler))
         .nest(
             "/kg",
             Router::new()

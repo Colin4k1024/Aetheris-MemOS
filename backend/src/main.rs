@@ -145,6 +145,11 @@ async fn main() {
     // is observable via crate::db::neo4j_status(), not an optimistic log line.
     crate::db::spawn_neo4j_init(&config.neo4j);
 
+    // Issue #86: WebSocket connection manager singleton — used by the
+    // /api/v1/ws upgrade handler and by memory write/delete event emitters.
+    crate::protocol::websocket::init_ws_manager();
+    tracing::info!("WebSocket connection manager initialized");
+
     tracing::info!("log level: {}", &config.log.filter_level);
 
     tracing::info!("Initializing memory transfer service");
