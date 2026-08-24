@@ -112,3 +112,15 @@ pub struct UpdateSkillRequest {
     pub visibility: Option<Visibility>,
     pub status: Option<SkillStatus>,
 }
+
+/// Publish a new version of an existing skill (#90). Content fields are
+/// optional; omitted ones are carried over from the previous version. The new
+/// row is `active` with `version = max(tenant, name) + 1`; the old row is
+/// marked `deprecated` (history preserved, immutable).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishSkillRequest {
+    pub description: Option<String>,
+    pub trigger_conditions: Option<Vec<TriggerCondition>>,
+    pub execution_steps: Option<Vec<ExecutionStep>>,
+    pub validation_rules: Option<Vec<ValidationRule>>,
+}

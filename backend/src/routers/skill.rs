@@ -16,13 +16,14 @@ use serde::Deserialize;
 use crate::db;
 use crate::db::skill::SkillRepository;
 use crate::error::AppError;
-use crate::models::skill::{CreateSkillRequest, Skill, UpdateSkillRequest};
+use crate::models::skill::{CreateSkillRequest, PublishSkillRequest, Skill, UpdateSkillRequest};
 use crate::tenant::RequestTenantContext;
 
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_skills).post(create_skill))
         .route("/{id}", get(get_skill).put(update_skill).delete(delete_skill))
+        .route("/{id}/publish", post(publish_skill))
 }
 
 #[derive(Deserialize)]
@@ -95,4 +96,19 @@ pub async fn delete_skill(
     let repo = SkillRepository::new(pool.clone());
     let deleted = repo.delete(&tenant_ctx.tenant_id, &id).await?;
     Ok(Json(serde_json::json!({ "deleted": deleted })))
+}
+
+/// Publish a new version of a skill: new row version+1 `active`, old row
+/// `deprecated` (history preserved, immutable). POST /v1/skills/{id}/publish.
+pub async fn publish_skill(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(id): Path<String>,
+    Json(payload): Json<PublishSkillRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = db::pool();
+    let repo = SkillRepository::new(pool.clone());
+    let new_id = repo
+        .publish_version(&tenant_ctx.tenant_id, &id, payload)
+        .await?;
+    Ok(Json(serde_json::json!({ "id": new_id })))
 }

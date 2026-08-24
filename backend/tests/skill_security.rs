@@ -84,3 +84,28 @@ async fn create_skill_requires_a_jwt() {
         "unexpected response: {body}"
     );
 }
+
+#[tokio::test]
+async fn publish_skill_requires_a_jwt() {
+    ensure_config();
+    let app = backend::axum_routers::create_router();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills/sk-1/publish")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({}).to_string()))
+                .expect("build publish_skill request"),
+        )
+        .await
+        .expect("serve publish_skill request");
+
+    let (status, body) = response_json(response).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "unexpected response: {body}"
+    );
+}
