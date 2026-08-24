@@ -74,7 +74,7 @@ impl DistillationRepository {
 
         // Build dynamic query based on filters
         let mut query = String::from(
-            "SELECT * FROM distillation_atoms WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND is_active = TRUE",
+            "SELECT id, tenant_id, user_id, agent_id, atom_type, scene_name, content, priority, source_session_id, source_message_ids, metadata, embedding_model, embedding_dimension, is_active, superseded_by, created_at::text, updated_at::text FROM distillation_atoms WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND is_active = TRUE",
         );
         let mut param_idx = 4;
 
@@ -116,7 +116,7 @@ impl DistillationRepository {
     pub async fn get_atom(id: &str, tenant_id: &TenantId) -> Result<Option<L1Atom>, AppError> {
         let pool = pool();
         sqlx::query_as::<_, L1Atom>(
-            "SELECT * FROM distillation_atoms WHERE id = $1 AND tenant_id = $2",
+            "SELECT id, tenant_id, user_id, agent_id, atom_type, scene_name, content, priority, source_session_id, source_message_ids, metadata, embedding_model, embedding_dimension, is_active, superseded_by, created_at::text, updated_at::text FROM distillation_atoms WHERE id = $1 AND tenant_id = $2",
         )
         .bind(id)
         .bind(tenant_id.as_str())
@@ -175,7 +175,7 @@ impl DistillationRepository {
     ) -> Result<Vec<L1Atom>, AppError> {
         let pool = pool();
         sqlx::query_as::<_, L1Atom>(
-            "SELECT * FROM distillation_atoms WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND scene_name = $4 AND is_active = TRUE ORDER BY priority DESC, created_at ASC",
+            "SELECT id, tenant_id, user_id, agent_id, atom_type, scene_name, content, priority, source_session_id, source_message_ids, metadata, embedding_model, embedding_dimension, is_active, superseded_by, created_at::text, updated_at::text FROM distillation_atoms WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND scene_name = $4 AND is_active = TRUE ORDER BY priority DESC, created_at ASC",
         )
         .bind(tenant_id.as_str())
         .bind(user_id)
@@ -241,7 +241,7 @@ impl DistillationRepository {
     ) -> Result<Vec<L2Scene>, AppError> {
         let pool = pool();
         sqlx::query_as::<_, L2Scene>(
-            "SELECT * FROM distillation_scenes WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 ORDER BY updated_at DESC",
+            "SELECT id, tenant_id, user_id, agent_id, scene_name, title, content, atom_ids, version, token_count, created_at::text, updated_at::text FROM distillation_scenes WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 ORDER BY updated_at DESC",
         )
         .bind(tenant_id.as_str())
         .bind(user_id)
@@ -257,7 +257,7 @@ impl DistillationRepository {
     pub async fn get_scene(id: &str, tenant_id: &TenantId) -> Result<Option<L2Scene>, AppError> {
         let pool = pool();
         sqlx::query_as::<_, L2Scene>(
-            "SELECT * FROM distillation_scenes WHERE id = $1 AND tenant_id = $2",
+            "SELECT id, tenant_id, user_id, agent_id, scene_name, title, content, atom_ids, version, token_count, created_at::text, updated_at::text FROM distillation_scenes WHERE id = $1 AND tenant_id = $2",
         )
         .bind(id)
         .bind(tenant_id.as_str())
@@ -317,7 +317,7 @@ impl DistillationRepository {
     ) -> Result<Option<L3Persona>, AppError> {
         let pool = pool();
         sqlx::query_as::<_, L3Persona>(
-            "SELECT * FROM distillation_personas WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3",
+            "SELECT id, tenant_id, user_id, agent_id, profile_content, scene_ids, version, token_count, created_at::text, updated_at::text FROM distillation_personas WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3",
         )
         .bind(tenant_id.as_str())
         .bind(user_id)
@@ -433,7 +433,7 @@ impl DistillationRepository {
         let pool = pool();
         let query = if let Some(s) = status {
             sqlx::query_as::<_, DistillationJob>(
-                "SELECT * FROM distillation_jobs WHERE tenant_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4",
+                "SELECT id, tenant_id, user_id, agent_id, session_id, job_type, status, error_message, atoms_created, started_at::text, completed_at::text, created_at::text FROM distillation_jobs WHERE tenant_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4",
             )
             .bind(tenant_id.as_str())
             .bind(s)
@@ -443,7 +443,7 @@ impl DistillationRepository {
             .await
         } else {
             sqlx::query_as::<_, DistillationJob>(
-                "SELECT * FROM distillation_jobs WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                "SELECT id, tenant_id, user_id, agent_id, session_id, job_type, status, error_message, atoms_created, started_at::text, completed_at::text, created_at::text FROM distillation_jobs WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             )
             .bind(tenant_id.as_str())
             .bind(limit)
