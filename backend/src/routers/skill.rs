@@ -24,6 +24,7 @@ pub fn router() -> Router {
         .route("/", get(list_skills).post(create_skill))
         .route("/{id}", get(get_skill).put(update_skill).delete(delete_skill))
         .route("/{id}/publish", post(publish_skill))
+        .route("/extract", post(extract_skills))
 }
 
 #[derive(Deserialize)]
@@ -111,4 +112,26 @@ pub async fn publish_skill(
         .publish_version(&tenant_ctx.tenant_id, &id, payload)
         .await?;
     Ok(Json(serde_json::json!({ "id": new_id })))
+}
+
+#[derive(Deserialize)]
+pub struct ExtractSkillsRequest {
+    pub transcript: String,
+    pub reason: Option<String>,
+}
+
+/// Extract Skill candidates from an execution transcript via the LLM (#90).
+/// Candidates are **suggestions only** — NOT auto-published; the caller reviews
+/// them and publishes the chosen ones via `POST /v1/skills`.
+pub async fn extract_skills(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<ExtractSkillsRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let _ = tenant_ctx; // extraction is LLM-only (no DB); auth gate via route_layer
+    let extractor = crate::services::skill::extractor::SkillExtractor::new();
+    let candidates = extractor
+        .extract_from_transcript(&req.transcript, req.reason.as_deref())
+        .await
+        .map_err(|e| AppError::Internal(format!("skill extraction failed: {e}")))?;
+    Ok(Json(serde_json::to_value(&candidates).unwrap_or(serde_json::json!([]))))
 }

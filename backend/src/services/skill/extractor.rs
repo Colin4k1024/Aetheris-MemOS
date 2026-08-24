@@ -3,17 +3,14 @@ use tracing::{info, warn};
 
 use super::types::*;
 
-pub struct SkillExtractor {
-    llm_base_url: String,
-    llm_model: String,
-}
+/// Extract reusable Skill candidates from an execution transcript via the LLM.
+/// Candidates are **suggestions only** — the caller reviews them and publishes
+/// the chosen ones via `POST /v1/skills` (they are NOT auto-published). #90.
+pub struct SkillExtractor;
 
 impl SkillExtractor {
-    pub fn new(llm_base_url: &str, llm_model: &str) -> Self {
-        Self {
-            llm_base_url: llm_base_url.to_string(),
-            llm_model: llm_model.to_string(),
-        }
+    pub fn new() -> Self {
+        Self
     }
 
     pub async fn extract_from_transcript(
@@ -29,45 +26,20 @@ impl SkillExtractor {
             transcript.to_string()
         };
 
-        let response = self.call_llm(system_prompt, &user_prompt).await?;
-        let skills = parse_skill_response(&response)?;
+        // Use the unified LLM service (Ollama + OpenAI-compatible), not a
+        // raw reqwest call — consistent with the distillation L2/L3 ports
+        // (#101/#102) and correct for OpenAI-compatible deployments.
+        let full_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
+        let llm = crate::services::llm::get_llm_service()
+            .map_err(|e| anyhow::anyhow!("LLM service unavailable: {e}"))?;
+        let response = llm
+            .call_llm_public(&full_prompt)
+            .await
+            .map_err(|e| anyhow::anyhow!("Skill extraction LLM call failed: {e}"))?;
 
+        let skills = parse_skill_response(&response)?;
         info!("Extracted {} skill candidates from transcript", skills.len());
         Ok(skills)
-    }
-
-    async fn call_llm(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
-        let client = reqwest::Client::new();
-        let url = format!("{}/api/generate", self.llm_base_url);
-
-        let full_prompt = format!(
-            "<|system|>\n{}\n<|user|>\n{}\n<|assistant|>",
-            system_prompt, user_prompt
-        );
-
-        let body = serde_json::json!({
-            "model": self.llm_model,
-            "prompt": full_prompt,
-            "stream": false,
-            "options": { "temperature": 0.3, "num_predict": 4096 }
-        });
-
-        let response = client
-            .post(&url)
-            .json(&body)
-            .timeout(std::time::Duration::from_secs(120))
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(anyhow::anyhow!("Skill extraction LLM call failed"));
-        }
-
-        #[derive(serde::Deserialize)]
-        struct OllamaResponse { response: String }
-
-        let resp: OllamaResponse = response.json().await?;
-        Ok(resp.response)
     }
 }
 
