@@ -113,16 +113,19 @@ impl DistillationRepository {
         })
     }
 
-    pub async fn get_atom(id: &str) -> Result<Option<L1Atom>, AppError> {
+    pub async fn get_atom(id: &str, tenant_id: &TenantId) -> Result<Option<L1Atom>, AppError> {
         let pool = pool();
-        sqlx::query_as::<_, L1Atom>("SELECT * FROM distillation_atoms WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to get atom: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })
+        sqlx::query_as::<_, L1Atom>(
+            "SELECT * FROM distillation_atoms WHERE id = $1 AND tenant_id = $2",
+        )
+        .bind(id)
+        .bind(tenant_id.as_str())
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get atom: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })
     }
 
     pub async fn deactivate_atom(id: &str, superseded_by: &str) -> Result<(), AppError> {
@@ -251,16 +254,19 @@ impl DistillationRepository {
         })
     }
 
-    pub async fn get_scene(id: &str) -> Result<Option<L2Scene>, AppError> {
+    pub async fn get_scene(id: &str, tenant_id: &TenantId) -> Result<Option<L2Scene>, AppError> {
         let pool = pool();
-        sqlx::query_as::<_, L2Scene>("SELECT * FROM distillation_scenes WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| {
-                error!("Failed to get scene: {}", e);
-                AppError::Internal(format!("Database error: {}", e))
-            })
+        sqlx::query_as::<_, L2Scene>(
+            "SELECT * FROM distillation_scenes WHERE id = $1 AND tenant_id = $2",
+        )
+        .bind(id)
+        .bind(tenant_id.as_str())
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to get scene: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })
     }
 
     // === L3 Persona operations ===

@@ -1,4 +1,9 @@
+#![cfg(feature = "a2a")]
 //! A2A Protocol Integration Tests
+//!
+//! Compiled only with `--features a2a` (the dedicated `backend-a2a` CI job);
+//! `backend::a2a` is `#[cfg(feature = "a2a")]`, so this test does not exist in
+//! the default feature set.
 
 use axum::{
     body::{self, Body},
@@ -22,7 +27,7 @@ fn authenticated_request() -> axum::http::request::Builder {
 
 fn authenticated_request_for(tenant_id: &str) -> axum::http::request::Builder {
     backend::config::init();
-    let (token, _) = backend::hoops::jwt::get_token(tenant_id).expect("generate A2A test JWT");
+    let (token, _) = backend::hoops::jwt::get_token(tenant_id, None).expect("generate A2A test JWT");
     Request::builder().header("authorization", format!("Bearer {token}"))
 }
 

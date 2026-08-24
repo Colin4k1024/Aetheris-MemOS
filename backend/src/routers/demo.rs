@@ -5,8 +5,11 @@ use serde::Deserialize;
 
 use crate::AppResult;
 
+// Tolerate unknown query params (e.g. `?request_id=…`): a public endpoint must
+// not 400 on extra params. Keeping this strict would break the cardinality-leak
+// guard in `axum_routers::tests::records_completed_requests_with_the_matched_path`,
+// which sends a high-cardinality `request_id` to assert it never reaches labels.
 #[derive(Debug, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
 pub struct HelloQuery {
     pub name: Option<String>,
 }

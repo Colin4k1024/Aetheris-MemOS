@@ -8,7 +8,7 @@ use tracing::{error, info};
 use crate::db::distillation::DistillationRepository;
 use crate::models::distillation::DistillationJobType;
 use crate::services::distillation::DistillationService;
-use crate::tenant::get_default_tenant;
+use crate::tenant::RequestTenantContext;
 
 #[derive(Debug, Deserialize)]
 pub struct TriggerRequest {
@@ -81,15 +81,17 @@ fn error_response(msg: &str) -> impl IntoResponse {
     )
 }
 
-pub async fn trigger_distillation(Json(req): Json<TriggerRequest>) -> impl IntoResponse {
+pub async fn trigger_distillation(
+    tenant_ctx: RequestTenantContext,
+    Json(req): Json<TriggerRequest>,
+) -> impl IntoResponse {
     info!(
-        "Manual distillation trigger: user={}, session={}",
-        req.user_id, req.session_id
+        "Manual distillation trigger: tenant={}, user={}, session={}",
+        tenant_ctx.tenant_id, req.user_id, req.session_id
     );
 
-    let tenant_id = get_default_tenant();
     match DistillationService::enqueue_job(
-        &tenant_id,
+        &tenant_ctx.tenant_id,
         &req.user_id,
         &req.agent_id,
         &req.session_id,
@@ -105,10 +107,12 @@ pub async fn trigger_distillation(Json(req): Json<TriggerRequest>) -> impl IntoR
     }
 }
 
-pub async fn list_atoms(Query(params): Query<ListAtomsQuery>) -> impl IntoResponse {
-    let tenant_id = get_default_tenant();
+pub async fn list_atoms(
+    tenant_ctx: RequestTenantContext,
+    Query(params): Query<ListAtomsQuery>,
+) -> impl IntoResponse {
     match DistillationRepository::list_atoms(
-        &tenant_id,
+        &tenant_ctx.tenant_id,
         &params.user_id,
         &params.agent_id,
         params.atom_type.as_deref(),
@@ -126,8 +130,11 @@ pub async fn list_atoms(Query(params): Query<ListAtomsQuery>) -> impl IntoRespon
     }
 }
 
-pub async fn get_atom(Path(id): Path<String>) -> impl IntoResponse {
-    match DistillationRepository::get_atom(&id).await {
+pub async fn get_atom(
+    tenant_ctx: RequestTenantContext,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match DistillationRepository::get_atom(&id, &tenant_ctx.tenant_id).await {
         Ok(Some(atom)) => ApiResponse::ok(atom).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -141,9 +148,11 @@ pub async fn get_atom(Path(id): Path<String>) -> impl IntoResponse {
     }
 }
 
-pub async fn list_scenes(Query(params): Query<ListScenesQuery>) -> impl IntoResponse {
-    let tenant_id = get_default_tenant();
-    match DistillationRepository::list_scenes(&tenant_id, &params.user_id, &params.agent_id).await {
+pub async fn list_scenes(
+    tenant_ctx: RequestTenantContext,
+    Query(params): Query<ListScenesQuery>,
+) -> impl IntoResponse {
+    match DistillationRepository::list_scenes(&tenant_ctx.tenant_id, &params.user_id, &params.agent_id).await {
         Ok(scenes) => ApiResponse::ok(scenes).into_response(),
         Err(e) => {
             error!("Failed to list scenes: {}", e);
@@ -152,8 +161,11 @@ pub async fn list_scenes(Query(params): Query<ListScenesQuery>) -> impl IntoResp
     }
 }
 
-pub async fn get_scene(Path(id): Path<String>) -> impl IntoResponse {
-    match DistillationRepository::get_scene(&id).await {
+pub async fn get_scene(
+    tenant_ctx: RequestTenantContext,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match DistillationRepository::get_scene(&id, &tenant_ctx.tenant_id).await {
         Ok(Some(scene)) => ApiResponse::ok(scene).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -167,9 +179,11 @@ pub async fn get_scene(Path(id): Path<String>) -> impl IntoResponse {
     }
 }
 
-pub async fn get_persona(Query(params): Query<GetPersonaQuery>) -> impl IntoResponse {
-    let tenant_id = get_default_tenant();
-    match DistillationRepository::get_persona(&tenant_id, &params.user_id, &params.agent_id).await {
+pub async fn get_persona(
+    tenant_ctx: RequestTenantContext,
+    Query(params): Query<GetPersonaQuery>,
+) -> impl IntoResponse {
+    match DistillationRepository::get_persona(&tenant_ctx.tenant_id, &params.user_id, &params.agent_id).await {
         Ok(Some(persona)) => ApiResponse::ok(persona).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -183,10 +197,12 @@ pub async fn get_persona(Query(params): Query<GetPersonaQuery>) -> impl IntoResp
     }
 }
 
-pub async fn list_jobs(Query(params): Query<ListJobsQuery>) -> impl IntoResponse {
-    let tenant_id = get_default_tenant();
+pub async fn list_jobs(
+    tenant_ctx: RequestTenantContext,
+    Query(params): Query<ListJobsQuery>,
+) -> impl IntoResponse {
     match DistillationRepository::list_jobs(
-        &tenant_id,
+        &tenant_ctx.tenant_id,
         params.status.as_deref(),
         params.limit,
         params.offset,
