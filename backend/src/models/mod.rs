@@ -22,6 +22,7 @@ pub use evidence::*;
 pub use memory::*;
 pub use performance::*;
 pub use resource::*;
+pub use skill::*;
 pub use task::*;
 pub use validation::*;
 

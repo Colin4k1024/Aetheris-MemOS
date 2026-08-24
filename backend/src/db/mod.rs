@@ -24,6 +24,7 @@ impl std::error::Error for DbInitError {}
 pub mod adapters;
 pub mod agent;
 pub mod agent_equip;
+pub mod skill;
 #[allow(dead_code)]
 pub mod audit;
 #[allow(dead_code)]

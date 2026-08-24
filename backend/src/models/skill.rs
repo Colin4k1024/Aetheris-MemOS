@@ -102,3 +102,13 @@ pub struct CreateSkillRequest {
     pub owner_agent_id: String,
     pub visibility: Visibility,
 }
+
+/// Partial update of a skill. All fields optional; `None` = unchanged.
+/// `status` transitions (draft→active→deprecated) go through here. Publishing
+/// a new `version` revision is a follow-up.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSkillRequest {
+    pub description: Option<String>,
+    pub visibility: Option<Visibility>,
+    pub status: Option<SkillStatus>,
+}
