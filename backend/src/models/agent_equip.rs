@@ -64,12 +64,22 @@ pub struct AgentEquipment {
     pub created_at: String,
 }
 
+/// Create an equipment binding. `agent_id` comes from the URL path
+/// (`/agents/{agent_id}/equipment`), not the body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEquipmentRequest {
-    pub agent_id: String,
     pub asset_type: EquipAssetType,
     pub asset_id: String,
     pub binding_type: BindingType,
     pub condition: Option<serde_json::Value>,
     pub priority: i32,
+}
+
+/// Partial update of an equipment binding. All fields optional; `None` means
+/// "leave unchanged" (cannot currently clear a field back to NULL — follow-up).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateEquipmentRequest {
+    pub binding_type: Option<BindingType>,
+    pub condition: Option<serde_json::Value>,
+    pub priority: Option<i32>,
 }

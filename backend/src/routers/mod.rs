@@ -311,6 +311,17 @@ pub fn root() -> Router {
             "/agents/{agent_id}/behaviors",
             get(agent::list_behaviors).post(agent::record_behavior),
         )
+        // Equipment (asset bindings, #89) — tenant-scoped via RequestTenantContext
+        .route(
+            "/agents/{agent_id}/equipment",
+            get(agent::list_equipment).post(agent::add_equipment),
+        )
+        .route(
+            "/agents/{agent_id}/equipment/{equip_id}",
+            get(agent::get_equipment)
+                .put(agent::update_equipment)
+                .delete(agent::delete_equipment),
+        )
         // Complete agent info
         .route(
             "/agents/{agent_id}/complete",
