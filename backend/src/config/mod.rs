@@ -123,6 +123,24 @@ pub fn init() {
         }
     }
 
+    // Embedding is a hard dependency: fail-fast on a config that can never
+    // produce a valid embedding, before we set CONFIG and advertise readiness.
+    // `eprintln!`, not `tracing::`, because `init()` runs before the tracing
+    // subscriber is installed — a `tracing::` call here would be silently
+    // dropped. Reachability is NOT checked here (it belongs in `/readyz`).
+    if let Err(e) = validate_embedding_config(&config.embedding) {
+        eprintln!(
+            "[startup] FATAL: invalid embedding configuration.\n\
+             \n\
+             {e}\n\
+             \n\
+             Embedding is a hard dependency — vectors are generated on the LTM\n\
+             write and search hot path, so an unusable embedding config makes\n\
+             those paths fail on every request. Refusing to boot."
+        );
+        std::process::exit(1);
+    }
+
     if crate::config::CONFIG.set(config).is_err() {
         tracing::debug!("[config] Configuration already initialized; retaining existing value");
     }
@@ -320,6 +338,71 @@ fn check_jwt_secret(disabled: bool, secret: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Known placeholder embedding API keys shipped in examples/templates. Booting
+/// with one while `api_type == "openai"` is a deterministic misconfiguration —
+/// the operator copied an example and never set a real key.
+const PLACEHOLDER_EMBEDDING_API_KEYS: &[&str] = &[
+    "your-api-key",
+    "your_api_key",
+    "sk-your-api-key",
+    "sk-xxxxxxxx",
+    "changeme",
+    "replace-me",
+    "<your-api-key>",
+];
+
+/// Validate the embedding config for a startup fail-fast.
+///
+/// Embedding is a HARD dependency: vectors are generated on the LTM write and
+/// search hot path, so a config that can NEVER produce a valid embedding must
+/// stop the boot rather than surface as a per-request failure later.
+///
+/// Only DETERMINISTIC, config-only failures are checked here — deliberately
+/// NOT network reachability. Reachability is runtime state: probing it at
+/// startup would turn "embedding backend comes up a few seconds after the app"
+/// (common with docker-compose lacking healthcheck ordering) into a boot
+/// failure. Reachability belongs in the `/readyz` probe, not here.
+pub fn validate_embedding_config(config: &EmbeddingConfig) -> Result<(), String> {
+    if config.base_url.trim().is_empty() {
+        return Err(
+            "embedding.base_url is empty — there is no embedding backend to call. \
+             Set it in the config file or via APP_EMBEDDING_BASE_URL."
+                .to_string(),
+        );
+    }
+    if config.model.trim().is_empty() {
+        return Err(
+            "embedding.model is empty — the backend requires a model name. \
+             Set embedding.model (e.g. `nomic-embed-text`)."
+                .to_string(),
+        );
+    }
+    if config.dimension == 0 {
+        return Err(
+            "embedding.dimension is 0 — every embedding would fail the dimension check. \
+             Set embedding.dimension to the model's output size (e.g. 768 for nomic-embed-text)."
+                .to_string(),
+        );
+    }
+    // api_key is only meaningful for OpenAI-compatible backends. A MISSING key
+    // is NOT an error: keyless local OpenAI-compatible servers (vLLM, LM Studio)
+    // are valid, so we reject only an obvious copied-example placeholder, never
+    // absence — flagging absence would be a false fail-fast (the D-d anti-pattern).
+    if config.api_type == "openai" {
+        if let Some(key) = config.api_key.as_deref() {
+            if PLACEHOLDER_EMBEDDING_API_KEYS.contains(&key.trim()) {
+                return Err(
+                    "embedding.api_key is a known placeholder value. Set a real key via \
+                     APP_EMBEDDING_API_KEY, or remove it entirely if your OpenAI-compatible \
+                     backend needs no key."
+                        .to_string(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
 #[derive(Deserialize, Clone, Debug)]
 pub struct TlsConfig {
     pub cert: String,
@@ -389,4 +472,97 @@ fn default_otel_endpoint() -> String {
 
 fn default_otel_service_name() -> String {
     "aetheris-memos-backend".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{check_jwt_secret, validate_embedding_config, EmbeddingConfig};
+
+    fn valid_embedding_cfg() -> EmbeddingConfig {
+        EmbeddingConfig {
+            base_url: "http://localhost:11434".to_string(),
+            model: "nomic-embed-text".to_string(),
+            dimension: 768,
+            timeout_seconds: 30,
+            auto_detect: false,
+            api_type: "ollama".to_string(),
+            api_key: None,
+        }
+    }
+
+    #[test]
+    fn accepts_valid_ollama_embedding_config() {
+        assert!(validate_embedding_config(&valid_embedding_cfg()).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_base_url() {
+        let mut cfg = valid_embedding_cfg();
+        cfg.base_url = "   ".to_string();
+        assert!(validate_embedding_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_model() {
+        let mut cfg = valid_embedding_cfg();
+        cfg.model = String::new();
+        assert!(validate_embedding_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn rejects_zero_dimension() {
+        let mut cfg = valid_embedding_cfg();
+        cfg.dimension = 0;
+        assert!(validate_embedding_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn rejects_placeholder_api_key_for_openai() {
+        let mut cfg = valid_embedding_cfg();
+        cfg.api_type = "openai".to_string();
+        cfg.api_key = Some("  your-api-key  ".to_string()); // whitespace must not sneak past
+        assert!(validate_embedding_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn accepts_missing_api_key_for_keyless_openai_backend() {
+        // Keyless local OpenAI-compatible servers (vLLM, LM Studio) are valid;
+        // absence must NOT fail (that would be a false fail-fast).
+        let mut cfg = valid_embedding_cfg();
+        cfg.api_type = "openai".to_string();
+        cfg.api_key = None;
+        assert!(validate_embedding_config(&cfg).is_ok());
+    }
+
+    #[test]
+    fn accepts_real_api_key_for_openai() {
+        let mut cfg = valid_embedding_cfg();
+        cfg.api_type = "openai".to_string();
+        cfg.api_key = Some("sk-9f8e7d6c5b4a3210fedcba9876543210".to_string());
+        assert!(validate_embedding_config(&cfg).is_ok());
+    }
+
+    // --- JWT secret fail-fast (restored alongside validate_jwt_security) -- //
+
+    #[test]
+    fn rejects_known_placeholder_secrets_when_enabled() {
+        assert!(check_jwt_secret(false, "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET").is_err());
+        assert!(check_jwt_secret(false, "change-me-in-production-32chars").is_err());
+        assert!(check_jwt_secret(false, "  secret  ").is_err());
+    }
+
+    #[test]
+    fn rejects_too_short_secret_when_enabled() {
+        assert!(check_jwt_secret(false, "0123456789abcdef").is_err()); // 16 chars
+    }
+
+    #[test]
+    fn accepts_strong_secret_when_enabled() {
+        assert!(check_jwt_secret(false, "b8f2c1a9e7d4463fa0c5182b6e93d7a41f0c2e5b8a9d6c3f").is_ok());
+    }
+
+    #[test]
+    fn skips_jwt_validation_when_disabled() {
+        assert!(check_jwt_secret(true, "secret").is_ok());
+    }
 }
