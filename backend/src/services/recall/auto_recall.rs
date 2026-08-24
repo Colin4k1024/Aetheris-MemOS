@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tracing::{info, warn};
 
-use crate::services::distillation::repository::DistillationRepository;
-use crate::services::distillation::types::{MemoryAtom, MemoryAtomType, Persona, SceneBlock};
+use crate::db::distillation::DistillationRepository;
+use crate::tenant::TenantId;
 
 use super::formatter::RecallFormatter;
 use super::strategy::{RecallSource, RecallStrategy};
@@ -31,14 +31,17 @@ pub struct RecallResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecalledMemory {
     pub content: String,
-    pub atom_type: Option<MemoryAtomType>,
+    /// The distillation atom_type string (e.g. "persona"/"episodic"/"instruction").
+    /// `String` — the PG path stores atom_type as text (the SQLite `MemoryAtomType`
+    /// enum was dropped when AutoRecallService was ported off the SQLite island).
+    pub atom_type: Option<String>,
     pub score: f64,
     pub source: RecallSource,
 }
 
 impl RecalledMemory {
     pub fn atom_type_str(&self) -> &str {
-        self.atom_type.map(|t| t.as_str()).unwrap_or("memory")
+        self.atom_type.as_deref().unwrap_or("memory")
     }
 }
 
@@ -67,21 +70,18 @@ impl AutoRecallService {
         }
     }
 
-    pub async fn recall(
-        &self,
-        pool: &sqlx::Pool<sqlx::Sqlite>,
-        request: &RecallRequest,
-    ) -> Result<RecallResult> {
+    pub async fn recall(&self, request: &RecallRequest) -> Result<RecallResult> {
         let start = Instant::now();
         let strategy = request.strategy.unwrap_or(RecallStrategy::Hybrid);
         let max_results = request.max_results.unwrap_or(self.max_l1_results);
         let max_tokens = request.max_tokens.unwrap_or(self.max_recall_tokens);
 
         let timeout = tokio::time::Duration::from_millis(self.timeout_ms);
-
-        let result = tokio::time::timeout(timeout, self.recall_inner(
-            pool, request, strategy, max_results, max_tokens,
-        )).await;
+        let result = tokio::time::timeout(
+            timeout,
+            self.recall_inner(request, strategy, max_results, max_tokens),
+        )
+        .await;
 
         match result {
             Ok(Ok(mut recall_result)) => {
@@ -111,57 +111,64 @@ impl AutoRecallService {
 
     async fn recall_inner(
         &self,
-        pool: &sqlx::Pool<sqlx::Sqlite>,
         request: &RecallRequest,
         strategy: RecallStrategy,
         max_results: usize,
-        max_tokens: usize,
+        _max_tokens: usize,
     ) -> Result<RecallResult> {
+        let tenant = TenantId::from_string(&request.tenant_id);
         let mut context_memories = Vec::new();
         let mut system_parts = Vec::new();
 
-        // 1. Search L1 atoms by keyword (BM25-like)
+        // 1. Search L1 atoms by keyword (PG distillation path).
         let atoms = DistillationRepository::search_atoms_by_content(
-            pool,
-            &request.tenant_id,
+            &tenant,
             &request.user_id,
             &request.query,
             max_results as i64,
-        ).await.unwrap_or_default();
+        )
+        .await
+        .unwrap_or_default();
 
         for (i, atom) in atoms.iter().enumerate() {
             let score = 1.0 - (i as f64 * 0.1);
             context_memories.push(RecalledMemory {
                 content: atom.content.clone(),
-                atom_type: Some(atom.atom_type),
+                atom_type: Some(atom.atom_type.clone()),
                 score,
                 source: RecallSource::L1Atom,
             });
         }
 
-        // 2. Load L3 persona (stable context)
+        let agent = request.agent_id.as_deref().unwrap_or("");
+
+        // 2. Load L3 persona (stable context).
         if self.inject_persona {
-            if let Ok(Some(persona)) = DistillationRepository::get_persona(
-                pool,
-                &request.tenant_id,
-                &request.user_id,
-                request.agent_id.as_deref(),
-            ).await {
-                let persona_ctx = RecallFormatter::format_persona_context(&persona.content);
+            if let Ok(Some(persona)) =
+                DistillationRepository::get_persona(&tenant, &request.user_id, agent).await
+            {
+                let persona_ctx =
+                    RecallFormatter::format_persona_context(&persona.profile_content);
                 system_parts.push(persona_ctx);
             }
         }
 
-        // 3. Load L2 scene navigation
+        // 3. Load L2 scene navigation.
         if self.inject_scene_nav {
-            let scenes = DistillationRepository::get_scenes_by_user(
-                pool, &request.tenant_id, &request.user_id,
-            ).await.unwrap_or_default();
-
+            let scenes =
+                DistillationRepository::list_scenes(&tenant, &request.user_id, agent)
+                    .await
+                    .unwrap_or_default();
             if !scenes.is_empty() {
-                let nav: Vec<(String, String)> = scenes.iter()
+                let nav: Vec<(String, String)> = scenes
+                    .iter()
                     .take(10)
-                    .map(|s| (s.name.clone(), s.summary.clone()))
+                    .map(|s| {
+                        (
+                            s.scene_name.clone(),
+                            s.content.chars().take(200).collect::<String>(),
+                        )
+                    })
                     .collect();
                 let nav_ctx = RecallFormatter::format_scene_navigation(&nav);
                 system_parts.push(nav_ctx);
