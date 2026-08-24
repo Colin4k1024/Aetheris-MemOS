@@ -189,6 +189,42 @@ impl DistillationRepository {
         })
     }
 
+    /// Keyword search over L1 atoms' content (#84 recall port). Tenant-scoped by
+    /// the `tenant_id` filter (distillation tables have no RLS yet — follow-up).
+    /// Mirrors the SQLite `repository::search_atoms_by_content` (LIKE); a first
+    /// increment — semantic/embedding recall is a follow-up.
+    pub async fn search_atoms_by_content(
+        tenant_id: &TenantId,
+        user_id: &str,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<L1Atom>, AppError> {
+        let pool = pool();
+        let pattern = format!("%{}%", query);
+        sqlx::query_as::<_, L1Atom>(
+            r#"
+            SELECT id, tenant_id, user_id, agent_id, atom_type, scene_name, content,
+                   priority, source_session_id, source_message_ids, metadata,
+                   embedding_model, embedding_dimension, is_active, superseded_by,
+                   created_at::text, updated_at::text
+            FROM distillation_atoms
+            WHERE tenant_id = $1 AND user_id = $2 AND content ILIKE $3 AND is_active = TRUE
+            ORDER BY priority DESC
+            LIMIT $4
+            "#,
+        )
+        .bind(tenant_id.as_str())
+        .bind(user_id)
+        .bind(&pattern)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to search atoms by content: {}", e);
+            AppError::Internal(format!("Database error: {}", e))
+        })
+    }
+
     // === L2 Scene operations ===
 
     pub async fn upsert_scene(
