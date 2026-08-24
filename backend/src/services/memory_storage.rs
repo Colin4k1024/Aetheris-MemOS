@@ -213,6 +213,29 @@ impl MemoryStorageService {
             "STM stored successfully: session_id={}, message_id={}",
             session_id, message_id
         );
+
+        // Issue #86: fire-and-forget WS event (sync broadcast, near-free with 0 subscribers).
+        let _ = crate::protocol::websocket::ws_manager().broadcast_event(
+            crate::protocol::websocket::EventResponse {
+                event_type: crate::protocol::websocket::EventType::MemoryAdded,
+                data: crate::protocol::websocket::EventData::MemoryAdded(
+                    crate::protocol::websocket::MemoryEventPayload {
+                        id: message_id.clone(),
+                        tenant_id: tenant_id.as_str().to_string(),
+                        layer: crate::kernel::types::LayerType::Stm,
+                        source_type: None,
+                        summary: Some(content.chars().take(256).collect()),
+                        metadata: Some(serde_json::json!({
+                            "sessionId": session_id,
+                            "role": role,
+                            "userId": user_id,
+                            "agentId": agent_id,
+                        })),
+                    },
+                ),
+            },
+        );
+
         Ok((session_id, message_id))
     }
 
@@ -471,6 +494,25 @@ impl MemoryStorageService {
         tokio::task::spawn_blocking(move || {
             crate::services::information_guard::record_write(&write_record);
         });
+
+        // Issue #86: fire-and-forget WS event. `broadcast_event` is synchronous
+        // and near-free with zero subscribers; `metadata` is moved above in both
+        // PG/SQLite branches so it is not reused here.
+        let _ = crate::protocol::websocket::ws_manager().broadcast_event(
+            crate::protocol::websocket::EventResponse {
+                event_type: crate::protocol::websocket::EventType::MemoryAdded,
+                data: crate::protocol::websocket::EventData::MemoryAdded(
+                    crate::protocol::websocket::MemoryEventPayload {
+                        id: entry_id.clone(),
+                        tenant_id: tenant_id.as_str().to_string(),
+                        layer: crate::kernel::types::LayerType::Ltm,
+                        source_type: Some(normalized_source_type.to_string()),
+                        summary: Some(embed_text.chars().take(256).collect()),
+                        metadata: None,
+                    },
+                ),
+            },
+        );
 
         Ok(StoreLtmResult {
             entry_id,
