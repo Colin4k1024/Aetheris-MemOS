@@ -156,7 +156,7 @@ pub struct SceneUpdate {
     pub atom_ids: Vec<String>,
 }
 
-fn parse_consolidation_response(response: &str) -> Result<Vec<SceneUpdate>> {
+pub fn parse_consolidation_response(response: &str) -> Result<Vec<SceneUpdate>> {
     let trimmed = response.trim();
     let json_start = trimmed.find('[').unwrap_or(0);
     let json_end = trimmed.rfind(']').map(|i| i + 1).unwrap_or(trimmed.len());
@@ -167,4 +167,29 @@ fn parse_consolidation_response(response: &str) -> Result<Vec<SceneUpdate>> {
             warn!("Failed to parse L2 consolidation response: {}", e);
             anyhow::anyhow!("L2 JSON parse error: {}", e)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_l2_consolidation_json_array() {
+        // The LLM wraps the JSON array in prose; the parser must extract the
+        // array and deserialize SceneUpdate rows.
+        let resp = r#"以下是整合结果：
+[
+  {"scene_id":"new","name":"setup","summary":"项目初始化","content":"用户完成了项目初始化","atom_ids":["a1","a2"]}
+]
+完成"#;
+        let updates = parse_consolidation_response(resp).unwrap();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].name, "setup");
+        assert_eq!(updates[0].atom_ids, vec!["a1".to_string(), "a2".to_string()]);
+    }
+
+    #[test]
+    fn parse_returns_err_on_non_json() {
+        assert!(parse_consolidation_response("no json array here").is_err());
+    }
 }
