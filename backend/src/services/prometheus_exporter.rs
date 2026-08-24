@@ -78,6 +78,8 @@ pub struct PrometheusExporter {
     ws_connections_active: prometheus::Gauge,
     /// WebSocket events dropped because the client lagged behind the broadcast (#86)
     ws_lagged_drops_total: prometheus::Counter,
+    /// WebSocket frame send duration histogram (#86) — slow-client / backpressure signal.
+    ws_send_duration_seconds: prometheus::Histogram,
     /// Prometheus registry for metric collection
     registry: prometheus::Registry,
 }
@@ -281,6 +283,15 @@ impl PrometheusExporter {
         )
         .expect("counter creation failed");
 
+        let ws_send_duration_seconds = prometheus::Histogram::with_opts(
+            prometheus::HistogramOpts::new(
+                "ws_send_duration_seconds",
+                "WebSocket frame send duration in seconds (slow-client / backpressure signal)",
+            )
+            .buckets(vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
+        )
+        .expect("histogram creation failed");
+
         // Register all metrics with the registry
         registry
             .register(Box::new(stm_sessions_active.clone()))
@@ -365,6 +376,9 @@ impl PrometheusExporter {
         registry
             .register(Box::new(ws_lagged_drops_total.clone()))
             .expect("failed to register ws_lagged_drops_total");
+        registry
+            .register(Box::new(ws_send_duration_seconds.clone()))
+            .expect("failed to register ws_send_duration_seconds");
 
         Self {
             stm_sessions_active,
@@ -394,6 +408,7 @@ impl PrometheusExporter {
             audit_truncated_skipped_total,
             ws_connections_active,
             ws_lagged_drops_total,
+            ws_send_duration_seconds,
             registry,
         }
     }
@@ -479,6 +494,12 @@ impl PrometheusExporter {
     /// dropped (#86) — a slow-consumer / backpressure signal.
     pub fn inc_ws_lagged_drops(&self) {
         self.ws_lagged_drops_total.inc();
+    }
+
+    /// Record a WebSocket frame send duration (#86) — a climbing p99 means the
+    /// client is slow to drain its socket (backpressure / head-of-line blocking).
+    pub fn record_ws_send_duration(&self, duration_secs: f64) {
+        self.ws_send_duration_seconds.observe(duration_secs);
     }
 
     /// Record outbox processing duration
@@ -698,10 +719,12 @@ mod tests {
         let exporter = PrometheusExporter::new();
         exporter.set_ws_connections_active(3.0);
         exporter.inc_ws_lagged_drops();
+        exporter.record_ws_send_duration(0.005);
 
         let output = exporter.generate_prometheus_output();
         assert!(output.contains("ws_connections_active"), "missing gauge: {output}");
         assert!(output.contains("ws_lagged_drops_total"), "missing counter: {output}");
+        assert!(output.contains("ws_send_duration_seconds"), "missing histogram: {output}");
     }
 
     #[test]

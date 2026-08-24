@@ -460,13 +460,16 @@ async fn handle_ws_connection(
             server_version: env!("CARGO_PKG_VERSION").to_string(),
         }),
     };
-    if socket
+    let send_start = std::time::Instant::now();
+    let send_ok = socket
         .send(Message::Text(
             serde_json::to_string(&connected).unwrap_or_default().into(),
         ))
         .await
-        .is_err()
-    {
+        .is_ok();
+    crate::services::prometheus_exporter::get_exporter()
+        .record_ws_send_duration(send_start.elapsed().as_secs_f64());
+    if !send_ok {
         manager.remove_session(&session_id).await;
         crate::services::prometheus_exporter::get_exporter()
             .set_ws_connections_active(manager.connection_count().await as f64);
@@ -498,11 +501,14 @@ async fn handle_ws_connection(
                                 "error": format!("invalid message: {e}"),
                             }),
                         };
-                        if socket
+                        let send_start = std::time::Instant::now();
+                        let send_ok = socket
                             .send(Message::Text(response.to_string().into()))
                             .await
-                            .is_err()
-                        {
+                            .is_ok();
+                        crate::services::prometheus_exporter::get_exporter()
+                            .record_ws_send_duration(send_start.elapsed().as_secs_f64());
+                        if !send_ok {
                             break;
                         }
                     }
@@ -521,13 +527,16 @@ async fn handle_ws_connection(
                                 request_id: None,
                                 payload: WsPayload::Event(event),
                             };
-                            if socket
+                            let send_start = std::time::Instant::now();
+                            let send_ok = socket
                                 .send(Message::Text(
                                     serde_json::to_string(&msg).unwrap_or_default().into(),
                                 ))
                                 .await
-                                .is_err()
-                            {
+                                .is_ok();
+                            crate::services::prometheus_exporter::get_exporter()
+                                .record_ws_send_duration(send_start.elapsed().as_secs_f64());
+                            if !send_ok {
                                 break;
                             }
                         }
