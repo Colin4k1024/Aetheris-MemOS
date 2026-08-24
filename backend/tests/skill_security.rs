@@ -109,3 +109,30 @@ async fn publish_skill_requires_a_jwt() {
         "unexpected response: {body}"
     );
 }
+
+#[tokio::test]
+async fn extract_skills_requires_a_jwt() {
+    ensure_config();
+    let app = backend::axum_routers::create_router();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills/extract")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "transcript": "user did X then Y" }).to_string(),
+                ))
+                .expect("build extract_skills request"),
+        )
+        .await
+        .expect("serve extract_skills request");
+
+    let (status, body) = response_json(response).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "unexpected response: {body}"
+    );
+}
