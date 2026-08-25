@@ -24,6 +24,7 @@ pub fn router() -> Router {
         .route("/", get(list_skills).post(create_skill))
         .route("/{id}", get(get_skill).put(update_skill).delete(delete_skill))
         .route("/{id}/publish", post(publish_skill))
+        .route("/{id}/quality", post(assess_quality))
         .route("/extract", post(extract_skills))
 }
 
@@ -134,4 +135,56 @@ pub async fn extract_skills(
         .await
         .map_err(|e| AppError::Internal(format!("skill extraction failed: {e}")))?;
     Ok(Json(serde_json::to_value(&candidates).unwrap_or(serde_json::json!([]))))
+}
+
+/// Quality assessment for a skill (#90). Returns a structured score with
+/// individual dimensions so callers can decide whether to publish.
+/// POST /v1/skills/{id}/quality
+#[derive(Deserialize)]
+pub struct AssessQualityRequest {
+    pub transcript: Option<String>,
+}
+
+pub async fn assess_quality(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(id): Path<String>,
+    Json(req): Json<AssessQualityRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = db::pool();
+    let repo = SkillRepository::new(pool.clone());
+    let skill = repo
+        .get(&tenant_ctx.tenant_id, &id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("skill not found".to_string()))?;
+
+    // Quality dimensions computed from the skill's structure.
+    let steps = skill.execution_steps.as_array().map(|a| a.len()).unwrap_or(0);
+    let conditions = skill.trigger_conditions.as_array().map(|a| a.len()).unwrap_or(0);
+    let rules = skill.validation_rules.as_array().map(|a| a.len()).unwrap_or(0);
+    let has_description = !skill.description.is_empty();
+    let version = skill.version;
+
+    // Heuristic quality scores — production would use LLM eval on the
+    // transcript (#92).
+    let completeness = if steps > 0 && has_description { 1.0 } else { 0.5 };
+    let robustness = if rules > 0 { 0.8 } else { 0.0 };
+    let maturity = if version > 1 { 0.9 } else { 0.5 };
+    let overall = (completeness + robustness + maturity) / 3.0;
+
+    Ok(Json(serde_json::json!({
+        "skill_id": id,
+        "version": version,
+        "scores": {
+            "completeness": completeness,
+            "robustness": robustness,
+            "maturity": maturity,
+            "overall": overall
+        },
+        "metrics": {
+            "step_count": steps,
+            "trigger_condition_count": conditions,
+            "validation_rule_count": rules,
+            "has_description": has_description
+        }
+    })))
 }
