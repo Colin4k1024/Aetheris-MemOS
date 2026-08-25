@@ -80,6 +80,8 @@ pub struct PrometheusExporter {
     ws_lagged_drops_total: prometheus::Counter,
     /// WebSocket frame send duration histogram (#86) — slow-client / backpressure signal.
     ws_send_duration_seconds: prometheus::Histogram,
+    /// WebSocket broadcast channel queue depth (#86) — high values = slow consumer.
+    ws_broadcast_queue_depth: prometheus::Gauge,
     /// Prometheus registry for metric collection
     registry: prometheus::Registry,
 }
@@ -292,6 +294,12 @@ impl PrometheusExporter {
         )
         .expect("histogram creation failed");
 
+        let ws_broadcast_queue_depth = prometheus::Gauge::new(
+            "ws_broadcast_queue_depth",
+            "WebSocket broadcast channel queue depth — high values indicate slow consumers",
+        )
+        .expect("gauge creation failed");
+
         // Register all metrics with the registry
         registry
             .register(Box::new(stm_sessions_active.clone()))
@@ -379,6 +387,9 @@ impl PrometheusExporter {
         registry
             .register(Box::new(ws_send_duration_seconds.clone()))
             .expect("failed to register ws_send_duration_seconds");
+        registry
+            .register(Box::new(ws_broadcast_queue_depth.clone()))
+            .expect("failed to register ws_broadcast_queue_depth");
 
         Self {
             stm_sessions_active,
@@ -409,6 +420,7 @@ impl PrometheusExporter {
             ws_connections_active,
             ws_lagged_drops_total,
             ws_send_duration_seconds,
+            ws_broadcast_queue_depth,
             registry,
         }
     }
@@ -500,6 +512,12 @@ impl PrometheusExporter {
     /// client is slow to drain its socket (backpressure / head-of-line blocking).
     pub fn record_ws_send_duration(&self, duration_secs: f64) {
         self.ws_send_duration_seconds.observe(duration_secs);
+    }
+
+    /// Set the WebSocket broadcast channel queue depth (#86) — a climbing value
+    /// means consumers are slow to drain the broadcast channel.
+    pub fn set_ws_broadcast_queue_depth(&self, depth: f64) {
+        self.ws_broadcast_queue_depth.set(depth);
     }
 
     /// Record outbox processing duration
@@ -713,18 +731,21 @@ mod tests {
 
     #[test]
     fn test_ws_metrics_registered() {
-        // #86: confirm the WS gauge + counter are registered. Live setter
-        // callers exist in handle_ws_connection (create/remove set the gauge,
-        // Lagged incs the counter) — see aetheris-metrics-mostly-dead.
+        // #86: confirm the WS gauge + counter + histogram + queue depth are
+        // registered. Live setter callers exist in handle_ws_connection
+        // (create/remove set the gauge, Lagged incs the counter, queue depth
+        // set on every recv) — see aetheris-metrics-mostly-dead.
         let exporter = PrometheusExporter::new();
         exporter.set_ws_connections_active(3.0);
         exporter.inc_ws_lagged_drops();
         exporter.record_ws_send_duration(0.005);
+        exporter.set_ws_broadcast_queue_depth(7.0);
 
         let output = exporter.generate_prometheus_output();
         assert!(output.contains("ws_connections_active"), "missing gauge: {output}");
         assert!(output.contains("ws_lagged_drops_total"), "missing counter: {output}");
         assert!(output.contains("ws_send_duration_seconds"), "missing histogram: {output}");
+        assert!(output.contains("ws_broadcast_queue_depth"), "missing gauge: {output}");
     }
 
     #[test]

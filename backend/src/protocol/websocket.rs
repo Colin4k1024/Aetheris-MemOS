@@ -5,9 +5,10 @@
 //! WebSocket upgrade handler (`ws_upgrade_handler`) authenticates during
 //! the HTTP handshake via `hoops::jwt::authenticate()`.
 //!
-//! `send_to_session` returns a truthful subscription check; the primary push
-//! path is `broadcast_event` + per-connection forward filtering. A real axum WS
-//! route is mounted at `/api/v1/ws` (see `routers::mod::root`).
+//! `send_to_session` returns a differentiated `SendResult` (Delivered /
+//! SessionNotFound / NotSubscribed); the primary push path is `broadcast_event`
+//! + per-connection forward filtering. A real axum WS route is mounted at
+//! `/api/v1/ws` (see `routers::mod::root`).
 #![allow(dead_code)]
 
 use crate::hoops::jwt;
@@ -138,6 +139,20 @@ pub enum EventType {
     MemoryDeleted,
     MemoryEvicted,
     LayerFull,
+}
+
+/// Differentiated result for `send_to_session` — replaces the old `bool` that
+/// could not distinguish "session closed" from "not subscribed".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendResult {
+    /// The event would be forwarded to the session (tenant matches and either
+    /// no subscriptions = receive-all, or the event type is subscribed).
+    Delivered,
+    /// The session does not exist (connection closed or never established).
+    SessionNotFound,
+    /// The session exists but has active subscriptions that do not include
+    /// this event type.
+    NotSubscribed,
 }
 
 /// Lightweight event payload pushed over WebSocket — avoids carrying the full
@@ -351,7 +366,18 @@ impl WsConnectionManager {
     /// non-blocking (`broadcast::Sender::send` never awaits) so callers can
     /// fire-and-forget it from hot paths (memory write/delete chokepoints).
     pub fn broadcast_event(&self, event: EventResponse) -> usize {
-        self.event_tx.send(event).unwrap_or(0)
+        match self.event_tx.send(event) {
+            Ok(n) => n,
+            Err(tokio::sync::broadcast::error::SendError(_e)) => {
+                // No receivers → all connections are closed. Not an error
+                // condition worth surfacing to the caller; the memory write
+                // succeeded regardless.
+                tracing::debug!(
+                    "WS broadcast dropped: no active receivers (all connections closed or channel full)"
+                );
+                0
+            }
+        }
     }
 
     /// Get active connection count.
@@ -359,21 +385,34 @@ impl WsConnectionManager {
         self.connections.read().await.len()
     }
 
+    /// Current number of messages buffered in the broadcast channel (queue depth).
+    /// High values indicate slow consumers or a consumer that has stopped draining.
+    pub fn queue_depth(&self) -> usize {
+        self.event_tx.len()
+    }
+
     /// Whether a session would receive `event`: the session must exist and
     /// either have no subscriptions (receive-all default) or be subscribed to
-    /// this event type. NOTE: actual delivery happens via the broadcast
-    /// channel the forward task in `handle_ws_connection` drains — this is a
-    /// truthful query, not a send (the old stub always returned `true`).
-    pub async fn send_to_session(&self, session_id: &str, event: EventResponse) -> bool {
+    /// this event type. Returns a differentiated `SendResult` instead of the
+    /// old `bool` so callers can distinguish "session closed" from "not
+    /// subscribed". NOTE: actual delivery happens via the broadcast channel
+    /// the forward task in `handle_ws_connection` drains — this is a truthful
+    /// query, not a send.
+    pub async fn send_to_session(&self, session_id: &str, event: EventResponse) -> SendResult {
         let connections = self.connections.read().await;
         let Some(conn) = connections.get(session_id) else {
-            return false;
+            return SendResult::SessionNotFound;
         };
-        conn.subscriptions.is_empty()
+        if conn.subscriptions.is_empty()
             || conn
                 .subscriptions
                 .iter()
                 .any(|sub| sub.event_type == event.event_type)
+        {
+            SendResult::Delivered
+        } else {
+            SendResult::NotSubscribed
+        }
     }
 
     /// Clean up old sessions (based on timestamp).
@@ -519,6 +558,10 @@ async fn handle_ws_connection(
 
             // ── Server → Client (broadcast push) ──
             event = broadcast_rx.recv() => {
+                // Update queue depth gauge on every receive — the depth
+                // after draining this message reflects current backlog.
+                crate::services::prometheus_exporter::get_exporter()
+                    .set_ws_broadcast_queue_depth(manager.queue_depth() as f64);
                 match event {
                     Ok(event) => {
                         if should_forward_event(manager, &session_id, &tenant_ctx, &event).await {
@@ -795,5 +838,69 @@ mod tests {
         assert!(should_forward_event(&manager, &session_id, &tenant_a, &deleted("tenant-a")).await);
         // Non-matching type (MemoryAdded) with an active subscription → filtered out.
         assert!(!should_forward_event(&manager, &session_id, &tenant_a, &added("tenant-a")).await);
+    }
+
+    #[tokio::test]
+    async fn send_to_session_returns_differentiated_result() {
+        let manager = WsConnectionManager::new();
+        let tenant_a = crate::tenant::RequestTenantContext::new("tenant-a");
+        let (session_id, _rx) = manager.create_session(tenant_a).await;
+
+        let event = EventResponse {
+            event_type: EventType::MemoryAdded,
+            data: EventData::MemoryAdded(MemoryEventPayload {
+                id: "id".to_string(),
+                tenant_id: "tenant-a".to_string(),
+                layer: LayerType::Ltm,
+                source_type: None,
+                summary: None,
+                metadata: None,
+            }),
+        };
+
+        // No subscriptions → receive all → Delivered.
+        assert_eq!(
+            manager.send_to_session(&session_id, event.clone()).await,
+            SendResult::Delivered
+        );
+
+        // Non-existent session → SessionNotFound.
+        assert_eq!(
+            manager.send_to_session("dead-session", event.clone()).await,
+            SendResult::SessionNotFound
+        );
+
+        // Subscribe to MemoryDeleted only → NotSubscribed for MemoryAdded.
+        manager.subscribe(&session_id, EventType::MemoryDeleted).await;
+        assert_eq!(
+            manager.send_to_session(&session_id, event).await,
+            SendResult::NotSubscribed
+        );
+    }
+
+    #[tokio::test]
+    async fn queue_depth_reflects_buffered_messages() {
+        let manager = WsConnectionManager::new();
+        let tenant_ctx = crate::tenant::RequestTenantContext::new("tenant-a");
+        let (_session_id, _rx) = manager.create_session(tenant_ctx).await;
+
+        // Initially empty.
+        assert_eq!(manager.queue_depth(), 0);
+
+        // Broadcast a few events — they should be buffered (no one draining _rx).
+        for i in 0..5 {
+            manager.broadcast_event(EventResponse {
+                event_type: EventType::MemoryAdded,
+                data: EventData::MemoryAdded(MemoryEventPayload {
+                    id: format!("id-{i}"),
+                    tenant_id: "tenant-a".to_string(),
+                    layer: LayerType::Ltm,
+                    source_type: None,
+                    summary: None,
+                    metadata: None,
+                }),
+            });
+        }
+        assert!(manager.queue_depth() > 0, "queue should have buffered messages");
     }
 }
