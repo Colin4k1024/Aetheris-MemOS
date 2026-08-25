@@ -50,12 +50,23 @@ pub enum HealthStatus {
     Unavailable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Available provider types.
+///
+/// | Variant  | Status       | Description                          |
+/// |----------|-------------|--------------------------------------|
+/// | Builtin  | ✅ Available | Wraps internal MemoryLayer chain     |
+/// | Mem0     | ✅ Available | HTTP API integration                 |
+/// | Zep      | ✅ Available | HTTP API integration                 |
+/// | Letta    | 🚫 Reserved  | Stub only — not implemented (#87)    |
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderType {
     Builtin,
     Mem0,
     Zep,
+    /// Reserved stub — selecting this variant is rejected by `create_provider`
+    /// with a clear error. The stub exists as a future extension point; it is
+    /// not reachable in production (#87).
     Letta,
 }
 
