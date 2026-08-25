@@ -9,6 +9,7 @@ use tower_http::trace::TraceLayer;
 
 mod agent;
 mod auth;
+mod benchmark;
 mod billing;
 mod dashboard;
 mod data_io;
@@ -431,6 +432,7 @@ pub fn root() -> Router {
         // Skill asset routes (#90) — tenant-scoped via RequestTenantContext
         .nest("/v1/skills", skill::router())
         .nest("/v1/proxy", proxy::router())
+        .nest("/v1/benchmark", benchmark::router())
         // Recall — distilled-memory recall over the PG distillation path (#84)
         .nest("/v1/recall", recall::router())
         // Distillation pipeline routes
