@@ -358,3 +358,17 @@ pub async fn get_loadout(
         .await?;
     Ok(Json(loadout))
 }
+
+/// Resolve ACL rules for the agent's equipment (#89).
+/// GET /agents/{agent_id}/acl
+pub async fn get_acl(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<Vec<crate::models::agent_equip::AclRule>>, AppError> {
+    let pool = db::pool();
+    let service = AgentService::new(pool.clone());
+    let rules = service
+        .resolve_acl(&tenant_ctx.tenant_id, &agent_id)
+        .await?;
+    Ok(Json(rules))
+}

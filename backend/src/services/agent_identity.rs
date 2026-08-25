@@ -196,6 +196,50 @@ impl AgentService {
         })
     }
 
+    /// Resolve ACL rules for an agent's equipment (#89).
+    ///
+    /// Returns one `AclRule` per equipment binding, derived from the
+    /// equipment's `visibility` and `binding_type`. Application-layer ACL
+    /// is enforced by the service layer; database RLS is a second defense.
+    pub async fn resolve_acl(
+        &self,
+        tenant_id: &TenantId,
+        agent_id: &str,
+    ) -> Result<Vec<crate::models::agent_equip::AclRule>, AppError> {
+        use crate::models::agent_equip::Visibility;
+        let equipment = self.equipment_repo.list_by_agent(tenant_id, agent_id).await?;
+        let rules = equipment
+            .into_iter()
+            .map(|eq| {
+                let allowed_agents = match eq.visibility.as_str() {
+                    "private" => vec![eq.agent_id.clone()],
+                    "agent" => vec![eq.agent_id.clone()], // + explicit shares (TBD)
+                    _ => vec![],
+                };
+                let allowed_teams = if eq.visibility == "team" {
+                    vec![] // populated from team membership (TBD)
+                } else {
+                    vec![]
+                };
+                let allowed_tasks = if eq.visibility == "task" {
+                    vec![] // populated from task binding (TBD)
+                } else {
+                    vec![]
+                };
+                crate::models::agent_equip::AclRule {
+                    equipment_id: eq.id,
+                    asset_type: eq.asset_type,
+                    asset_id: eq.asset_id,
+                    visibility: eq.visibility,
+                    allowed_agents,
+                    allowed_teams,
+                    allowed_tasks,
+                }
+            })
+            .collect();
+        Ok(rules)
+    }
+
     // =========================================================================
     // Episode Operations
     // =========================================================================
