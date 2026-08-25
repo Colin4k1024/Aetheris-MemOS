@@ -32,8 +32,8 @@ impl AgentEquipmentRepository {
         sqlx::query(
             r#"
             INSERT INTO agent_equipment
-                (id, tenant_id, agent_id, asset_type, asset_id, binding_type, condition, priority)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (id, tenant_id, agent_id, asset_type, asset_id, binding_type, visibility, condition, priority)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
         )
         .bind(&id)
@@ -42,6 +42,7 @@ impl AgentEquipmentRepository {
         .bind(req.asset_type.as_str())
         .bind(&req.asset_id)
         .bind(req.binding_type.as_str())
+        .bind(req.visibility.as_str())
         .bind(req.condition)
         .bind(req.priority)
         .execute(&mut *tx)
@@ -63,7 +64,7 @@ impl AgentEquipmentRepository {
         let rows = sqlx::query_as::<_, AgentEquipment>(
             r#"
             SELECT id, tenant_id, agent_id, asset_type, asset_id, binding_type,
-                   condition, priority, created_at::text
+                   visibility, condition, priority, created_at::text
             FROM agent_equipment
             WHERE tenant_id = $1 AND agent_id = $2
             ORDER BY priority DESC, created_at ASC
@@ -88,7 +89,7 @@ impl AgentEquipmentRepository {
         let row = sqlx::query_as::<_, AgentEquipment>(
             r#"
             SELECT id, tenant_id, agent_id, asset_type, asset_id, binding_type,
-                   condition, priority, created_at::text
+                   visibility, condition, priority, created_at::text
             FROM agent_equipment
             WHERE tenant_id = $1 AND id = $2
             "#,
@@ -116,14 +117,16 @@ impl AgentEquipmentRepository {
             r#"
             UPDATE agent_equipment
             SET binding_type = COALESCE($3, binding_type),
-                condition   = COALESCE($4, condition),
-                priority    = COALESCE($5, priority)
+                visibility   = COALESCE($4, visibility),
+                condition    = COALESCE($5, condition),
+                priority     = COALESCE($6, priority)
             WHERE tenant_id = $1 AND id = $2
             "#,
         )
         .bind(tenant_id.as_str())
         .bind(id)
         .bind(req.binding_type.map(|b| b.as_str()))
+        .bind(req.visibility.map(|v| v.as_str()))
         .bind(req.condition)
         .bind(req.priority)
         .execute(&mut *tx)

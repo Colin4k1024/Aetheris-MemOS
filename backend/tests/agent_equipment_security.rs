@@ -1,10 +1,8 @@
-//! Security boundary tests for the `/api/v1/agents/{id}/equipment` routes (#89).
+//! Security boundary tests for agent sub-resource routes (#89):
+//! `/api/v1/agents/{id}/equipment`, `/loadout`, `/acl`.
 //!
-//! These are the first agent sub-resource routes that extract
-//! `RequestTenantContext` (capabilities/episodes/behaviors are not yet
-//! tenant-scoped). These tests guard the auth boundary only (JWT required).
-//! DB-level cross-tenant RLS verification needs a PG + RLS test harness —
-//! follow-up.
+//! Guard the auth boundary (JWT required). DB-level cross-tenant RLS
+//! verification needs a PG + RLS test harness — follow-up.
 
 use axum::{
     body::{to_bytes, Body},
@@ -84,4 +82,44 @@ async fn add_equipment_requires_a_jwt() {
         StatusCode::UNAUTHORIZED,
         "unexpected response: {body}"
     );
+}
+
+// ── Loadout & ACL endpoints (#89) ──
+
+#[tokio::test]
+async fn loadout_requires_a_jwt() {
+    ensure_config();
+    let app = backend::axum_routers::create_router();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/agents/agent-1/loadout")
+                .body(Body::empty())
+                .expect("build loadout request"),
+        )
+        .await
+        .expect("serve loadout request");
+
+    let (status, body) = response_json(response).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "unexpected response: {body}");
+}
+
+#[tokio::test]
+async fn acl_requires_a_jwt() {
+    ensure_config();
+    let app = backend::axum_routers::create_router();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/agents/agent-1/acl")
+                .body(Body::empty())
+                .expect("build acl request"),
+        )
+        .await
+        .expect("serve acl request");
+
+    let (status, body) = response_json(response).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "unexpected response: {body}");
 }

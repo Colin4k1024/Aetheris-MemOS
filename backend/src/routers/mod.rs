@@ -326,6 +326,7 @@ pub fn root() -> Router {
         )
         // Loadout — atomic snapshot of an agent's bound assets (#89)
         .route("/agents/{agent_id}/loadout", get(agent::get_loadout))
+        .route("/agents/{agent_id}/acl", get(agent::get_acl))
         // Complete agent info
         .route(
             "/agents/{agent_id}/complete",
