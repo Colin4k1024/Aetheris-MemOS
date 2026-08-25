@@ -40,6 +40,7 @@ pub mod memory_contract;
 pub mod memory_fusion;
 pub mod memory_ingestion;
 pub mod memory_orchestrator;
+pub mod memory_pipeline;
 pub mod memory_pool;
 pub mod memory_search;
 pub mod memory_storage;
