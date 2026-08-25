@@ -237,6 +237,65 @@ pub fn build_standard_suite() -> EvalSuite {
     suite
 }
 
+/// Quality gate: minimum pass rate to pass the benchmark (#92).
+/// Runs the suite and returns `Ok(summary)` if the pass rate meets the
+/// threshold, or `Err((summary, message))` otherwise.
+pub async fn run_quality_gate(threshold_pass_rate: f64) -> Result<EvalSummary, (EvalSummary, String)>
+{
+    let mut suite = build_standard_suite();
+    suite.run().await;
+    let summary = suite.summary();
+    if summary.total == 0 {
+        return Err((summary, "no cases executed".to_string()));
+    }
+    let pass_rate = summary.passed as f64 / summary.total as f64;
+    if pass_rate >= threshold_pass_rate {
+        Ok(summary)
+    } else {
+        Err((
+            summary,
+            format!(
+                "benchmark pass rate {:.1}% below threshold {:.1}%",
+                pass_rate * 100.0,
+                threshold_pass_rate * 100.0
+            ),
+        ))
+    }
+}
+
+/// Run the full benchmark suite and return a machine-readable JSON report.
+pub async fn run_benchmark_report() -> serde_json::Value {
+    let mut suite = build_standard_suite();
+    suite.run().await;
+    let summary = suite.summary();
+    serde_json::json!({
+        "suite": suite.name,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "summary": {
+            "total": summary.total,
+            "passed": summary.passed,
+            "failed": summary.failed,
+            "pass_rate": if summary.total > 0 {
+                summary.passed as f64 / summary.total as f64
+            } else {
+                0.0
+            },
+            "avg_efficiency": summary.avg_efficiency,
+            "avg_coherence": summary.avg_coherence
+        },
+        "results": suite.results.iter().map(|r| {
+            serde_json::json!({
+                "test_name": r.test_name,
+                "passed": r.passed,
+                "actual_efficiency": r.actual_efficiency,
+                "actual_coherence": r.actual_coherence,
+                "selected_memory_types": r.selected_memory_types,
+                "duration_ms": r.duration_ms
+            })
+        }).collect::<Vec<_>>()
+    })
+}
+
 /// "simple_text_task" — a low-complexity, text-only conversation.
 ///
 /// Expected strategy: STM as primary memory, no multimodal or graph
