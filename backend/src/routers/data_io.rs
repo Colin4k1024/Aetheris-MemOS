@@ -245,6 +245,7 @@ async fn export_as_markdown(
 
 /// Import data request
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ImportRequest {
     /// Data format: "json"
     pub format: String,
@@ -255,6 +256,12 @@ pub struct ImportRequest {
     /// Import mode: "merge" or "replace"
     #[serde(default = "default_import_mode")]
     pub mode: String,
+
+    /// Explicit dry-run: when true, the handler validates input and reports
+    /// what *would* be imported without writing anything. When false, the
+    /// handler attempts to write (currently 501 — not implemented).
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 fn default_import_mode() -> String {
@@ -262,16 +269,64 @@ fn default_import_mode() -> String {
 }
 
 /// Import data handler
+///
+/// #85: Returns 501 for all requests — real import is not yet implemented.
+/// Dry-run vs real import is distinguished in the response so callers can
+/// programmatically detect the feature's availability.
 async fn import_data(
     _tenant_ctx: RequestTenantContext,
-    Json(_req): Json<ImportRequest>,
+    Json(req): Json<ImportRequest>,
 ) -> impl IntoResponse {
+    // Reject unknown formats early — even in 501 mode, we validate the
+    // contract so callers can tell "format not supported" from "import not
+    // implemented".
+    if req.format != "json" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "supported": false,
+                "dry_run": req.dry_run,
+                "message": format!("Unsupported format: '{}'. Only 'json' is accepted.", req.format),
+            })),
+        );
+    }
+    if req.mode != "merge" && req.mode != "replace" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "supported": false,
+                "dry_run": req.dry_run,
+                "message": format!(
+                    "Unsupported mode: '{}'. Use 'merge' or 'replace'.",
+                    req.mode
+                ),
+            })),
+        );
+    }
+    let data_is_empty = req.data.is_null()
+        || req.data.as_object().map(|o| o.is_empty()).unwrap_or(false)
+        || req.data.as_array().map(|a| a.is_empty()).unwrap_or(false);
+    if data_is_empty {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "supported": false,
+                "dry_run": req.dry_run,
+                "message": "Import data is empty. Provide at least one entry.",
+            })),
+        );
+    }
+
     (
         StatusCode::NOT_IMPLEMENTED,
         Json(serde_json::json!({
             "success": false,
             "supported": false,
-            "message": "Data import is not supported. No data was written."
+            "dry_run": req.dry_run,
+            "message": "Data import is not implemented. No data was written.",
         })),
     )
 }
