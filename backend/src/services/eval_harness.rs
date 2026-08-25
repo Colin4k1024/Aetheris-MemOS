@@ -12,7 +12,7 @@
 //! The current implementation is a scaffold: [`EvalSuite::run`] records
 //! placeholder results (`passed = true`) without invoking the real
 //! scheduler/predictor. This lets downstream wiring and reporting land
-//! before the prediction path is hooked up.
+//! before the prediction path is hooked up (#92, #93).
 
 use serde::{Deserialize, Serialize};
 

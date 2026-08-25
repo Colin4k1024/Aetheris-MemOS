@@ -3,7 +3,7 @@
 use axum::{
     extract::{Extension, Path, Query},
     routing::{get, post, put},
-    Json, Router,
+    Json,
 };
 use serde::Deserialize;
 
@@ -16,52 +16,9 @@ use crate::models::agent_equip::{
 use crate::services::agent_identity::AgentService;
 use crate::tenant::RequestTenantContext;
 
-pub fn router() -> Router {
-    Router::new()
-        // Agent Identity
-        .route("/api/v1/agents", post(create_agent).get(list_agents))
-        .route(
-            "/api/v1/agents/{agent_id}",
-            get(get_agent).put(update_agent).delete(delete_agent),
-        )
-        // Self-Model
-        .route(
-            "/api/v1/agents/{agent_id}/self-model",
-            get(get_self_model).put(update_self_model),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/self-model/reflect",
-            post(trigger_reflection),
-        )
-        // Capabilities
-        .route(
-            "/api/v1/agents/{agent_id}/capabilities",
-            get(list_capabilities).post(add_capability),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/capabilities/{capability_id}",
-            put(update_capability).delete(delete_capability),
-        )
-        // Episodes
-        .route(
-            "/api/v1/agents/{agent_id}/episodes",
-            get(list_episodes).post(record_episode),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/episodes/{episode_id}",
-            put(update_episode),
-        )
-        // Behavior Profiles
-        .route(
-            "/api/v1/agents/{agent_id}/behaviors",
-            get(list_behaviors).post(record_behavior),
-        )
-        // Complete agent info
-        .route(
-            "/api/v1/agents/{agent_id}/complete",
-            get(get_agent_complete),
-        )
-}
+// router() removed (#93) — agent routes are registered directly in
+// routers::mod::root(). The function was a dead duplicate that fell out of
+// sync (missing equipment routes added in #89).
 
 // ============================================================================
 // Query/Path Parameters

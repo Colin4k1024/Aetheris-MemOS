@@ -24,6 +24,10 @@ pub struct MemoryAgent {
     kernel: Arc<dyn MemoryKernel>,
     config: AgentConfig,
     compressor: MemoryCompressor,
+    /// Reserved — merger logic is planned but not yet wired into the main
+    /// memory pipeline (#83, #93). The field is kept so the constructor
+    /// signature stays stable.
+    #[allow(dead_code)]
     merger: MemoryMerger,
     forgetter: MemoryForGetter,
 }
