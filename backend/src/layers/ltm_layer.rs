@@ -1,7 +1,9 @@
 //! Long-Term Memory (LTM) Layer Implementation
 //!
 //! LTM provides persistent storage for long-term knowledge entries.
-//! Currently uses in-memory storage; will integrate Qdrant + PostgreSQL in production.
+//! Uses in-memory storage (HashMap). For production, use
+//! [`DatabaseLtmLayer`](crate::layers::database_layer::DatabaseLtmLayer)
+//! which wraps PostgreSQL (#83).
 
 use crate::kernel::error::{MemoryError, MemoryResult};
 use crate::kernel::traits::{LayerStats, MemoryLayer};
