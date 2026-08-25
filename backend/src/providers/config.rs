@@ -9,6 +9,10 @@ pub struct ProviderConfig {
     pub active: ProviderType,
     pub mem0: Option<ExternalProviderConfig>,
     pub zep: Option<ExternalProviderConfig>,
+    /// Reserved — Letta provider is not implemented (#87). Selecting
+    /// `active: "letta"` is rejected by `create_provider` at runtime.
+    /// This field is kept for future use; it is ignored in production.
+    #[serde(default)]
     pub letta: Option<ExternalProviderConfig>,
 }
 
@@ -24,6 +28,21 @@ impl Default for ProviderConfig {
             zep: None,
             letta: None,
         }
+    }
+}
+
+impl ProviderConfig {
+    /// Validate the provider config at startup — fail-fast if an unimplemented
+    /// provider is selected (#87).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.active == ProviderType::Letta {
+            return Err(
+                "provider.active = 'letta' is reserved but not implemented; \
+                 select 'builtin', 'mem0', or 'zep'"
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -58,6 +77,55 @@ fn default_timeout() -> u64 {
 
 fn default_max_retries() -> u32 {
     3
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_validates() {
+        let cfg = ProviderConfig::default();
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn builtin_config_validates() {
+        let cfg = ProviderConfig {
+            active: ProviderType::Builtin,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn letta_config_is_rejected_at_validation() {
+        let cfg = ProviderConfig {
+            active: ProviderType::Letta,
+            ..Default::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("letta"), "expected 'letta' in error: {err}");
+        assert!(err.contains("not implemented"), "expected 'not implemented' in error: {err}");
+    }
+
+    #[test]
+    fn mem0_config_validates() {
+        let cfg = ProviderConfig {
+            active: ProviderType::Mem0,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn zep_config_validates() {
+        let cfg = ProviderConfig {
+            active: ProviderType::Zep,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
 }
 
 impl Default for ExternalProviderConfig {
