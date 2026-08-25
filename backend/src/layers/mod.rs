@@ -3,6 +3,7 @@
 //! This module provides trait implementations that bridge the existing
 //! repository implementations with the Memory Kernel interface.
 
+pub mod database_layer;
 pub mod kg_layer;
 pub mod ltm_layer;
 pub mod mm_layer;
