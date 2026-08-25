@@ -109,7 +109,8 @@ impl MemoryFusionService {
     /// Query across all memory layers and return both layer-separated and merged results.
     ///
     /// For STM: uses exact match or prefix search.
-    /// For LTM/KG: uses semantic similarity via ILIKE search (placeholder for vector similarity).
+    /// For LTM/KG: uses ILIKE substring search. Vector similarity (Qdrant
+    /// hybrid) is the planned upgrade path (#84, #93).
     /// For MM: uses text content search.
     pub async fn query(
         query: &str,
