@@ -322,6 +322,141 @@ impl BeliefRepository {
         Ok(rows)
     }
 
+    // ── Recall read face (#128) ────────────────────────────────────────────── //
+
+    /// Belief rows eligible for retrieval under the #128 hard filters.
+    ///
+    /// Hard (pre-ranking, never soft-scored):
+    /// - tenant via RLS (caller's begin_tenant_tx) and principal scope;
+    /// - `as_of` window coverage: default NOW returns only `status='active'`
+    ///   open edges; an explicit past `as_of` instead returns, per
+    ///   (subject, predicate), the latest edge whose window covered that
+    ///   instant — which includes `superseded` history;
+    /// - `needs_confirm` / `quarantined` / `archived` / `rejected` NEVER
+    ///   eligible (quarantined claims never became edges at all);
+    /// - high-risk trust floor: `risk='high' AND trust < min_high_risk_trust`
+    ///   excluded (Epic #124 deny_if_trust_below).
+    pub async fn eligible_edges_for_recall(
+        &self,
+        tenant_id: &TenantId,
+        principal_id: &str,
+        subject: Option<&str>,
+        as_of: Option<chrono::DateTime<chrono::Utc>>,
+        min_high_risk_trust: f32,
+    ) -> Result<Vec<MemoryBelief>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows = Self::eligible_edges_in(
+            &mut tx,
+            tenant_id,
+            principal_id,
+            subject,
+            as_of,
+            min_high_risk_trust,
+        )
+        .await?;
+        tx.commit().await.ok();
+        Ok(rows)
+    }
+
+    /// Same as above on an existing transaction (the recall core fetches
+    /// evidence on the same tx for a consistent snapshot).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn eligible_edges_in(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tenant_id: &TenantId,
+        principal_id: &str,
+        subject: Option<&str>,
+        as_of: Option<chrono::DateTime<chrono::Utc>>,
+        min_high_risk_trust: f32,
+    ) -> Result<Vec<MemoryBelief>, AppError> {
+        let historical = as_of.is_some();
+        let sql = format!(
+            r#"
+            SELECT {BELIEF_COLS}
+            FROM (
+                SELECT DISTINCT ON (subject, predicate) *
+                FROM memory_beliefs
+                WHERE tenant_id = $1
+                  AND principal_id = $2
+                  AND ($3::text IS NULL OR subject = $3)
+                  AND {}
+                  AND status {}
+                  AND NOT (risk = 'high' AND trust < $4)
+                ORDER BY subject, predicate, valid_from DESC
+            ) e
+            ORDER BY e.subject, e.predicate
+            "#,
+            // Window coverage: historical picks the edge valid AT as_of (which
+            // may since be superseded); current requires an open active edge.
+            if historical {
+                "(valid_from <= $5 AND (valid_to IS NULL OR valid_to > $5))"
+            } else {
+                "(valid_from <= NOW() AND valid_to IS NULL)"
+            },
+            if historical {
+                "IN ('active', 'superseded')"
+            } else {
+                "= 'active'"
+            },
+        );
+        let mut q = sqlx::query_as::<_, MemoryBelief>(&sql)
+            .bind(tenant_id.as_str())
+            .bind(principal_id)
+            .bind(subject)
+            .bind(min_high_risk_trust);
+        if let Some(ts) = as_of {
+            q = q.bind(ts);
+        }
+        q.fetch_all(&mut **tx)
+            .await
+            .map_err(|e| AppError::Internal(format!("eligible_edges failed: {e}")))
+    }
+
+    /// The agent's memory contract, if one exists (hard-filter input).
+    pub async fn contract_for_agent(
+        &self,
+        tenant_id: &TenantId,
+        agent_id: Option<&str>,
+    ) -> Result<Option<MemoryContractRow>, AppError> {
+        let Some(agent) = agent_id else {
+            return Ok(None);
+        };
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let row = sqlx::query_as::<_, MemoryContractRow>(
+            "SELECT id, tenant_id, agent_id, may_believe::text AS may_believe,              must_not_believe_from::text AS must_not_believe_from,              high_stakes_deny_below_trust, enabled              FROM memory_contracts WHERE tenant_id = $1 AND agent_id = $2 AND enabled",
+        )
+        .bind(tenant_id.as_str())
+        .bind(agent)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("contract load failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(row)
+    }
+
+    /// Average usefulness (0..1) per belief id from `memory_feedback`.
+    /// Absent feedback is simply missing from the map (neutral later).
+    pub async fn feedback_usefulness(
+        &self,
+        tenant_id: &TenantId,
+        belief_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, f64>, AppError> {
+        if belief_ids.is_empty() {
+            return Ok(Default::default());
+        }
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows: Vec<(String, f64, i64)> = sqlx::query_as(
+            "SELECT memory_id, AVG(CASE WHEN useful THEN 1.0 ELSE 0.0 END), COUNT(*)              FROM memory_feedback WHERE tenant_id = $1 AND memory_id = ANY($2)              GROUP BY memory_id",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_ids)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("feedback aggregation failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows.into_iter().map(|(k, v, _)| (k, v)).collect())
+    }
+
     // ── The gate (commit orchestration) ───────────────────────────────────── //
 
     /// Submit one claim through the write gate.
@@ -1029,6 +1164,20 @@ impl BeliefRepository {
             }));
         crate::db::audit::insert_tx(tx, &audit).await
     }
+}
+
+/// One row of `memory_contracts` (#128 recall hard-filter input).
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct MemoryContractRow {
+    pub id: String,
+    pub tenant_id: String,
+    pub agent_id: String,
+    /// JSON array text: predicates this agent may believe from allowed sources.
+    pub may_believe: String,
+    /// JSON object text: { source: [predicates...] } the agent must NOT believe.
+    pub must_not_believe_from: String,
+    pub high_stakes_deny_below_trust: Option<f32>,
+    pub enabled: bool,
 }
 
 impl GateOutcome {

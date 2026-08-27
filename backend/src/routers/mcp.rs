@@ -898,7 +898,35 @@ async fn handle_memory_search(
         }
     };
 
-    let text = results.to_string();
+    // #128: same recall core as every other transport. When the caller
+    // supplies a user_id, governed belief edges (hard-filtered, cited) join
+    // the response alongside the layer results.
+    let mut payload = results;
+    if let Some(user) = user_id {
+        match crate::services::recall::core::belief_working_memory(
+            tenant_id,
+            Some(user),
+            &query,
+            None,
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(Some(wm)) => {
+                payload["beliefs"] = serde_json::to_value(&wm.items).unwrap_or_default();
+                payload["workingMemory"] = serde_json::Value::String(wm.text.clone());
+            }
+            Ok(None) => {}
+            Err(e) => {
+                // Read-path degradation only: surface in the payload, never
+                // fail the tool call because belief context is unavailable.
+                payload["beliefError"] = serde_json::Value::String(e.to_string());
+            }
+        }
+    }
+
+    let text = payload.to_string();
 
     Ok(vec![crate::protocol::mcp::ToolContent::Text(text)])
 }

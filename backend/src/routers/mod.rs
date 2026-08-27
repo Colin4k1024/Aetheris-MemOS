@@ -35,7 +35,7 @@ mod openapi;
 mod planner;
 mod proxy;
 mod procedural;
-mod recall;
+pub mod recall;
 mod security;
 mod skill;
 #[allow(dead_code)]

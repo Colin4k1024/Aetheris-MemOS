@@ -146,15 +146,40 @@ impl A2AHandler {
         let result = MemoryFusionService::query(&text, tenant_id, Some(10))
             .await
             .map_err(|error| format!("Memory search failed: {error}"))?;
+
+        // #128: same recall core as every other transport. The A2A caller may
+        // pass the authenticated subject via request metadata `user_id`.
+        let mut payload = json!({
+            "skill": "memory_search",
+            "result": result
+        });
+        let a2a_user = request
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("user_id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        if let Some(user) = a2a_user {
+            if let Ok(Some(wm)) = crate::services::recall::core::belief_working_memory(
+                tenant_id,
+                Some(&user),
+                &text,
+                None,
+                None,
+                None,
+            )
+            .await
+            {
+                payload["beliefs"] = serde_json::to_value(&wm.items).unwrap_or_default();
+                payload["workingMemory"] = serde_json::Value::String(wm.text.clone());
+            }
+        }
         self.create_response(
             task_id,
             request,
             tenant_id,
             "Memory search completed".to_string(),
-            json!({
-                "skill": "memory_search",
-                "result": result
-            }),
+            payload,
         )
         .await
     }

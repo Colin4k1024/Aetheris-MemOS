@@ -94,6 +94,11 @@ pub struct PipelineOptions {
     pub enable_feedback: bool,
     /// Idempotency key to prevent duplicate processing.
     pub idempotency_key: Option<String>,
+    /// Authenticated subject for the #128 recall core. When set (and
+    /// resolvable to a principal), `before_recall` assembles Working Memory
+    /// from governed beliefs; otherwise it falls back to the legacy LTM
+    /// top-3 text path — the progressive replacement #128 prescribes.
+    pub user_id: Option<String>,
 }
 
 impl Default for PipelineOptions {
@@ -104,6 +109,7 @@ impl Default for PipelineOptions {
             context_budget: 2000,
             enable_feedback: true,
             idempotency_key: None,
+            user_id: None,
         }
     }
 }
@@ -306,6 +312,37 @@ impl MemoryPipeline {
                 detail: Some("context injection disabled or empty query".to_string()),
             });
             return Ok(String::new());
+        }
+
+        // #128: the recall core is the primary context source — bounded,
+        // citation-carrying Working Memory from governed beliefs. Legacy
+        // LTM top-3 remains the fallback for callers without a principal.
+        if let Some(user) = self.options.user_id.clone() {
+            match crate::services::recall::core::belief_working_memory(
+                &self.tenant_id,
+                Some(&user),
+                query,
+                None,
+                None,
+                Some(self.options.context_budget),
+            )
+            .await
+            {
+                Ok(Some(wm)) if !wm.text.is_empty() => {
+                    self.run.phases.push(PhaseResult {
+                        phase: "context_injection".to_string(),
+                        status: PhaseStatus::Success,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                        detail: Some(format!(
+                            "{} belief items, {} chars (cited)",
+                            wm.items.len(),
+                            wm.chars_used
+                        )),
+                    });
+                    return Ok(wm.text);
+                }
+                _ => {} // fall through to the legacy path
+            }
         }
 
         let context =

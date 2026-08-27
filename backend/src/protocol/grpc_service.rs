@@ -49,10 +49,53 @@ impl MemoryService for MemoryServiceImpl {
         request: Request<SearchLtmRequest>,
     ) -> Result<Response<SearchLtmResponse>, Status> {
         let tenant_ctx = extract_tenant(&request)?;
+        // #128: gRPC callers identify the recall subject via the `user-id`
+        // metadata key; when present, the same belief recall core every
+        // transport uses appends the Working Memory block (one synthetic,
+        // clearly-labelled result row — the proto has no belief field).
+        let grpc_user = request
+            .metadata()
+            .get("user-id")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         let req = request.into_inner();
         let limit = if req.limit > 0 { req.limit } else { 10 };
 
-        let results = MemorySearchService::search_ltm_for_tenant(
+        // #128: belief recall runs FIRST and never depends on the embedding
+        // backend — a governed, cited Working Memory is the guaranteed surface.
+        // The legacy LTM search is additive and degrades (empty + note) when
+        // its embedding dependency is unavailable, instead of failing the RPC.
+        let mut wm_row: Option<SearchResult> = None;
+        if let Some(user) = grpc_user {
+            let wm = crate::services::recall::core::belief_working_memory(
+                &tenant_ctx.tenant_id,
+                Some(&user),
+                &req.query,
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| Status::internal(format!("belief recall failed: {e}")))?;
+            if let Some(wm) = wm {
+                if !wm.text.is_empty() {
+                    wm_row = Some(SearchResult {
+                        entry_id: "working-memory".to_string(),
+                        source_layer: "belief".to_string(),
+                        score: 1.0,
+                        content: wm.text,
+                        metadata: [
+                            ("asOf".to_string(), wm.as_of.clone()),
+                            ("principalId".to_string(), wm.principal_id.clone()),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    });
+                }
+            }
+        }
+
+        let mut results: Vec<SearchResult> = match MemorySearchService::search_ltm_for_tenant(
             &tenant_ctx.tenant_id,
             &req.query,
             limit as usize,
@@ -60,21 +103,39 @@ impl MemoryService for MemoryServiceImpl {
             None,
         )
         .await
-        .map_err(|e| Status::internal(format!("{e}")))?;
-
-        let results = results
-            .into_iter()
-            .map(|r| SearchResult {
-                entry_id: r.entry_id,
-                source_layer: r.source_layer,
-                score: r.score,
-                content: r.content,
-                metadata: serde_json::from_value::<std::collections::HashMap<String, String>>(
-                    r.metadata,
-                )
-                .unwrap_or_default(),
-            })
-            .collect();
+        {
+            Ok(rows) => rows
+                .into_iter()
+                .map(|r| SearchResult {
+                    entry_id: r.entry_id,
+                    source_layer: r.source_layer,
+                    score: r.score,
+                    content: r.content,
+                    metadata: serde_json::from_value::<std::collections::HashMap<String, String>>(
+                        r.metadata,
+                    )
+                    .unwrap_or_default(),
+                })
+                .collect(),
+            Err(e) => {
+                // Degraded legacy channel: report, keep the RPC alive on the
+                // belief surface when present.
+                let mut note = vec![SearchResult {
+                    entry_id: "legacy-search-degraded".to_string(),
+                    source_layer: "note".to_string(),
+                    score: 0.0,
+                    content: format!("legacy LTM search unavailable: {e}"),
+                    metadata: Default::default(),
+                }];
+                if wm_row.is_none() {
+                    return Err(Status::internal(format!("{e}")));
+                }
+                note
+            }
+        };
+        if let Some(row) = wm_row {
+            results.insert(0, row);
+        }
 
         Ok(Response::new(SearchLtmResponse { results }))
     }

@@ -30,4 +30,6 @@ pub enum RecallSource {
     L1Atom,
     L2Scene,
     L3Persona,
+    /// Governed SPO belief edge from the #127 belief store (#128 recall core).
+    BeliefEdge,
 }
