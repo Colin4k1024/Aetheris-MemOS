@@ -4,6 +4,7 @@ use utoipa::ToSchema;
 
 pub mod agent;
 pub mod agent_equip;
+pub mod belief;
 pub mod distillation;
 pub mod dry_run;
 pub mod evidence;

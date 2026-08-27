@@ -49,14 +49,21 @@ pub enum LayerType {
     Procedural,
 }
 
-/// Semantic memory layer — orthogonal to physical [`LayerType`] (ADR-0010, #88).
+/// Semantic lifecycle layer - orthogonal to the physical [`LayerType`] storage
+/// dimension (ADR-0010 as revised by #125; per-layer lifecycle rules in
+/// ADR-0011 and `models::belief`).
 ///
-/// | Layer | Description                            | Mutability    |
-/// |-------|----------------------------------------|---------------|
-/// | L0    | Raw turn/event, full source             | Immutable     |
-/// | L1    | Updatable facts, preferences, constraints | Bitemporal    |
-/// | L2    | Persona / user profile, with confidence  | Versioned     |
-/// | L3    | Scenario / long-term context, goals      | Snapshot      |
+/// | Layer | Name             | Description                                        | Mutability |
+/// |-------|------------------|----------------------------------------------------|------------|
+/// | L0    | Event            | What happened: raw turns/events, append-only        | Immutable  |
+/// | L1    | Belief           | What is true now: bitemporal, supersede-don't-        | Bitemporal |
+/// |       |                  | overwrite (`models::belief::BeliefStatus`)           |            |
+/// | L2    | Persona-Scenario | Aggregated profile & long-running context, each      | Versioned  |
+/// |       |                  | conclusion evidence-backed with confidence           |            |
+/// | L3    | Procedure        | How to work: skills/playbooks; changes review-gated | Reviewed   |
+///
+/// Working memory is NOT a layer here: it is the runtime assembly view
+/// (recent turns + recalled beliefs + tool drafts) and is never persisted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SemanticLayer {

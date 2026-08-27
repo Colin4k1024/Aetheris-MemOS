@@ -257,34 +257,29 @@ async fn init_sqlite(config: &DbConfig) -> Result<(), DbInitError> {
     let migrations_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations_sqlite");
     info!("Migrations path: {:?}", migrations_path);
 
-    // Check if SQLite migrations exist, otherwise use PostgreSQL migrations
+    // SQLite migrations are a dedicated, SQLite-dialect set (#125). Falling back
+    // to the PostgreSQL migrations here would run PG dialect (JSONB, TIMESTAMPTZ,
+    // CREATE POLICY, RLS) against SQLite and fail mid-way on a half-built schema,
+    // so a missing directory is a hard error instead of a silent cross-dialect
+    // fallback.
     if !migrations_path.exists() {
-        info!("SQLite migrations not found, using PostgreSQL migrations");
-        let pg_migrations_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-        if pg_migrations_path.exists() {
-            let migrator = Migrator::new(pg_migrations_path).await.map_err(|e| {
-                error!("Failed to create migrator: {}", e);
-                DbInitError(format!("Failed to create migrator: {}", e))
-            })?;
-
-            // SQLite uses slightly different syntax, we'll run basic migrations
-            // Note: Some PostgreSQL-specific migrations may need SQLite versions
-            migrator.run(&sqlx_pool).await.map_err(|e| {
-                error!("Migrations failed: {}", e);
-                DbInitError(format!("Failed to run migrations: {}", e))
-            })?;
-        }
-    } else {
-        let migrator = Migrator::new(migrations_path).await.map_err(|e| {
-            error!("Failed to create migrator: {}", e);
-            DbInitError(format!("Failed to create migrator: {}", e))
-        })?;
-
-        migrator.run(&sqlx_pool).await.map_err(|e| {
-            error!("Migrations failed: {}", e);
-            DbInitError(format!("Failed to run migrations: {}", e))
-        })?;
+        return Err(DbInitError(format!(
+            "SQLite migrations directory not found: {}. \
+             The SQLite backend requires its own SQLite-dialect migration set \
+             (see docs/adr/ADR-0010); the PostgreSQL migrations must NOT be \
+             used as a fallback.",
+            migrations_path.display()
+        )));
     }
+    let migrator = Migrator::new(migrations_path).await.map_err(|e| {
+        error!("Failed to create migrator: {}", e);
+        DbInitError(format!("Failed to create migrator: {}", e))
+    })?;
+
+    migrator.run(&sqlx_pool).await.map_err(|e| {
+        error!("Migrations failed: {}", e);
+        DbInitError(format!("Failed to run migrations: {}", e))
+    })?;
     info!("Migrations completed");
 
     DATABASE_POOL
