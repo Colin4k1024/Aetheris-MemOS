@@ -4,6 +4,7 @@ pub mod agent;
 pub mod agent_identity;
 pub mod analyzer;
 pub mod atom_extractor;
+pub mod belief;
 pub mod approval_manager;
 #[allow(dead_code)]
 pub mod audit_writer;

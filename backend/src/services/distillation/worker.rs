@@ -230,7 +230,103 @@ impl DistillationService {
             }
         }
 
+        // #127: the same session also feeds the belief write gate. The
+        // deterministic producer pattern-matches allowlist predicates from the
+        // raw user turns; each claim is then gated (allowlist → source policy →
+        // probe → evidence → precedence) and becomes a belief candidate. This
+        // replaces "the whole turn becomes a long-term fact" with auditable,
+        // supersede-managed SPO edges. Failures degrade to a log line: belief
+        // extraction must never take the distillation job down with it.
+        let _ = Self::produce_belief_candidates(tenant_id, user_id, session_id, &messages).await;
+
         Ok(created_count)
+    }
+
+    /// #127 wiring: derive governed claims from a session's user turns and
+    /// submit them through the belief gate. Requires the subject principal to
+    /// exist; when it does not (pre-#128 deployments), the step is skipped.
+    async fn produce_belief_candidates(
+        tenant_id: &TenantId,
+        user_id: &str,
+        session_id: &str,
+        messages: &[crate::db::stm::SessionMessage],
+    ) -> Result<usize, AppError> {
+        use crate::db::belief::BeliefRepository;
+        use crate::db::memory_event::MemoryEventRepository;
+        use crate::db::principal::PrincipalRepository;
+        use crate::models::belief::BeliefSource;
+        use crate::models::memory_event::AppendMemoryEventRequest;
+        use crate::models::memory_event::MemoryEventType;
+        use crate::models::principal::{PrincipalAliasType, PrincipalKind};
+        use crate::services::belief::BeliefGateService;
+
+        let pool = crate::db::pool();
+        let principals = PrincipalRepository::new(pool.clone());
+        let Some(principal) = principals
+            .find_by_alias(tenant_id, PrincipalAliasType::JwtSub, user_id)
+            .await?
+        else {
+            tracing::debug!(
+                tenant = %tenant_id.as_str(),
+                user_id,
+                "belief extraction skipped: no principal mapped for user yet"
+            );
+            return Ok(0);
+        };
+
+        let events = MemoryEventRepository::new(pool.clone());
+        let gate = BeliefGateService::new(pool.clone());
+        let mut submitted = 0usize;
+
+        for msg in messages {
+            if msg.role != "user" || msg.content.trim().is_empty() {
+                continue;
+            }
+            // Evidence first: the immutable event anchors the claim's provenance.
+            let event = events
+                .append(
+                    tenant_id,
+                    AppendMemoryEventRequest::new(
+                        principal.id.clone(),
+                        MemoryEventType::UserMessage,
+                    )
+                    .session_id(session_id)
+                    .actor(user_id)
+                    .payload(serde_json::json!({ "text": msg.content }))
+                    .idempotency_key(format!("distill:{session_id}:{}", msg.message_id)),
+                )
+                .await?;
+            let event_id = event.id().to_string();
+
+            for mut claim in BeliefGateService::claims_from_message(
+                &principal.id,
+                Some(session_id),
+                &msg.content,
+                BeliefSource::UserStated,
+            ) {
+                claim.evidence_event_ids = vec![event_id.clone()];
+                match gate.submit(tenant_id, claim).await {
+                    Ok(_) => submitted += 1,
+                    Err(e) => {
+                        tracing::warn!(
+                            tenant = %tenant_id.as_str(),
+                            error = %e,
+                            "belief claim rejected by gate infrastructure (kept as candidate)"
+                        );
+                    }
+                }
+            }
+        }
+
+        if submitted > 0 {
+            info!(
+                tenant = %tenant_id.as_str(),
+                session_id,
+                submitted,
+                "belief candidates submitted through write gate"
+            );
+        }
+        Ok(submitted)
     }
 
     async fn process_l1_to_l2(
@@ -243,13 +339,9 @@ impl DistillationService {
         // LLM. The compute (prompt + response parse) is reused from the SQLite
         // path's l2_consolidator — it is backend-agnostic; only the atom/scene
         // types differ, and we adapt them here to the PG L1Atom/L2Scene.
-        let atoms = DistillationRepository::get_atoms_for_scene(
-            tenant_id,
-            user_id,
-            agent_id,
-            scene_name,
-        )
-        .await?;
+        let atoms =
+            DistillationRepository::get_atoms_for_scene(tenant_id, user_id, agent_id, scene_name)
+                .await?;
         if atoms.is_empty() {
             info!("L1->L2: no atoms for scene {}, skipping", scene_name);
             return Ok(0);

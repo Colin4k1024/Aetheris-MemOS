@@ -27,6 +27,7 @@ pub mod agent_equip;
 pub mod skill;
 #[allow(dead_code)]
 pub mod audit;
+pub mod belief;
 #[allow(dead_code)]
 pub mod config_archetypes;
 pub mod decision_trace;
