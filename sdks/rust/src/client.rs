@@ -121,6 +121,69 @@ impl Client {
             .await
     }
 
+    // === Memory Governance (#130) ===
+    //
+    // Thin wrappers over /api/v1/governance — request/response shapes are the
+    // server's serde types (documented in the OpenAPI spec at /api-doc/openapi.json).
+
+    /// List beliefs. Non-admin callers are pinned server-side to their own subject.
+    pub async fn governance_list_beliefs(
+        &self,
+        subject: Option<&str>,
+        predicate: Option<&str>,
+        include_history: bool,
+    ) -> Result<serde_json::Value, Error> {
+        let query: Vec<(&str, String)> = [
+            subject.map(|s| ("subject", s.to_string())),
+            predicate.map(|p| ("predicate", p.to_string())),
+            include_history.then(|| ("include_history", "true".to_string())),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        Self::send_and_parse(self.build_request(
+            reqwest::Method::GET,
+            "v1/governance/beliefs",
+            None::<&()>,
+            Some(&query),
+        ))
+        .await
+    }
+
+    /// Full traceability for one belief: edge + provenance evidence + audit chain.
+    pub async fn governance_belief_trace(&self, belief_id: &str) -> Result<serde_json::Value, Error> {
+        Self::send_and_parse(self.build_request::<serde_json::Value, &()>(
+            reqwest::Method::GET,
+            &format!("v1/governance/beliefs/{belief_id}/trace"),
+            None,
+            None,
+        ))
+        .await
+    }
+
+    /// Roll the current edge back to its predecessor.
+    pub async fn governance_rollback(&self, belief_id: &str) -> Result<serde_json::Value, Error> {
+        Self::send_and_parse(self.build_request::<serde_json::Value, &()>(
+            reqwest::Method::POST,
+            &format!("v1/governance/beliefs/{belief_id}/rollback"),
+            None,
+            None,
+        ))
+        .await
+    }
+
+    /// The confirmation / quarantine queues (admin-only).
+    pub async fn governance_candidates(&self, status: &str) -> Result<serde_json::Value, Error> {
+        let query = vec![("status", status.to_string())];
+        Self::send_and_parse(self.build_request(
+            reqwest::Method::GET,
+            "v1/governance/candidates",
+            None::<&()>,
+            Some(&query),
+        ))
+        .await
+    }
+
     // === Search ===
 
     /// Search in LTM

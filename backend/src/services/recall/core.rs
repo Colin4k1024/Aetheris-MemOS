@@ -316,6 +316,7 @@ impl RecallCoreService {
             hard_filtered_out,
         );
         tx.commit().await.ok();
+        crate::services::prometheus_exporter::get_exporter().inc_recall_request(wm.items.len());
         Ok(wm)
     }
 
