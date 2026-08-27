@@ -121,11 +121,7 @@ pub struct MemoryPipeline {
 
 impl MemoryPipeline {
     /// Create a new pipeline for a specific session.
-    pub fn new(
-        tenant_id: TenantId,
-        session_id: String,
-        options: PipelineOptions,
-    ) -> Self {
+    pub fn new(tenant_id: TenantId, session_id: String, options: PipelineOptions) -> Self {
         let run_id = format!("run-{}", ulid::Ulid::new());
         let run = PipelineRun {
             run_id: run_id.clone(),
@@ -174,9 +170,58 @@ impl MemoryPipeline {
         let stm_ok = stm_result.is_ok();
         self.run.phases.push(PhaseResult {
             phase: "stm_record".to_string(),
-            status: if stm_ok { PhaseStatus::Success } else { PhaseStatus::Failed },
+            status: if stm_ok {
+                PhaseStatus::Success
+            } else {
+                PhaseStatus::Failed
+            },
             duration_ms: stm_start.elapsed().as_millis() as u64,
             detail: stm_result.as_ref().err().map(|e| e.to_string()),
+        });
+
+        // 1b. #126/#127: mirror the raw user turn into the append-only event
+        // stream. The pipeline has no principal context yet (wiring lands with
+        // the recall work), so the turn lands on the session's anonymous
+        // bucket — the identity layer promotes it at login/merge time. A
+        // failure here degrades (logged) but never blocks the pipeline: the
+        // event log is an evidence substrate, not a hot-path dependency.
+        let ev_start = std::time::Instant::now();
+        let ev_result = async {
+            use crate::db::memory_event::MemoryEventRepository;
+            use crate::db::principal::PrincipalRepository;
+            use crate::models::memory_event::{AppendMemoryEventRequest, MemoryEventType};
+            use crate::models::principal::PrincipalKind;
+
+            let pool = crate::db::pool();
+            let principals = PrincipalRepository::new(pool.clone());
+            let events = MemoryEventRepository::new(pool.clone());
+            let anon = principals
+                .create(&self.tenant_id, PrincipalKind::Anonymous, None)
+                .await?;
+            events
+                .append(
+                    &self.tenant_id,
+                    AppendMemoryEventRequest::new(anon.id, MemoryEventType::UserMessage)
+                        .session_id(self.session_id.clone())
+                        .actor("pipeline")
+                        .payload(serde_json::json!({ "text": user_message }))
+                        .idempotency_key(format!(
+                            "pipeline:{}:{}",
+                            self.run.run_id, self.run.turn_index
+                        )),
+                )
+                .await
+                .map(|_| ())
+        }
+        .await;
+        self.run.phases.push(PhaseResult {
+            phase: "event_stream".to_string(),
+            status: match &ev_result {
+                Ok(()) => PhaseStatus::Success,
+                Err(_) => PhaseStatus::Degraded,
+            },
+            duration_ms: ev_start.elapsed().as_millis() as u64,
+            detail: ev_result.as_ref().err().map(|e| e.to_string()),
         });
 
         // 2. Store in LTM
@@ -193,7 +238,11 @@ impl MemoryPipeline {
             let ltm_ok = ltm_result.is_ok();
             self.run.phases.push(PhaseResult {
                 phase: "ltm_store".to_string(),
-                status: if ltm_ok { PhaseStatus::Success } else { PhaseStatus::Degraded },
+                status: if ltm_ok {
+                    PhaseStatus::Success
+                } else {
+                    PhaseStatus::Degraded
+                },
                 duration_ms: ltm_start.elapsed().as_millis() as u64,
                 detail: ltm_result.as_ref().err().map(|e| e.to_string()),
             });
@@ -222,7 +271,11 @@ impl MemoryPipeline {
 
         self.run.phases.push(PhaseResult {
             phase: "turn_committed".to_string(),
-            status: if stm_ok { PhaseStatus::Success } else { PhaseStatus::Partial },
+            status: if stm_ok {
+                PhaseStatus::Success
+            } else {
+                PhaseStatus::Partial
+            },
             duration_ms: start.elapsed().as_millis() as u64,
             detail: None,
         });
@@ -255,40 +308,35 @@ impl MemoryPipeline {
             return Ok(String::new());
         }
 
-        let context = match MemorySearchService::search_ltm_for_tenant(
-            &self.tenant_id,
-            query,
-            5,
-            None,
-            None,
-        )
-        .await
-        {
-            Ok(results) => {
-                let mut ctx = String::new();
-                for r in results.iter().take(3) {
-                    let snippet = if r.content.len() > self.options.context_budget / 3 {
-                        format!("{}...", &r.content[..self.options.context_budget / 3])
-                    } else {
-                        r.content.clone()
-                    };
-                    ctx.push_str(&format!("- {}\n", snippet));
+        let context =
+            match MemorySearchService::search_ltm_for_tenant(&self.tenant_id, query, 5, None, None)
+                .await
+            {
+                Ok(results) => {
+                    let mut ctx = String::new();
+                    for r in results.iter().take(3) {
+                        let snippet = if r.content.len() > self.options.context_budget / 3 {
+                            format!("{}...", &r.content[..self.options.context_budget / 3])
+                        } else {
+                            r.content.clone()
+                        };
+                        ctx.push_str(&format!("- {}\n", snippet));
+                    }
+                    if ctx.len() > self.options.context_budget {
+                        ctx.truncate(self.options.context_budget);
+                    }
+                    ctx
                 }
-                if ctx.len() > self.options.context_budget {
-                    ctx.truncate(self.options.context_budget);
+                Err(e) => {
+                    self.run.phases.push(PhaseResult {
+                        phase: "context_injection".to_string(),
+                        status: PhaseStatus::Degraded,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                        detail: Some(format!("search failed: {e}")),
+                    });
+                    return Ok(String::new());
                 }
-                ctx
-            }
-            Err(e) => {
-                self.run.phases.push(PhaseResult {
-                    phase: "context_injection".to_string(),
-                    status: PhaseStatus::Degraded,
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    detail: Some(format!("search failed: {e}")),
-                });
-                return Ok(String::new());
-            }
-        };
+            };
 
         self.run.phases.push(PhaseResult {
             phase: "context_injection".to_string(),
@@ -333,9 +381,19 @@ impl MemoryPipeline {
     /// Finalize the pipeline run and return the completed run record.
     pub fn finalize(&mut self) -> &PipelineRun {
         self.run.completed_at = Some(chrono::Utc::now().to_rfc3339());
-        self.run.status = if self.run.phases.iter().any(|p| p.status == PhaseStatus::Failed) {
+        self.run.status = if self
+            .run
+            .phases
+            .iter()
+            .any(|p| p.status == PhaseStatus::Failed)
+        {
             PipelineStatus::Failed
-        } else if self.run.phases.iter().any(|p| p.status == PhaseStatus::Partial) {
+        } else if self
+            .run
+            .phases
+            .iter()
+            .any(|p| p.status == PhaseStatus::Partial)
+        {
             PipelineStatus::Partial
         } else {
             PipelineStatus::Completed
@@ -356,11 +414,8 @@ mod tests {
     #[test]
     fn pipeline_creates_run_with_correct_id() {
         let tenant = TenantId::from_string("test");
-        let pipeline = MemoryPipeline::new(
-            tenant,
-            "sess-1".to_string(),
-            PipelineOptions::default(),
-        );
+        let pipeline =
+            MemoryPipeline::new(tenant, "sess-1".to_string(), PipelineOptions::default());
         let run = pipeline.run();
         assert!(run.run_id.starts_with("run-"));
         assert_eq!(run.tenant_id, "test");
@@ -411,8 +466,18 @@ mod tests {
             started_at: "now".to_string(),
             completed_at: None,
             phases: vec![
-                PhaseResult { phase: "a".to_string(), status: PhaseStatus::Success, duration_ms: 1, detail: None },
-                PhaseResult { phase: "b".to_string(), status: PhaseStatus::Success, duration_ms: 1, detail: None },
+                PhaseResult {
+                    phase: "a".to_string(),
+                    status: PhaseStatus::Success,
+                    duration_ms: 1,
+                    detail: None,
+                },
+                PhaseResult {
+                    phase: "b".to_string(),
+                    status: PhaseStatus::Success,
+                    duration_ms: 1,
+                    detail: None,
+                },
             ],
             status: PipelineStatus::Running,
         };

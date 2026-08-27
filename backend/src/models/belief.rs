@@ -376,6 +376,17 @@ pub enum RiskTier {
 }
 
 impl RiskTier {
+    /// Canonical string persisted to the DB.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RiskTier::Low => "low",
+            RiskTier::Medium => "medium",
+            RiskTier::High => "high",
+        }
+    }
+}
+
+impl RiskTier {
     /// Whether a claim of this risk class from `source` must stop in
     /// `needs_confirm` for a human before becoming `active`.
     ///
