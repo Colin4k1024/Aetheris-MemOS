@@ -21,6 +21,7 @@ mod knowledge_graph;
 mod mcp;
 #[allow(dead_code)]
 mod memory;
+pub mod memory_governance;
 mod memory_pool;
 mod memory_search;
 mod memory_storage;
@@ -30,11 +31,11 @@ mod metrics;
 mod multi_tenant_router;
 #[allow(dead_code)]
 mod multimodal;
-mod openapi;
+pub mod openapi;
 #[allow(dead_code)]
 mod planner;
-mod proxy;
 mod procedural;
+mod proxy;
 pub mod recall;
 mod security;
 mod skill;
@@ -341,7 +342,10 @@ pub fn root() -> Router {
         .nest("/v1", agent_routes)
         .nest("/v1/workflows", workflow_evidence_routes)
         .nest("/v1/memory", memory_routes)
-        .route("/v1/ws", get(crate::protocol::websocket::ws_upgrade_handler))
+        .route(
+            "/v1/ws",
+            get(crate::protocol::websocket::ws_upgrade_handler),
+        )
         .nest(
             "/kg",
             Router::new()
@@ -435,6 +439,7 @@ pub fn root() -> Router {
         .nest("/v1/benchmark", benchmark::router())
         // Recall — distilled-memory recall over the PG distillation path (#84)
         .nest("/v1/recall", recall::router())
+        .nest("/v1/governance", memory_governance::router())
         // Distillation pipeline routes
         .nest(
             "/v1/distillation",

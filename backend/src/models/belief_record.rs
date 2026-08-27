@@ -28,7 +28,7 @@ pub struct PredicatePolicyRow {
 
 /// A current or historical SPO edge: "subject P object", valid during
 /// `[valid_from, valid_to)`, as believed by the system since `recorded_at`.
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryBelief {
     pub id: String,
     pub tenant_id: String,
@@ -73,7 +73,7 @@ impl MemoryBelief {
 }
 
 /// A pre-commit proposition awaiting/holding the gate's verdict.
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryBeliefCandidate {
     pub id: String,
     pub tenant_id: String,
@@ -97,7 +97,7 @@ pub struct MemoryBeliefCandidate {
 
 /// Provenance binding a committed belief or a parked candidate back to the
 /// immutable event stream.
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryBeliefEvidence {
     pub id: String,
     pub tenant_id: String,
@@ -107,6 +107,22 @@ pub struct MemoryBeliefEvidence {
     pub kind: String,
     pub content_hash: String,
     pub created_at: String,
+}
+
+/// One `memory_audit_events` row as shown on the governance trace surface
+/// (#130). Local FromRow shape — `db::audit::AuditEvent` is the write-side
+/// builder and deliberately has no row-mapping derives.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AuditTraceRow {
+    pub event_id: String,
+    pub tenant_id: Option<String>,
+    pub actor_id: Option<String>,
+    pub event_type: String,
+    pub resource_type: String,
+    pub resource_id: Option<String>,
+    pub correlation_id: Option<String>,
+    pub metadata_json: String,
+    pub created_at: Option<String>,
 }
 
 // ============================================================================

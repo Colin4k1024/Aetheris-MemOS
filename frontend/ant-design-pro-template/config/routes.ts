@@ -61,6 +61,12 @@ export default [
     component: './MemoryDetails',
   },
   {
+    path: '/memory-governance',
+    name: 'memory-governance',
+    icon: 'safetyCertificate',
+    component: './MemoryGovernance',
+  },
+  {
     path: '/memory-config',
     name: 'memory-config',
     icon: 'setting',

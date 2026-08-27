@@ -337,6 +337,286 @@ impl BeliefRepository {
         Ok(rows)
     }
 
+    // ── Governance face (#130) ─────────────────────────────────────────────── //
+
+    /// Belief listing for the governance surface. `include_history=false`
+    /// returns only open edges; true returns the full version history.
+    pub async fn list_beliefs(
+        &self,
+        tenant_id: &TenantId,
+        subject: Option<&str>,
+        predicate: Option<&str>,
+        include_history: bool,
+        limit: i64,
+    ) -> Result<Vec<MemoryBelief>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows = sqlx::query_as::<_, MemoryBelief>(&format!(
+            r#"
+            SELECT {BELIEF_COLS}
+            FROM memory_beliefs
+            WHERE tenant_id = $1
+              AND ($2::text IS NULL OR subject = $2)
+              AND ($3::text IS NULL OR predicate = $3)
+              AND ($4 OR (valid_to IS NULL AND status IN ('active', 'needs_confirm')))
+            ORDER BY subject, predicate, valid_from DESC
+            LIMIT $5
+            "#,
+        ))
+        .bind(tenant_id.as_str())
+        .bind(subject)
+        .bind(predicate)
+        .bind(include_history)
+        .bind(limit.clamp(1, 1000))
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("governance list failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows)
+    }
+
+    /// The full traceability surface for one belief: the edge, its evidence
+    /// citations, and its audit chain — the "#124 acceptance 5" answer to
+    /// "从错误行为定位到 belief、event、provenance".
+    pub async fn belief_trace(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+    ) -> Result<
+        Option<(
+            MemoryBelief,
+            Vec<crate::models::belief_record::MemoryBeliefEvidence>,
+            Vec<crate::models::belief_record::AuditTraceRow>,
+        )>,
+        AppError,
+    > {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let Some(belief) = sqlx::query_as::<_, MemoryBelief>(&format!(
+            "SELECT {BELIEF_COLS} FROM memory_beliefs WHERE tenant_id = $1 AND id = $2"
+        ))
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("trace: belief load failed: {e}")))?
+        else {
+            tx.commit().await.ok();
+            return Ok(None);
+        };
+
+        let evidence = sqlx::query_as::<_, crate::models::belief_record::MemoryBeliefEvidence>(
+            "SELECT id, tenant_id, belief_id, candidate_id, event_id, kind, content_hash, \
+             created_at::text AS created_at FROM memory_belief_evidence \
+             WHERE tenant_id = $1 AND belief_id = $2 ORDER BY created_at, id",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("trace: evidence load failed: {e}")))?;
+
+        // Audit rows reference the belief via correlation_id (gate writes) or
+        // resource_id (direct belief ops).
+        let audit: Vec<crate::models::belief_record::AuditTraceRow> = sqlx::query_as(
+            "SELECT event_id, tenant_id, actor_id, event_type, resource_type, resource_id, \
+             correlation_id, metadata_json, created_at::text AS created_at \
+             FROM memory_audit_events \
+             WHERE tenant_id = $1 AND (correlation_id = $2 OR resource_id = $2) \
+             ORDER BY created_at, event_id LIMIT 200",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("trace: audit load failed: {e}")))?;
+
+        tx.commit().await.ok();
+        Ok(Some((belief, evidence, audit)))
+    }
+
+    /// Deny a pending-confirmation belief: closed and rejected (terminal),
+    /// with audit. Idempotent for already-terminal edges.
+    pub async fn deny_belief(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+        actor: Option<&str>,
+    ) -> Result<bool, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            "UPDATE memory_beliefs SET status = 'rejected', valid_to = NOW(), \
+             needs_confirm = FALSE, updated_at = NOW() \
+             WHERE tenant_id = $1 AND id = $2 AND status IN ('needs_confirm', 'active')",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("deny failed: {e}")))?;
+        let changed = updated.rows_affected() > 0;
+        if changed {
+            let audit = AuditEvent::new("belief.denied", "memory_belief")
+                .tenant(tenant_id.as_str())
+                .actor(actor.unwrap_or("unknown"))
+                .resource_id(belief_id);
+            crate::db::audit::insert_tx(&mut tx, &audit).await?;
+        }
+        tx.commit().await.ok();
+        Ok(changed)
+    }
+
+    /// Archive one belief (soft retirement from the current set).
+    pub async fn archive_belief(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+        actor: Option<&str>,
+    ) -> Result<bool, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            "UPDATE memory_beliefs SET status = 'archived', valid_to = NOW(), \
+             updated_at = NOW() WHERE tenant_id = $1 AND id = $2 \
+             AND status IN ('active', 'needs_confirm', 'stale') AND valid_to IS NULL",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("archive failed: {e}")))?;
+        let changed = updated.rows_affected() > 0;
+        if changed {
+            let audit = AuditEvent::new("belief.archived", "memory_belief")
+                .tenant(tenant_id.as_str())
+                .actor(actor.unwrap_or("unknown"))
+                .resource_id(belief_id);
+            crate::db::audit::insert_tx(&mut tx, &audit).await?;
+        }
+        tx.commit().await.ok();
+        Ok(changed)
+    }
+
+    /// #124 rollback: close the CURRENT edge and re-activate its direct
+    /// predecessor — the "belief graph can be rolled back to a known-good
+    /// snapshot" capability. Returns (closed_id, restored_id).
+    pub async fn rollback_belief(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+        actor: Option<&str>,
+    ) -> Result<(String, String), AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let current = sqlx::query_as::<_, MemoryBelief>(&format!(
+            "SELECT {BELIEF_COLS} FROM memory_beliefs WHERE tenant_id = $1 AND id = $2 FOR UPDATE"
+        ))
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("rollback: load failed: {e}")))?
+        .ok_or_else(|| AppError::NotFound(format!("belief '{belief_id}' not found")))?;
+
+        let Some(predecessor_id) = current.supersedes_id.clone() else {
+            return Err(AppError::BadRequest(format!(
+                "belief '{belief_id}' has no predecessor to roll back to"
+            )));
+        };
+        let predecessor = sqlx::query_as::<_, MemoryBelief>(&format!(
+            "SELECT {BELIEF_COLS} FROM memory_beliefs WHERE tenant_id = $1 AND id = $2 FOR UPDATE"
+        ))
+        .bind(tenant_id.as_str())
+        .bind(&predecessor_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("rollback: predecessor load failed: {e}")))?
+        .ok_or_else(|| {
+            AppError::Internal(format!("rollback predecessor '{predecessor_id}' vanished"))
+        })?;
+
+        // Close the current edge as superseded-with-no-successor, reopen the
+        // predecessor as the current truth. History keeps every version.
+        sqlx::query(
+            "UPDATE memory_beliefs SET status = 'superseded', valid_to = NOW(), \
+             superseded_by_id = NULL, updated_at = NOW() \
+             WHERE tenant_id = $1 AND id = $2 AND valid_to IS NULL",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("rollback: close failed: {e}")))?;
+        sqlx::query(
+            "UPDATE memory_beliefs SET status = 'active', valid_to = NULL, \
+             superseded_by_id = NULL, needs_confirm = FALSE, last_confirmed_at = NOW(), \
+             updated_at = NOW() WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(tenant_id.as_str())
+        .bind(&predecessor_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("rollback: restore failed: {e}")))?;
+
+        let audit = AuditEvent::new("belief.rolled_back", "memory_belief")
+            .tenant(tenant_id.as_str())
+            .actor(actor.unwrap_or("unknown"))
+            .resource_id(belief_id)
+            .correlation_id(&predecessor_id)
+            .with_metadata(&serde_json::json!({
+                "closed_belief": belief_id,
+                "restored_belief": predecessor_id,
+                "restored_object": predecessor.object,
+            }));
+        crate::db::audit::insert_tx(&mut tx, &audit).await?;
+        tx.commit().await.ok();
+        Ok((belief_id.to_string(), predecessor_id))
+    }
+
+    /// GDPR forget: archive every open edge for a subject. History rows keep
+    /// their windows closed (audit-friendly), no content is destroyed in place.
+    pub async fn forget_subject(
+        &self,
+        tenant_id: &TenantId,
+        subject: &str,
+        actor: Option<&str>,
+    ) -> Result<u64, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            "UPDATE memory_beliefs SET status = 'archived', valid_to = NOW(), \
+             needs_confirm = FALSE, updated_at = NOW() \
+             WHERE tenant_id = $1 AND subject = $2 \
+             AND status IN ('active', 'needs_confirm', 'stale') AND valid_to IS NULL",
+        )
+        .bind(tenant_id.as_str())
+        .bind(subject)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("forget failed: {e}")))?;
+        let n = updated.rows_affected();
+        if n > 0 {
+            let audit = AuditEvent::new("belief.subject_forgotten", "memory_belief")
+                .tenant(tenant_id.as_str())
+                .actor(actor.unwrap_or("unknown"))
+                .resource_id(subject)
+                .with_metadata(&serde_json::json!({ "archived_edges": n }));
+            crate::db::audit::insert_tx(&mut tx, &audit).await?;
+        }
+        tx.commit().await.ok();
+        Ok(n)
+    }
+
+    /// Current belief volume for the observability gauge.
+    pub async fn active_belief_count(&self, tenant_id: &TenantId) -> Result<i64, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM memory_beliefs \
+             WHERE tenant_id = $1 AND status = 'active' AND valid_to IS NULL",
+        )
+        .bind(tenant_id.as_str())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("belief count failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(n)
+    }
+
     // ── Consolidation read/repair face (#129) ───────────────────────────────── //
     //
     // Every repair is idempotent: guarded UPDATEs (status/window predicates)

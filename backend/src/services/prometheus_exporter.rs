@@ -85,6 +85,9 @@ pub struct PrometheusExporter {
     consolidation_promises_expired_total: prometheus::Counter,
     consolidation_reconciliation_diffs_total: prometheus::Counter,
     consolidation_failures_total: prometheus::Counter,
+    belief_active: prometheus::Gauge,
+    recall_requests_total: prometheus::Counter,
+    recall_items_total: prometheus::Counter,
     /// WebSocket frame send duration histogram (#86) — slow-client / backpressure signal.
     ws_send_duration_seconds: prometheus::Histogram,
     /// WebSocket broadcast channel queue depth (#86) — high values = slow consumer.
@@ -324,6 +327,21 @@ impl PrometheusExporter {
             "Belief consolidation operation failures",
         )
         .expect("counter creation failed");
+        let belief_active = prometheus::Gauge::new(
+            "memory_belief_active",
+            "Current-truth (active, open-window) belief edges (#130 observability)",
+        )
+        .expect("gauge creation failed");
+        let recall_requests_total = prometheus::Counter::new(
+            "recall_requests_total",
+            "Belief recall-core requests served (#130 observability)",
+        )
+        .expect("counter creation failed");
+        let recall_items_total = prometheus::Counter::new(
+            "recall_items_total",
+            "Belief items returned into Working Memory (#130 observability)",
+        )
+        .expect("counter creation failed");
         let ws_lagged_drops_total = prometheus::Counter::new(
             "ws_lagged_drops_total",
             "WebSocket events dropped because the client lagged behind the broadcast",
@@ -453,6 +471,15 @@ impl PrometheusExporter {
             .register(Box::new(consolidation_failures_total.clone()))
             .expect("failed to register consolidation_failures_total");
         registry
+            .register(Box::new(belief_active.clone()))
+            .expect("failed to register memory_belief_active");
+        registry
+            .register(Box::new(recall_requests_total.clone()))
+            .expect("failed to register recall_requests_total");
+        registry
+            .register(Box::new(recall_items_total.clone()))
+            .expect("failed to register recall_items_total");
+        registry
             .register(Box::new(ws_send_duration_seconds.clone()))
             .expect("failed to register ws_send_duration_seconds");
         registry
@@ -494,6 +521,9 @@ impl PrometheusExporter {
             consolidation_promises_expired_total,
             consolidation_reconciliation_diffs_total,
             consolidation_failures_total,
+            belief_active,
+            recall_requests_total,
+            recall_items_total,
             ws_send_duration_seconds,
             ws_broadcast_queue_depth,
             registry,
@@ -603,6 +633,16 @@ impl PrometheusExporter {
 
     pub fn inc_consolidation_reconciliation_diffs(&self) {
         self.consolidation_reconciliation_diffs_total.inc();
+    }
+
+    /// #130 governance/recall observability.
+    pub fn set_belief_active(&self, count: f64) {
+        self.belief_active.set(count);
+    }
+
+    pub fn inc_recall_request(&self, items: usize) {
+        self.recall_requests_total.inc();
+        self.recall_items_total.inc_by(items as f64);
     }
 
     pub fn inc_consolidation_failures(&self) {

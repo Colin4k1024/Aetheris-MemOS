@@ -10,7 +10,9 @@
 
 use utoipa::OpenApi;
 
-use crate::routers::{auth, knowledge_graph, memory, memory_search, memory_storage, multimodal};
+use crate::routers::{
+    auth, knowledge_graph, memory, memory_governance, memory_search, memory_storage, multimodal,
+};
 use crate::services::memory_storage::{QdrantTenantBackfillReport, StoreLtmResult};
 
 #[derive(OpenApi)]
@@ -21,6 +23,19 @@ use crate::services::memory_storage::{QdrantTenantBackfillReport, StoreLtmResult
         description = "Adaptive Memory Management System for AI Agents. Provides multi-layer memory (STM/LTM/KG/MM), hybrid search, memory fusion, and self-healing capabilities."
     ),
     paths(
+        memory_governance::list_beliefs,
+        memory_governance::get_belief,
+        memory_governance::belief_trace,
+        memory_governance::confirm_belief,
+        memory_governance::deny_belief,
+        memory_governance::archive_belief,
+        memory_governance::rollback_belief,
+        memory_governance::forget_subject,
+        memory_governance::list_candidates,
+        memory_governance::principal_aliases,
+        memory_governance::merge_principal,
+        memory_governance::unmerge_principal,
+        memory_governance::governance_stats,
         memory::health_check,
         memory::get_memory_status,
         memory::select_memory_config,
@@ -117,6 +132,11 @@ pub struct ResourceReadParams {
 #[derive(utoipa::ToSchema, serde::Serialize)]
 pub struct ResourceReadResponse {
     pub contents: Vec<serde_json::Value>,
+}
+
+/// The generated spec as a value (test/SDK-contract surface).
+pub async fn openapi_spec() -> utoipa::openapi::OpenApi {
+    ApiDoc::openapi()
 }
 
 pub async fn openapi_json() -> axum::Json<utoipa::openapi::OpenApi> {

@@ -131,6 +131,49 @@ class MemoryClient:
             json={"name": tool_name, "arguments": arguments or {}},
         )
 
+    # === Memory Governance (#130) ===
+
+    def governance_list_beliefs(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        include_history: bool = False,
+    ) -> Dict[str, Any]:
+        """List governed beliefs. Non-admin callers are pinned server-side to
+        their own subject."""
+        params: Dict[str, Any] = {"include_history": include_history}
+        if subject:
+            params["subject"] = subject
+        if predicate:
+            params["predicate"] = predicate
+        return self._request("GET", "api/v1/governance/beliefs", params=params)
+
+    def governance_belief_trace(self, belief_id: str) -> Dict[str, Any]:
+        """Full traceability: belief + provenance evidence + audit chain."""
+        return self._request("GET", f"api/v1/governance/beliefs/{belief_id}/trace")
+
+    def governance_confirm_belief(self, belief_id: str) -> Dict[str, Any]:
+        """Confirm a pending high-risk belief (admin)."""
+        return self._request("POST", f"api/v1/governance/beliefs/{belief_id}/confirm")
+
+    def governance_deny_belief(self, belief_id: str) -> Dict[str, Any]:
+        """Deny a pending belief (admin)."""
+        return self._request("POST", f"api/v1/governance/beliefs/{belief_id}/deny")
+
+    def governance_rollback_belief(self, belief_id: str) -> Dict[str, Any]:
+        """Roll the current edge back to its predecessor (admin)."""
+        return self._request("POST", f"api/v1/governance/beliefs/{belief_id}/rollback")
+
+    def governance_candidates(self, status: str = "pending") -> Dict[str, Any]:
+        """List the confirmation / quarantine queues (admin)."""
+        return self._request(
+            "GET", "api/v1/governance/candidates", params={"status": status}
+        )
+
+    def governance_stats(self) -> Dict[str, Any]:
+        """Belief volume + queue depths for the governance dashboard."""
+        return self._request("GET", "api/v1/governance/stats")
+
     # === Agent Memory Contract ===
 
     def remember(
