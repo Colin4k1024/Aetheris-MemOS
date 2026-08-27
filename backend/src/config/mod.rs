@@ -276,6 +276,8 @@ pub struct ServerConfig {
     #[serde(default)]
     pub skills: SkillsConfig,
     #[serde(default)]
+    pub consolidation_worker: ConsolidationWorkerConfig,
+    #[serde(default)]
     pub reconciliation: ReconciliationConfig,
     /// Trusted reverse-proxy IPs whose `X-Forwarded-For` header is honoured by
     /// the rate limiter. Empty (the default) → XFF is never trusted and the
@@ -474,6 +476,37 @@ fn default_otel_service_name() -> String {
     "aetheris-memos-backend".into()
 }
 
+/// #129 belief-consolidation worker knobs.
+#[derive(Deserialize, Clone, Debug)]
+pub struct ConsolidationWorkerConfig {
+    #[serde(default = "default_consolidation_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_consolidation_interval")]
+    pub interval_seconds: u64,
+    #[serde(default = "default_consolidation_batch")]
+    pub per_tenant_batch: i64,
+}
+
+impl Default for ConsolidationWorkerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_seconds: 3600,
+            per_tenant_batch: 100,
+        }
+    }
+}
+
+fn default_consolidation_enabled() -> bool {
+    true
+}
+fn default_consolidation_interval() -> u64 {
+    3600
+}
+fn default_consolidation_batch() -> i64 {
+    100
+}
+
 #[cfg(test)]
 mod tests {
     use super::{check_jwt_secret, validate_embedding_config, EmbeddingConfig};
@@ -546,7 +579,9 @@ mod tests {
 
     #[test]
     fn rejects_known_placeholder_secrets_when_enabled() {
-        assert!(check_jwt_secret(false, "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET").is_err());
+        assert!(
+            check_jwt_secret(false, "REPLACE_WITH_STRONG_SECRET_OR_USE_APP_JWT_SECRET").is_err()
+        );
         assert!(check_jwt_secret(false, "change-me-in-production-32chars").is_err());
         assert!(check_jwt_secret(false, "  secret  ").is_err());
     }
@@ -558,7 +593,9 @@ mod tests {
 
     #[test]
     fn accepts_strong_secret_when_enabled() {
-        assert!(check_jwt_secret(false, "b8f2c1a9e7d4463fa0c5182b6e93d7a41f0c2e5b8a9d6c3f").is_ok());
+        assert!(
+            check_jwt_secret(false, "b8f2c1a9e7d4463fa0c5182b6e93d7a41f0c2e5b8a9d6c3f").is_ok()
+        );
     }
 
     #[test]

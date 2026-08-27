@@ -174,6 +174,12 @@ async fn main() {
         tracing::warn!("Distillation worker failed to start (non-critical): {e}");
     }
 
+    // #129: belief consolidation loop (stale/expiry/decay scans + SoR
+    // reconcile). Same non-critical posture as distillation.
+    if let Err(e) = crate::services::consolidation::init_consolidation_worker().await {
+        tracing::warn!("Consolidation worker failed to start (non-critical): {e}");
+    }
+
     let app = axum_routers::create_router().layer(hoops::cors_hoop());
     tracing::info!("🔄 Listening on {}", &config.listen_addr);
 

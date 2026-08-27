@@ -36,7 +36,16 @@ pub const AUDIT_BELIEF_NOOP: &str = "belief.noop";
 const BELIEF_COLS: &str = "id, tenant_id, principal_id, subject, predicate, object, status, \
      source, trust, risk, valid_from::text AS valid_from, valid_to::text AS valid_to, \
      recorded_at::text AS recorded_at, supersedes_id, superseded_by_id, needs_confirm, \
-     metadata_json::text AS metadata_json";
+     metadata_json::text AS metadata_json, single_valued, \
+     last_confirmed_at::text AS last_confirmed_at";
+
+/// Same columns as [`BELIEF_COLS`], qualified for queries that JOIN the
+/// policies table (its `risk` column would otherwise be ambiguous).
+const BELIEF_COLS_B: &str = "b.id, b.tenant_id, b.principal_id, b.subject, b.predicate, b.object, \
+     b.status, b.source, b.trust, b.risk, b.valid_from::text AS valid_from, \
+     b.valid_to::text AS valid_to, b.recorded_at::text AS recorded_at, b.supersedes_id, \
+     b.superseded_by_id, b.needs_confirm, b.metadata_json::text AS metadata_json, \
+     b.single_valued, b.last_confirmed_at::text AS last_confirmed_at";
 
 const CANDIDATE_COLS: &str =
     "id, tenant_id, principal_id, session_id, subject, predicate, object, \
@@ -176,16 +185,20 @@ impl BeliefRepository {
         predicate: &str,
     ) -> Result<Option<MemoryBelief>, AppError> {
         let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
-        let row = Self::open_edge_in(&mut tx, tenant_id, subject, predicate).await?;
+        let row = Self::open_edge_in(&mut tx, tenant_id, subject, predicate, None).await?;
         tx.commit().await.ok();
         Ok(row)
     }
 
+    /// `object_filter`: for SINGLE-valued predicates pass None (the one open
+    /// slot); for MULTI-valued predicates pass the claim's object so the
+    /// comparison targets the matching edge — distinct objects coexist.
     async fn open_edge_in(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         tenant_id: &TenantId,
         subject: &str,
         predicate: &str,
+        object_filter: Option<&str>,
     ) -> Result<Option<MemoryBelief>, AppError> {
         sqlx::query_as::<_, MemoryBelief>(&format!(
             r#"
@@ -194,6 +207,7 @@ impl BeliefRepository {
             WHERE tenant_id = $1 AND subject = $2 AND predicate = $3
               AND valid_to IS NULL
               AND status IN ('active', 'needs_confirm')
+              AND ($4::text IS NULL OR object = $4)
             ORDER BY valid_from DESC
             LIMIT 1
             FOR UPDATE
@@ -202,6 +216,7 @@ impl BeliefRepository {
         .bind(tenant_id.as_str())
         .bind(subject)
         .bind(predicate)
+        .bind(object_filter)
         .fetch_optional(&mut **tx)
         .await
         .map_err(|e| AppError::Internal(format!("open_edge failed: {e}")))
@@ -322,6 +337,453 @@ impl BeliefRepository {
         Ok(rows)
     }
 
+    // ── Consolidation read/repair face (#129) ───────────────────────────────── //
+    //
+    // Every repair is idempotent: guarded UPDATEs (status/window predicates)
+    // plus candidate rows keyed by a deterministic idempotency key, so a
+    // crashed-and-retried consolidation run leaves the same state as one clean
+    // run — never a second supersede chain link.
+
+    /// Single-valued (subject, predicate) pairs holding MORE than one open
+    /// edge — impossible under the exclusion constraint unless it was bypassed
+    /// (admin surgery, restore from backup); the scan is defense-in-depth.
+    /// Only groups with at least one ACTIVE edge are reported (a settled
+    /// all-needs_confirm group is already parked for a human).
+    pub async fn multi_active_groups(
+        &self,
+        tenant_id: &TenantId,
+        limit: i64,
+    ) -> Result<Vec<(String, String, i64)>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(
+            r#"
+            SELECT subject, predicate, COUNT(*) AS n
+            FROM memory_beliefs
+            WHERE tenant_id = $1
+              AND single_valued
+              AND valid_to IS NULL
+              AND status IN ('active', 'needs_confirm')
+            GROUP BY subject, predicate
+            HAVING COUNT(*) > 1
+               AND COUNT(*) FILTER (WHERE status = 'active') > 0
+            ORDER BY subject, predicate
+            LIMIT $2
+            "#,
+        )
+        .bind(tenant_id.as_str())
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("multi_active scan failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows)
+    }
+
+    /// Repair one multi-active group: keep the newest open edge as the slot
+    /// owner, close the rest as superseded pointing at it. If a closed edge's
+    /// source was STRICTLY stronger than the winner's, the winner parks in
+    /// needs_confirm — the conflict/confirm flow #129 prescribes.
+    pub async fn repair_multi_active_group(
+        &self,
+        tenant_id: &TenantId,
+        subject: &str,
+        predicate: &str,
+    ) -> Result<(String, usize, bool), AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let edges: Vec<MemoryBelief> = sqlx::query_as::<_, MemoryBelief>(&format!(
+            r#"
+            SELECT {BELIEF_COLS}
+            FROM memory_beliefs
+            WHERE tenant_id = $1 AND subject = $2 AND predicate = $3
+              AND valid_to IS NULL AND status IN ('active', 'needs_confirm')
+            ORDER BY valid_from DESC, id
+            FOR UPDATE
+            "#
+        ))
+        .bind(tenant_id.as_str())
+        .bind(subject)
+        .bind(predicate)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("multi_active fetch failed: {e}")))?;
+        if edges.len() < 2 {
+            tx.commit().await.ok();
+            return Ok((String::new(), 0, false));
+        }
+
+        let winner = &edges[0];
+        let winner_rank = BeliefSource::parse(&winner.source)
+            .map(|s| s.precedence_rank())
+            .unwrap_or(u8::MAX);
+        let mut parked = false;
+        let mut closed = 0usize;
+        for loser in &edges[1..] {
+            let loser_rank = BeliefSource::parse(&loser.source)
+                .map(|s| s.precedence_rank())
+                .unwrap_or(u8::MAX);
+            sqlx::query(
+                "UPDATE memory_beliefs SET valid_to = NOW(), status = 'superseded', \
+                 superseded_by_id = $1, updated_at = NOW() WHERE id = $2 AND valid_to IS NULL",
+            )
+            .bind(&winner.id)
+            .bind(&loser.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::Internal(format!("multi_active close failed: {e}")))?;
+            closed += 1;
+            if loser_rank < winner_rank {
+                parked = true; // a strictly stronger source lost the slot race
+            }
+        }
+        if parked {
+            sqlx::query(
+                "UPDATE memory_beliefs SET status = 'needs_confirm', needs_confirm = TRUE, \
+                 updated_at = NOW() WHERE id = $1 AND status = 'active'",
+            )
+            .bind(&winner.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::Internal(format!("multi_active park failed: {e}")))?;
+        }
+
+        // Idempotent audit trail: one candidate per repair action.
+        sqlx::query(
+            r#"
+            INSERT INTO memory_belief_candidates
+                (id, tenant_id, principal_id, subject, predicate, object, source, trust,
+                 origin, decision, status, rejection_reason, payload_json, idempotency_key, resolved_at)
+            VALUES ($1,$2,$3,$4,$5,'(multi-active repair)',$6,0,'manual','conflict','pending',
+                    'consolidation: multiple open single-valued edges repaired',
+                    $7::jsonb, $8, NOW())
+            ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+            DO NOTHING
+            "#,
+        )
+        .bind(Ulid::new().to_string())
+        .bind(tenant_id.as_str())
+        .bind(&winner.principal_id)
+        .bind(subject)
+        .bind(predicate)
+        .bind(&winner.source)
+        .bind(serde_json::to_string(&serde_json::json!({
+            "winner": winner.id, "closed": closed, "parked": parked,
+        })).unwrap())
+        .bind(format!("consolidation|multi_active|{subject}|{predicate}"))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("multi_active candidate failed: {e}")))?;
+
+        let audit = AuditEvent::new(AUDIT_BELIEF_CONFLICT, "memory_belief")
+            .tenant(tenant_id.as_str())
+            .resource_id(&winner.id)
+            .with_metadata(&serde_json::json!({ "subject": subject, "predicate": predicate, "closed": closed }));
+        crate::db::audit::insert_tx(&mut tx, &audit).await?;
+
+        tx.commit().await.ok();
+        Ok((winner.id.clone(), closed, parked))
+    }
+
+    /// Active open edges past their reconfirmation window (stale_scan
+    /// policies). SoR-sourced edges never age ("权威系统更新时失效，不靠时间").
+    pub async fn stale_candidates(
+        &self,
+        tenant_id: &TenantId,
+        limit: i64,
+    ) -> Result<Vec<MemoryBelief>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows = sqlx::query_as::<_, MemoryBelief>(&format!(
+            r#"
+            SELECT {BELIEF_COLS_B}
+            FROM memory_beliefs b
+            JOIN memory_predicate_policies p ON p.name = b.predicate
+            WHERE b.tenant_id = $1
+              AND b.status = 'active' AND b.valid_to IS NULL
+              AND b.source <> 'system_of_record'
+              AND p.ttl_policy = 'stale_scan'
+              AND b.last_confirmed_at < NOW() - (p.reconfirm_days * INTERVAL '1 day')
+            ORDER BY b.last_confirmed_at ASC
+            LIMIT $2
+            "#,
+        ))
+        .bind(tenant_id.as_str())
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("stale scan failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows)
+    }
+
+    /// Mark one edge stale (guarded: only from active — replay-safe).
+    /// High-engagement stale edges (feedback count >= threshold) go to the
+    /// confirmation queue instead (#129: 高召回 stale 进待确认).
+    pub async fn mark_stale(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+        to_confirm_queue: bool,
+    ) -> Result<bool, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            "UPDATE memory_beliefs SET status = $3, needs_confirm = $4, updated_at = NOW() \
+             WHERE tenant_id = $1 AND id = $2 AND status = 'active'",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .bind(if to_confirm_queue {
+            "needs_confirm"
+        } else {
+            "stale"
+        })
+        .bind(to_confirm_queue)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("mark_stale failed: {e}")))?;
+        let changed = updated.rows_affected() > 0;
+        if changed {
+            sqlx::query(
+                r#"
+                INSERT INTO memory_belief_candidates
+                    (id, tenant_id, principal_id, subject, predicate, object, source, trust,
+                     origin, decision, status, rejection_reason, payload_json, idempotency_key, resolved_at)
+                SELECT $1,$2,principal_id,subject,predicate,object,source,trust,'manual',NULL,
+                       $5,'consolidation: stale scan', '{}'::jsonb, $4, NOW()
+                FROM memory_beliefs WHERE tenant_id=$2 AND id=$3
+                ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+                DO NOTHING
+                "#,
+            )
+            .bind(Ulid::new().to_string())
+            .bind(tenant_id.as_str())
+            .bind(belief_id)
+            .bind(format!("consolidation|stale|{belief_id}"))
+            .bind(if to_confirm_queue { "pending" } else { "accepted" })
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::Internal(format!("stale candidate failed: {e}")))?;
+            let audit = AuditEvent::new("belief.stale_marked", "memory_belief")
+                .tenant(tenant_id.as_str())
+                .resource_id(belief_id)
+                .with_metadata(&serde_json::json!({ "to_confirm_queue": to_confirm_queue }));
+            crate::db::audit::insert_tx(&mut tx, &audit).await?;
+        }
+        tx.commit().await.ok();
+        Ok(changed)
+    }
+
+    /// Open time-bounded (promise) edges past due: explicit `due_date`
+    /// metadata first, valid_from + 90d fallback.
+    pub async fn expired_promises(
+        &self,
+        tenant_id: &TenantId,
+        limit: i64,
+    ) -> Result<Vec<MemoryBelief>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows = sqlx::query_as::<_, MemoryBelief>(&format!(
+            r#"
+            SELECT {BELIEF_COLS_B}
+            FROM memory_beliefs b
+            JOIN memory_predicate_policies p ON p.name = b.predicate
+            WHERE b.tenant_id = $1
+              AND b.status = 'active' AND b.valid_to IS NULL
+              AND p.mutability = 'time_bounded'
+              AND COALESCE(
+                    (b.metadata_json->>'due_date')::timestamptz,
+                    b.valid_from + INTERVAL '90 days'
+                  ) < NOW()
+            ORDER BY b.valid_from ASC
+            LIMIT $2
+            "#,
+        ))
+        .bind(tenant_id.as_str())
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("expired promise scan failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows)
+    }
+
+    /// Retire an expired promise: close the window and archive — it leaves the
+    /// current-truth set but survives as episode/history (#124 Epic).
+    pub async fn retire_promise(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+    ) -> Result<bool, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            r#"
+            UPDATE memory_beliefs
+            SET valid_to = NOW(), status = 'archived', updated_at = NOW(),
+                metadata_json = metadata_json || '{"retired_reason":"promise_expired"}'::jsonb
+            WHERE tenant_id = $1 AND id = $2 AND status = 'active' AND valid_to IS NULL
+            "#,
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("retire_promise failed: {e}")))?;
+        let changed = updated.rows_affected() > 0;
+        if changed {
+            sqlx::query(
+                r#"
+                INSERT INTO memory_belief_candidates
+                    (id, tenant_id, principal_id, subject, predicate, object, source, trust,
+                     origin, decision, status, rejection_reason, payload_json, idempotency_key, resolved_at)
+                SELECT $1,$2,principal_id,subject,predicate,object,source,trust,'manual',NULL,
+                       'accepted','consolidation: promise expired','{}'::jsonb, $4, NOW()
+                FROM memory_beliefs WHERE tenant_id=$2 AND id=$3
+                ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+                DO NOTHING
+                "#,
+            )
+            .bind(Ulid::new().to_string())
+            .bind(tenant_id.as_str())
+            .bind(belief_id)
+            .bind(format!("consolidation|promise_expired|{belief_id}"))
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::Internal(format!("retire candidate failed: {e}")))?;
+            let audit = AuditEvent::new("belief.promise_expired", "memory_belief")
+                .tenant(tenant_id.as_str())
+                .resource_id(belief_id);
+            crate::db::audit::insert_tx(&mut tx, &audit).await?;
+        }
+        tx.commit().await.ok();
+        Ok(changed)
+    }
+
+    /// Open web observations older than the decay horizon, still above the
+    /// action floor — candidates for trust decay.
+    pub async fn web_observations(
+        &self,
+        tenant_id: &TenantId,
+        older_than_hours: i32,
+        limit: i64,
+    ) -> Result<Vec<MemoryBelief>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows = sqlx::query_as::<_, MemoryBelief>(&format!(
+            r#"
+            SELECT {BELIEF_COLS}
+            FROM memory_beliefs
+            WHERE tenant_id = $1
+              AND source = 'web' AND status = 'active' AND valid_to IS NULL
+              AND recorded_at < NOW() - ($2 * INTERVAL '1 hour')
+            ORDER BY recorded_at ASC
+            LIMIT $3
+            "#,
+        ))
+        .bind(tenant_id.as_str())
+        .bind(older_than_hours)
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("web scan failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows)
+    }
+
+    /// Decay a web observation's trust to a fixed plateau (idempotent: the
+    /// UPDATE only fires when trust is still above the plateau).
+    pub async fn decay_web_trust(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+        plateau: f32,
+    ) -> Result<bool, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            "UPDATE memory_beliefs SET trust = $3, updated_at = NOW() \
+             WHERE tenant_id = $1 AND id = $2 AND trust > $3",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .bind(plateau)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("web decay failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(updated.rows_affected() > 0)
+    }
+
+    /// Reconciliation target: the LATEST still-current-ish edge for a
+    /// subject+predicate, INCLUDING stale ones (a stale edge is the thing an
+    /// SoR update most often needs to re-vouch for or replace). Superseded /
+    /// archived / rejected history is never a target.
+    pub async fn reconcile_target(
+        &self,
+        tenant_id: &TenantId,
+        subject: &str,
+        predicate: &str,
+    ) -> Result<Option<MemoryBelief>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let row = sqlx::query_as::<_, MemoryBelief>(&format!(
+            r#"
+            SELECT {BELIEF_COLS}
+            FROM memory_beliefs
+            WHERE tenant_id = $1 AND subject = $2 AND predicate = $3
+              AND valid_to IS NULL
+              AND status IN ('active', 'needs_confirm', 'stale')
+            ORDER BY valid_from DESC
+            LIMIT 1
+            FOR UPDATE
+            "#
+        ))
+        .bind(tenant_id.as_str())
+        .bind(subject)
+        .bind(predicate)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("reconcile_target failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(row)
+    }
+
+    /// Close a STALE edge without a successor link (the SoR replacement that
+    /// follows opens its own edge): history preserved, current set cleaned.
+    pub async fn close_stale_edge(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+    ) -> Result<bool, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            "UPDATE memory_beliefs SET valid_to = NOW(), status = 'archived', updated_at = NOW() \
+             WHERE tenant_id = $1 AND id = $2 AND status = 'stale' AND valid_to IS NULL",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("close_stale_edge failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(updated.rows_affected() > 0)
+    }
+
+    /// SoR reconfirmation: reset the aging clock; a stale edge returns to
+    /// active (the authority re-vouched for it — "stale → active" transition).
+    pub async fn reconfirm_from_sor(
+        &self,
+        tenant_id: &TenantId,
+        belief_id: &str,
+    ) -> Result<bool, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let updated = sqlx::query(
+            "UPDATE memory_beliefs SET last_confirmed_at = NOW(), status = 'active', \
+             needs_confirm = FALSE, updated_at = NOW() \
+             WHERE tenant_id = $1 AND id = $2 AND status IN ('active', 'stale') AND valid_to IS NULL",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("reconfirm failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(updated.rows_affected() > 0)
+    }
+
     // ── Recall read face (#128) ────────────────────────────────────────────── //
 
     /// Belief rows eligible for retrieval under the #128 hard filters.
@@ -432,6 +894,30 @@ impl BeliefRepository {
         .map_err(|e| AppError::Internal(format!("contract load failed: {e}")))?;
         tx.commit().await.ok();
         Ok(row)
+    }
+
+    /// Feedback signal COUNT per belief id (engagement for the #129
+    /// high-recall stale routing decision).
+    pub async fn feedback_counts(
+        &self,
+        tenant_id: &TenantId,
+        belief_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, i64>, AppError> {
+        if belief_ids.is_empty() {
+            return Ok(Default::default());
+        }
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT memory_id, COUNT(*) FROM memory_feedback \
+             WHERE tenant_id = $1 AND memory_id = ANY($2) GROUP BY memory_id",
+        )
+        .bind(tenant_id.as_str())
+        .bind(belief_ids)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("feedback count failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows.into_iter().collect())
     }
 
     /// Average usefulness (0..1) per belief id from `memory_feedback`.
@@ -611,9 +1097,18 @@ impl BeliefRepository {
             .await;
         }
 
-        // 5. Compare against the open edge under lock.
-        let existing =
-            Self::open_edge_in(&mut tx, tenant_id, &claim.subject, &claim.predicate).await?;
+        // 5. Compare against the open edge under lock. Single-valued: the one
+        // slot. Multi-valued: the edge with the SAME object — distinct objects
+        // never collide and simply coexist (#129 constraint fix).
+        let is_multi = policy.policy.cardinality == "multi";
+        let existing = Self::open_edge_in(
+            &mut tx,
+            tenant_id,
+            &claim.subject,
+            &claim.predicate,
+            is_multi.then_some(claim.object.as_str()),
+        )
+        .await?;
 
         let Some(existing) = existing else {
             // ADD: no open edge. High-risk / weak-source claims park in
@@ -640,6 +1135,7 @@ impl BeliefRepository {
                 trust,
                 &policy.policy.risk,
                 needs_confirm,
+                !is_multi,
             )
             .await?;
             Self::link_candidate_outcome(&mut tx, &candidate_id, &belief_id).await?;
@@ -788,6 +1284,7 @@ impl BeliefRepository {
             trust,
             &policy.policy.risk,
             needs_confirm,
+            !is_multi,
         )
         .await?;
         sqlx::query("UPDATE memory_beliefs SET superseded_by_id = $1 WHERE id = $2")
@@ -907,6 +1404,7 @@ impl BeliefRepository {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     async fn insert_edge(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         tenant_id: &TenantId,
@@ -916,6 +1414,7 @@ impl BeliefRepository {
         trust: f64,
         risk: &str,
         needs_confirm: bool,
+        single_valued: bool,
     ) -> Result<String, AppError> {
         let id = Ulid::new().to_string();
         let payload = serde_json::to_string(&claim.payload_json)
@@ -925,8 +1424,8 @@ impl BeliefRepository {
             INSERT INTO memory_beliefs
                 (id, tenant_id, principal_id, subject, predicate, object, status,
                  source, trust, risk, valid_from, valid_to, recorded_at,
-                 supersedes_id, needs_confirm, metadata_json)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW(), NULL, NOW(), $11, $12, $13::jsonb)
+                 supersedes_id, needs_confirm, metadata_json, single_valued, last_confirmed_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW(), NULL, NOW(), $11, $12, $13::jsonb, $14, NOW())
             "#,
         )
         .bind(&id)
@@ -946,6 +1445,7 @@ impl BeliefRepository {
         .bind(supersedes)
         .bind(needs_confirm)
         .bind(&payload)
+        .bind(single_valued)
         .execute(&mut **tx)
         .await
         .map_err(|e| {
