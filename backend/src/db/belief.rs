@@ -602,6 +602,104 @@ impl BeliefRepository {
         Ok(n)
     }
 
+    /// All contracts for the tenant (governance listing surface, #124 gap).
+    pub async fn list_contracts(
+        &self,
+        tenant_id: &TenantId,
+    ) -> Result<Vec<MemoryContractRow>, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let rows = sqlx::query_as::<_, MemoryContractRow>(
+            "SELECT id, tenant_id, agent_id, may_believe::text AS may_believe, \
+             must_not_believe_from::text AS must_not_believe_from, \
+             high_stakes_deny_below_trust, enabled \
+             FROM memory_contracts WHERE tenant_id = $1 ORDER BY agent_id",
+        )
+        .bind(tenant_id.as_str())
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("list contracts failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(rows)
+    }
+
+    /// Create or replace an agent's memory contract (admin action, audited).
+    /// `may_believe` / `must_not_believe_from` arrive as raw JSON strings and
+    /// are stored verbatim — malformed JSON is REJECTED by the DB jsonb cast.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_contract(
+        &self,
+        tenant_id: &TenantId,
+        agent_id: &str,
+        may_believe_json: &str,
+        must_not_believe_from_json: &str,
+        high_stakes_deny_below_trust: Option<f32>,
+        enabled: bool,
+        actor: Option<&str>,
+    ) -> Result<MemoryContractRow, AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let row = sqlx::query_as::<_, MemoryContractRow>(
+            r#"
+            INSERT INTO memory_contracts
+                (id, tenant_id, agent_id, may_believe, must_not_believe_from,
+                 high_stakes_deny_below_trust, enabled)
+            VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+            ON CONFLICT (tenant_id, agent_id) DO UPDATE SET
+                may_believe = EXCLUDED.may_believe,
+                must_not_believe_from = EXCLUDED.must_not_believe_from,
+                high_stakes_deny_below_trust = EXCLUDED.high_stakes_deny_below_trust,
+                enabled = EXCLUDED.enabled,
+                updated_at = NOW()
+            RETURNING id, tenant_id, agent_id, may_believe::text AS may_believe,
+                      must_not_believe_from::text AS must_not_believe_from,
+                      high_stakes_deny_below_trust, enabled
+            "#,
+        )
+        .bind(Ulid::new().to_string())
+        .bind(tenant_id.as_str())
+        .bind(agent_id)
+        .bind(may_believe_json)
+        .bind(must_not_believe_from_json)
+        .bind(high_stakes_deny_below_trust)
+        .bind(enabled)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("contract upsert rejected: {e}")))?;
+
+        let audit = AuditEvent::new("memory_contract.upserted", "memory_contract")
+            .tenant(tenant_id.as_str())
+            .actor(actor.unwrap_or("unknown"))
+            .resource_id(agent_id)
+            .with_metadata(&serde_json::json!({ "enabled": enabled }));
+        crate::db::audit::insert_tx(&mut tx, &audit).await?;
+        tx.commit().await.ok();
+        Ok(row)
+    }
+
+    /// Cheap freshness key for the recall prefetch cache: the count and the
+    /// latest `updated_at` over the principal's OPEN edges. Any gate write,
+    /// consolidation repair, or governance mutation on an open edge changes
+    /// at least one of the two — one indexed query instead of the full
+    /// candidate fetch.
+    pub async fn snapshot_freshness_key(
+        &self,
+        tenant_id: &TenantId,
+        principal_id: &str,
+    ) -> Result<(i64, Option<String>), AppError> {
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        let row: (i64, Option<String>) = sqlx::query_as(
+            "SELECT COUNT(*), MAX(updated_at)::text FROM memory_beliefs \
+             WHERE tenant_id = $1 AND principal_id = $2 \
+             AND valid_to IS NULL AND status IN ('active', 'needs_confirm')",
+        )
+        .bind(tenant_id.as_str())
+        .bind(principal_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("freshness key failed: {e}")))?;
+        tx.commit().await.ok();
+        Ok(row)
+    }
+
     /// Current belief volume for the observability gauge.
     pub async fn active_belief_count(&self, tenant_id: &TenantId) -> Result<i64, AppError> {
         let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;

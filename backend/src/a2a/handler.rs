@@ -167,6 +167,7 @@ impl A2AHandler {
                 None,
                 None,
                 None,
+                &[],
             )
             .await
             {

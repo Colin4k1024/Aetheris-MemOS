@@ -16,8 +16,8 @@
 //! rule every other tenant-scoped router in this crate follows.
 
 use axum::{
-    extract::{Extension, Query},
-    routing::{get, post},
+    extract::{Extension, Path, Query},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,10 @@ pub fn router() -> Router {
         .route("/principals/merge", post(merge_principal))
         .route("/principals/unmerge", post(unmerge_principal))
         .route("/stats", get(governance_stats))
+        .route("/contracts", get(list_contracts))
+        .route("/contracts/{agent_id}", put(upsert_contract))
+        .route("/self/correct", post(self_correct))
+        .route("/self/forget", post(self_forget))
 }
 
 // ============================================================================
@@ -359,7 +363,20 @@ pub async fn archive_belief(
     Extension(tenant_ctx): Extension<RequestTenantContext>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<GovernanceMutationResult>, AppError> {
-    require_admin(caller_role(&tenant_ctx).await)?;
+    // Admin may archive anything; a plain member may archive only beliefs on
+    // their OWN subject (#124: users can delete their own memories).
+    let role = caller_role(&tenant_ctx).await;
+    if !matches!(role, Some(Role::Admin | Role::Owner)) {
+        let Some((belief, _, _)) = repo().belief_trace(&tenant_ctx.tenant_id, &id).await? else {
+            return Err(AppError::NotFound(format!("belief '{id}' not found")));
+        };
+        let own = own_subject(&tenant_ctx).await?;
+        if belief.subject != own {
+            return Err(AppError::Forbidden(
+                "callers may only archive their own beliefs".to_string(),
+            ));
+        }
+    }
     let changed = repo()
         .archive_belief(&tenant_ctx.tenant_id, &id, Some(&tenant_ctx.user_id))
         .await?;
@@ -492,6 +509,197 @@ pub async fn unmerge_principal(
 }
 
 // ============================================================================
+// Contract management (#124 gap: the table existed and was enforced by
+// recall, but had no management surface)
+// ============================================================================
+
+/// List the tenant's agent memory contracts.
+#[utoipa::path(
+    get,
+    path = "/api/v1/governance/contracts",
+    tag = "memory-governance",
+    responses((status = 200, body = GovernanceContractList, description = "Contracts"))
+)]
+pub async fn list_contracts(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+) -> Result<Json<GovernanceContractList>, AppError> {
+    require_admin(caller_role(&tenant_ctx).await)?;
+    let contracts = repo()
+        .list_contracts(&tenant_ctx.tenant_id)
+        .await?
+        .into_iter()
+        .map(|row| GovernanceContract {
+            agent_id: row.agent_id,
+            may_believe: row.may_believe,
+            must_not_believe_from: row.must_not_believe_from,
+            high_stakes_deny_below_trust: row.high_stakes_deny_below_trust,
+            enabled: row.enabled,
+        })
+        .collect();
+    Ok(Json(GovernanceContractList { contracts }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpsertContractRequest {
+    /// JSON array of predicate patterns this agent may believe.
+    #[serde(default)]
+    pub may_believe: serde_json::Value,
+    /// JSON object { source: [predicates] | "*" } the agent must NOT believe.
+    #[serde(default)]
+    pub must_not_believe_from: serde_json::Value,
+    /// High-risk beliefs below this trust can never drive this agent's actions.
+    pub high_stakes_deny_below_trust: Option<f32>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Create or replace one agent's memory contract (admin, audited). Malformed
+/// JSON bodies are rejected by the DB's jsonb cast — no partial writes.
+#[utoipa::path(
+    put,
+    path = "/api/v1/governance/contracts/{agent_id}",
+    tag = "memory-governance",
+    request_body = UpsertContractRequest,
+    responses((status = 200, body = GovernanceContract, description = "Contract stored"))
+)]
+pub async fn upsert_contract(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Path(agent_id): Path<String>,
+    Json(req): Json<UpsertContractRequest>,
+) -> Result<Json<GovernanceContract>, AppError> {
+    require_admin(caller_role(&tenant_ctx).await)?;
+    let row = repo()
+        .upsert_contract(
+            &tenant_ctx.tenant_id,
+            &agent_id,
+            &req.may_believe.to_string(),
+            &req.must_not_believe_from.to_string(),
+            req.high_stakes_deny_below_trust,
+            req.enabled,
+            Some(&tenant_ctx.user_id),
+        )
+        .await?;
+    record_http_audit(&tenant_ctx, "governance.contract_upserted", &agent_id);
+    Ok(Json(GovernanceContract {
+        agent_id: row.agent_id,
+        may_believe: row.may_believe,
+        must_not_believe_from: row.must_not_believe_from,
+        high_stakes_deny_below_trust: row.high_stakes_deny_below_trust,
+        enabled: row.enabled,
+    }))
+}
+
+// ============================================================================
+// User self-service (#124: "用户可看见、可改、可删自己的记忆")
+// ============================================================================
+//
+// 可看: the pinned member read (list/get/trace). 可删: forget/archive of the
+// caller's OWN subject. 可改: a correction claim submitted through the SAME
+// write gate as every other belief — the user outranks nothing; policies,
+// precedence and quarantine apply unchanged. Confirmation/rollback stay
+// admin-only: they change org-wide truth, not personal data.
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SelfCorrectRequest {
+    pub predicate: String,
+    pub object: String,
+    /// Free-form correction note kept as payload (auditable context).
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// Submit a correction for the caller's OWN beliefs through the write gate.
+#[utoipa::path(
+    post,
+    path = "/api/v1/governance/self/correct",
+    tag = "memory-governance",
+    request_body = SelfCorrectRequest,
+    responses((status = 200, body = GovernanceSelfCorrectResult, description = "Gate verdict"))
+)]
+pub async fn self_correct(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+    Json(req): Json<SelfCorrectRequest>,
+) -> Result<Json<GovernanceSelfCorrectResult>, AppError> {
+    let subject = own_subject(&tenant_ctx).await?;
+    let principal_id = subject
+        .strip_prefix("principal:")
+        .map(str::to_string)
+        .unwrap_or_default();
+
+    // Evidence: an immutable event recording the user's correction turn.
+    let events = crate::db::memory_event::MemoryEventRepository::new(crate::db::pool().clone());
+    let event = events
+        .append(
+            &tenant_ctx.tenant_id,
+            crate::models::memory_event::AppendMemoryEventRequest::new(
+                principal_id.clone(),
+                crate::models::memory_event::MemoryEventType::UserMessage,
+            )
+            .actor(&tenant_ctx.user_id)
+            .payload(serde_json::json!({
+                "kind": "self_correction",
+                "predicate": req.predicate,
+                "object": req.object,
+                "note": req.note,
+            }))
+            .idempotency_key(format!(
+                "selfcorrect|{}|{}|{}|{}",
+                tenant_ctx.user_id, req.predicate, req.object, subject
+            )),
+        )
+        .await?;
+
+    let claim = crate::models::belief_record::BeliefClaim::new(
+        principal_id,
+        &subject,
+        &req.predicate,
+        &req.object,
+        crate::models::belief::BeliefSource::UserStated,
+    )
+    .origin(crate::models::belief_record::ClaimOrigin::Api)
+    .evidence(vec![event.id().to_string()])
+    .payload(serde_json::json!({ "self_correction": true, "note": req.note }))
+    .idempotency_key(format!(
+        "selfcorrect|{}|{}|{}",
+        tenant_ctx.user_id, req.predicate, req.object
+    ));
+
+    let outcome = crate::services::belief::BeliefGateService::new(crate::db::pool().clone())
+        .submit(&tenant_ctx.tenant_id, claim)
+        .await?;
+    record_http_audit(&tenant_ctx, "governance.self_correct", &req.predicate);
+    Ok(Json(GovernanceSelfCorrectResult {
+        decision: format!("{outcome:?}"),
+    }))
+}
+
+/// GDPR self-forget: archive every open belief on the caller's OWN subject.
+#[utoipa::path(
+    post,
+    path = "/api/v1/governance/self/forget",
+    tag = "memory-governance",
+    responses((status = 200, body = GovernanceMutationResult, description = "Own subject archived"))
+)]
+pub async fn self_forget(
+    Extension(tenant_ctx): Extension<RequestTenantContext>,
+) -> Result<Json<GovernanceMutationResult>, AppError> {
+    let subject = own_subject(&tenant_ctx).await?;
+    let n = repo()
+        .forget_subject(&tenant_ctx.tenant_id, &subject, Some(&tenant_ctx.user_id))
+        .await?;
+    record_http_audit(&tenant_ctx, "governance.self_forgotten", &subject);
+    Ok(Json(GovernanceMutationResult {
+        ok: true,
+        belief_id: subject,
+        detail: Some(format!("{n} edges archived")),
+    }))
+}
+
+// ============================================================================
 // Wire types
 // ============================================================================
 
@@ -535,6 +743,26 @@ pub struct GovernanceMutationResult {
     pub ok: bool,
     pub belief_id: String,
     pub detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GovernanceContractList {
+    pub contracts: Vec<GovernanceContract>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GovernanceContract {
+    pub agent_id: String,
+    pub may_believe: String,
+    pub must_not_believe_from: String,
+    pub high_stakes_deny_below_trust: Option<f32>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GovernanceSelfCorrectResult {
+    /// The write gate's verdict (Committed/Superseded/Noop/Conflict/Quarantined/Rejected).
+    pub decision: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

@@ -525,6 +525,28 @@ impl BeliefConsolidationService {
         out
     }
 
+    /// Active (current-truth) belief volume — the monitor's stability input.
+    pub async fn active_belief_count(&self, tenant_id: &TenantId) -> i64 {
+        self.repo.active_belief_count(tenant_id).await.unwrap_or(0)
+    }
+
+    /// Pending + quarantined queue depth — the monitor's policy-surge input.
+    pub async fn policy_queue_depth(&self, tenant_id: &TenantId) -> u64 {
+        let pending = self
+            .repo
+            .list_candidates(tenant_id, Some("pending"), 500)
+            .await
+            .map(|c| c.len())
+            .unwrap_or(0);
+        let quarantined = self
+            .repo
+            .list_candidates(tenant_id, Some("quarantined"), 500)
+            .await
+            .map(|c| c.len())
+            .unwrap_or(0);
+        (pending + quarantined) as u64
+    }
+
     async fn scan_multi_active(&self, tenant_id: &TenantId, report: &mut ConsolidationReport) {
         let groups = match self
             .repo
@@ -820,10 +842,42 @@ pub async fn init_consolidation_worker() -> Result<(), AppError> {
                 ..Default::default()
             },
         );
+        // #124 行为监控: previous-cycle stats per tenant, so surge and
+        // growth anomalies compare against real history, not placeholders.
+        let mut prev_stats: HashMap<String, (u64, u64)> = HashMap::new();
         loop {
             let tenants = crate::services::multi_tenant::list_scheduled_tenants();
             if !tenants.is_empty() {
                 let reports = service.process_round(&tenants).await;
+                for (tenant, report) in &reports {
+                    let writes = (report.sor_opened
+                        + report.sor_closed
+                        + report.sor_closed
+                        + report.stale_marked
+                        + report.confirm_queued
+                        + report.promises_expired) as u64;
+                    let queue = service
+                        .policy_queue_depth(&TenantId::from_string(tenant))
+                        .await;
+                    let active = service
+                        .active_belief_count(&TenantId::from_string(tenant))
+                        .await as u64;
+                    let (prev_queue, prev_active) =
+                        prev_stats.get(tenant).copied().unwrap_or((queue, active));
+                    let alerts = crate::services::memory_monitor::evaluate(
+                        &crate::services::memory_monitor::MonitorInputs {
+                            belief_writes: writes,
+                            window_seconds: interval.as_secs(),
+                            policy_queue_depth: queue,
+                            prev_policy_queue_depth: prev_queue,
+                            active_beliefs: active,
+                            prev_active_beliefs: prev_active,
+                        },
+                        &Default::default(),
+                    );
+                    crate::services::memory_monitor::record_alerts(tenant, &alerts);
+                    prev_stats.insert(tenant.clone(), (queue, active));
+                }
                 let total_errors: usize = reports.values().map(|r| r.errors.len()).sum();
                 if total_errors > 0 {
                     tracing::warn!(

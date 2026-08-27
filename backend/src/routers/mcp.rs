@@ -910,6 +910,7 @@ async fn handle_memory_search(
             None,
             None,
             None,
+            &[],
         )
         .await
         {
