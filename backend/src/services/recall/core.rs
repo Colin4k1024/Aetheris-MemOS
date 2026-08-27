@@ -730,6 +730,8 @@ mod tests {
             superseded_by_id: None,
             needs_confirm: false,
             metadata_json: "{}".into(),
+            single_valued: true,
+            last_confirmed_at: String::new(),
         }
     }
 

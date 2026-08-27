@@ -47,6 +47,13 @@ pub struct MemoryBelief {
     pub superseded_by_id: Option<String>,
     pub needs_confirm: bool,
     pub metadata_json: String,
+    /// Denormalized cardinality (from the catalog) backing the exclusion
+    /// constraint; maintained by the write gate, never edited afterwards.
+    pub single_valued: bool,
+    /// When an authority last re-vouched for this edge (SoR reconciliation).
+    /// Stale scans key off this, so a reconfirmation resets aging without
+    /// rewriting history.
+    pub last_confirmed_at: String,
 }
 
 impl MemoryBelief {

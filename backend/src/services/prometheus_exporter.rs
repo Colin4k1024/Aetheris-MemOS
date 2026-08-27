@@ -78,6 +78,13 @@ pub struct PrometheusExporter {
     ws_connections_active: prometheus::Gauge,
     /// WebSocket events dropped because the client lagged behind the broadcast (#86)
     ws_lagged_drops_total: prometheus::Counter,
+    consolidation_run_duration_seconds: prometheus::Histogram,
+    consolidation_runs_total: prometheus::Counter,
+    consolidation_conflicts_total: prometheus::Counter,
+    consolidation_stale_marked_total: prometheus::Counter,
+    consolidation_promises_expired_total: prometheus::Counter,
+    consolidation_reconciliation_diffs_total: prometheus::Counter,
+    consolidation_failures_total: prometheus::Counter,
     /// WebSocket frame send duration histogram (#86) — slow-client / backpressure signal.
     ws_send_duration_seconds: prometheus::Histogram,
     /// WebSocket broadcast channel queue depth (#86) — high values = slow consumer.
@@ -279,6 +286,44 @@ impl PrometheusExporter {
         )
         .expect("gauge creation failed");
 
+        let consolidation_run_duration_seconds = prometheus::Histogram::with_opts(
+            prometheus::HistogramOpts::new(
+                "consolidation_run_duration_seconds",
+                "Belief consolidation run duration in seconds (per tenant)",
+            )
+            .buckets(vec![0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        )
+        .expect("histogram creation failed");
+        let consolidation_runs_total = prometheus::Counter::new(
+            "consolidation_runs_total",
+            "Belief consolidation runs started",
+        )
+        .expect("counter creation failed");
+        let consolidation_conflicts_total = prometheus::Counter::new(
+            "consolidation_conflicts_total",
+            "Single-valued multi-active groups repaired into the conflict/confirm flow",
+        )
+        .expect("counter creation failed");
+        let consolidation_stale_marked_total = prometheus::Counter::new(
+            "consolidation_stale_marked_total",
+            "Beliefs marked stale (or routed to the confirmation queue) by the stale scan",
+        )
+        .expect("counter creation failed");
+        let consolidation_promises_expired_total = prometheus::Counter::new(
+            "consolidation_promises_expired_total",
+            "Time-bounded promise beliefs retired from the current set",
+        )
+        .expect("counter creation failed");
+        let consolidation_reconciliation_diffs_total = prometheus::Counter::new(
+            "consolidation_reconciliation_diffs_total",
+            "SoR reconciliation differences found (closed, opened, or refreshed)",
+        )
+        .expect("counter creation failed");
+        let consolidation_failures_total = prometheus::Counter::new(
+            "consolidation_failures_total",
+            "Belief consolidation operation failures",
+        )
+        .expect("counter creation failed");
         let ws_lagged_drops_total = prometheus::Counter::new(
             "ws_lagged_drops_total",
             "WebSocket events dropped because the client lagged behind the broadcast",
@@ -290,7 +335,9 @@ impl PrometheusExporter {
                 "ws_send_duration_seconds",
                 "WebSocket frame send duration in seconds (slow-client / backpressure signal)",
             )
-            .buckets(vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
+            .buckets(vec![
+                0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0,
+            ]),
         )
         .expect("histogram creation failed");
 
@@ -385,6 +432,27 @@ impl PrometheusExporter {
             .register(Box::new(ws_lagged_drops_total.clone()))
             .expect("failed to register ws_lagged_drops_total");
         registry
+            .register(Box::new(consolidation_run_duration_seconds.clone()))
+            .expect("failed to register consolidation_run_duration_seconds");
+        registry
+            .register(Box::new(consolidation_runs_total.clone()))
+            .expect("failed to register consolidation_runs_total");
+        registry
+            .register(Box::new(consolidation_conflicts_total.clone()))
+            .expect("failed to register consolidation_conflicts_total");
+        registry
+            .register(Box::new(consolidation_stale_marked_total.clone()))
+            .expect("failed to register consolidation_stale_marked_total");
+        registry
+            .register(Box::new(consolidation_promises_expired_total.clone()))
+            .expect("failed to register consolidation_promises_expired_total");
+        registry
+            .register(Box::new(consolidation_reconciliation_diffs_total.clone()))
+            .expect("failed to register consolidation_reconciliation_diffs_total");
+        registry
+            .register(Box::new(consolidation_failures_total.clone()))
+            .expect("failed to register consolidation_failures_total");
+        registry
             .register(Box::new(ws_send_duration_seconds.clone()))
             .expect("failed to register ws_send_duration_seconds");
         registry
@@ -419,6 +487,13 @@ impl PrometheusExporter {
             audit_truncated_skipped_total,
             ws_connections_active,
             ws_lagged_drops_total,
+            consolidation_run_duration_seconds,
+            consolidation_runs_total,
+            consolidation_conflicts_total,
+            consolidation_stale_marked_total,
+            consolidation_promises_expired_total,
+            consolidation_reconciliation_diffs_total,
+            consolidation_failures_total,
             ws_send_duration_seconds,
             ws_broadcast_queue_depth,
             registry,
@@ -504,6 +579,36 @@ impl PrometheusExporter {
 
     /// Increment when a WS client lagged behind the broadcast and events were
     /// dropped (#86) — a slow-consumer / backpressure signal.
+    /// #129 belief consolidation metrics.
+    pub fn record_consolidation_run_duration(&self, duration_secs: f64) {
+        self.consolidation_run_duration_seconds
+            .observe(duration_secs);
+    }
+
+    pub fn inc_consolidation_runs(&self) {
+        self.consolidation_runs_total.inc();
+    }
+
+    pub fn inc_consolidation_conflicts(&self) {
+        self.consolidation_conflicts_total.inc();
+    }
+
+    pub fn inc_consolidation_stale(&self) {
+        self.consolidation_stale_marked_total.inc();
+    }
+
+    pub fn inc_consolidation_promises_expired(&self) {
+        self.consolidation_promises_expired_total.inc();
+    }
+
+    pub fn inc_consolidation_reconciliation_diffs(&self) {
+        self.consolidation_reconciliation_diffs_total.inc();
+    }
+
+    pub fn inc_consolidation_failures(&self) {
+        self.consolidation_failures_total.inc();
+    }
+
     pub fn inc_ws_lagged_drops(&self) {
         self.ws_lagged_drops_total.inc();
     }
@@ -742,10 +847,22 @@ mod tests {
         exporter.set_ws_broadcast_queue_depth(7.0);
 
         let output = exporter.generate_prometheus_output();
-        assert!(output.contains("ws_connections_active"), "missing gauge: {output}");
-        assert!(output.contains("ws_lagged_drops_total"), "missing counter: {output}");
-        assert!(output.contains("ws_send_duration_seconds"), "missing histogram: {output}");
-        assert!(output.contains("ws_broadcast_queue_depth"), "missing gauge: {output}");
+        assert!(
+            output.contains("ws_connections_active"),
+            "missing gauge: {output}"
+        );
+        assert!(
+            output.contains("ws_lagged_drops_total"),
+            "missing counter: {output}"
+        );
+        assert!(
+            output.contains("ws_send_duration_seconds"),
+            "missing histogram: {output}"
+        );
+        assert!(
+            output.contains("ws_broadcast_queue_depth"),
+            "missing gauge: {output}"
+        );
     }
 
     #[test]
