@@ -28,6 +28,8 @@ pub struct RecallEndpointRequest {
     pub strategy: Option<RecallStrategy>,
     pub max_results: Option<usize>,
     pub max_tokens: Option<usize>,
+    /// RFC 3339 instant for historical belief queries; default now().
+    pub as_of: Option<String>,
 }
 
 pub async fn recall(
@@ -43,6 +45,13 @@ pub async fn recall(
         cfg.recall.inject_l3_persona,
         true,
     );
+    // Belief-core inputs captured before the legacy request consumes them.
+    let belief_user = req.user_id.clone();
+    let belief_query = req.query.clone();
+    let belief_as_of = req.as_of.clone();
+    let belief_max_items = req.max_results;
+    let belief_budget = req.max_tokens.map(|t| t * 4);
+
     let request = RecallRequest {
         query: req.query,
         user_id: req.user_id,
@@ -52,9 +61,26 @@ pub async fn recall(
         max_results: req.max_results,
         max_tokens: req.max_tokens,
     };
-    let result = service
+    let mut result = service
         .recall(&request)
         .await
         .map_err(|e| AppError::Internal(format!("recall failed: {e}")))?;
+
+    // #128: the SAME recall core every transport converges on. The belief
+    // surface rides along (hard-filtered, citation-carrying); legacy atom /
+    // persona / scene results stay untouched for compatibility.
+    if let Some(wm) = crate::services::recall::core::belief_working_memory(
+        &tenant_ctx.tenant_id,
+        Some(&belief_user),
+        &belief_query,
+        belief_as_of.as_deref(),
+        belief_max_items,
+        belief_budget,
+    )
+    .await?
+    {
+        result.beliefs = Some(wm.items);
+        result.working_memory_text = Some(wm.text);
+    }
     Ok(Json(result))
 }

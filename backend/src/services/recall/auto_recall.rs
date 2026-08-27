@@ -26,6 +26,13 @@ pub struct RecallResult {
     pub system_context: Option<String>,
     pub strategy_used: RecallStrategy,
     pub latency_ms: u64,
+    /// Governed belief edges from the #128 recall core (hard-filtered,
+    /// citation-carrying). Absent when the user resolves to no principal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beliefs: Option<Vec<crate::services::recall::core::RecallItem>>,
+    /// Assembled Working Memory text block (bounded, cited).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_memory_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +102,8 @@ impl AutoRecallService {
                     system_context: None,
                     strategy_used: strategy,
                     latency_ms: start.elapsed().as_millis() as u64,
+                    beliefs: None,
+                    working_memory_text: None,
                 })
             }
             Err(_) => {
@@ -104,6 +113,8 @@ impl AutoRecallService {
                     system_context: None,
                     strategy_used: strategy,
                     latency_ms: self.timeout_ms,
+                    beliefs: None,
+                    working_memory_text: None,
                 })
             }
         }
@@ -147,18 +158,16 @@ impl AutoRecallService {
             if let Ok(Some(persona)) =
                 DistillationRepository::get_persona(&tenant, &request.user_id, agent).await
             {
-                let persona_ctx =
-                    RecallFormatter::format_persona_context(&persona.profile_content);
+                let persona_ctx = RecallFormatter::format_persona_context(&persona.profile_content);
                 system_parts.push(persona_ctx);
             }
         }
 
         // 3. Load L2 scene navigation.
         if self.inject_scene_nav {
-            let scenes =
-                DistillationRepository::list_scenes(&tenant, &request.user_id, agent)
-                    .await
-                    .unwrap_or_default();
+            let scenes = DistillationRepository::list_scenes(&tenant, &request.user_id, agent)
+                .await
+                .unwrap_or_default();
             if !scenes.is_empty() {
                 let nav: Vec<(String, String)> = scenes
                     .iter()
@@ -193,6 +202,8 @@ impl AutoRecallService {
             system_context,
             strategy_used: strategy,
             latency_ms: 0,
+            beliefs: None,
+            working_memory_text: None,
         })
     }
 }

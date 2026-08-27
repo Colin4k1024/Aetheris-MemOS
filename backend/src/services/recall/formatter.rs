@@ -18,6 +18,7 @@ impl RecallFormatter {
                 RecallSource::L1Atom => format!("[{}] ", mem.atom_type_str()),
                 RecallSource::L2Scene => "[scene] ".to_string(),
                 RecallSource::L3Persona => "[persona] ".to_string(),
+                RecallSource::BeliefEdge => "[belief] ".to_string(),
             };
             let line = format!("- {}{}\n", prefix, mem.content);
 
