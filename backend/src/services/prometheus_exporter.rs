@@ -88,6 +88,7 @@ pub struct PrometheusExporter {
     belief_active: prometheus::Gauge,
     recall_requests_total: prometheus::Counter,
     recall_items_total: prometheus::Counter,
+    memory_anomaly_alerts_total: prometheus::CounterVec,
     /// WebSocket frame send duration histogram (#86) — slow-client / backpressure signal.
     ws_send_duration_seconds: prometheus::Histogram,
     /// WebSocket broadcast channel queue depth (#86) — high values = slow consumer.
@@ -342,6 +343,14 @@ impl PrometheusExporter {
             "Belief items returned into Working Memory (#130 observability)",
         )
         .expect("counter creation failed");
+        let memory_anomaly_alerts_total = prometheus::CounterVec::new(
+            prometheus::Opts::new(
+                "memory_anomaly_alerts_total",
+                "Memory behavior anomaly alerts (#124 行为监控); label `type` is a bounded enum",
+            ),
+            &["type"],
+        )
+        .expect("counter vec creation failed");
         let ws_lagged_drops_total = prometheus::Counter::new(
             "ws_lagged_drops_total",
             "WebSocket events dropped because the client lagged behind the broadcast",
@@ -480,6 +489,9 @@ impl PrometheusExporter {
             .register(Box::new(recall_items_total.clone()))
             .expect("failed to register recall_items_total");
         registry
+            .register(Box::new(memory_anomaly_alerts_total.clone()))
+            .expect("failed to register memory_anomaly_alerts_total");
+        registry
             .register(Box::new(ws_send_duration_seconds.clone()))
             .expect("failed to register ws_send_duration_seconds");
         registry
@@ -524,6 +536,7 @@ impl PrometheusExporter {
             belief_active,
             recall_requests_total,
             recall_items_total,
+            memory_anomaly_alerts_total,
             ws_send_duration_seconds,
             ws_broadcast_queue_depth,
             registry,
@@ -638,6 +651,13 @@ impl PrometheusExporter {
     /// #130 governance/recall observability.
     pub fn set_belief_active(&self, count: f64) {
         self.belief_active.set(count);
+    }
+
+    /// #124 行为监控: bounded `anomaly` label — the AnomalyType enum only.
+    pub fn inc_memory_anomaly(&self, anomaly: &str) {
+        self.memory_anomaly_alerts_total
+            .with_label_values(&[anomaly])
+            .inc();
     }
 
     pub fn inc_recall_request(&self, items: usize) {

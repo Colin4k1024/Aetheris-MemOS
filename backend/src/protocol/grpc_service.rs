@@ -74,6 +74,7 @@ impl MemoryService for MemoryServiceImpl {
                 None,
                 None,
                 None,
+                &[],
             )
             .await
             .map_err(|e| Status::internal(format!("belief recall failed: {e}")))?;

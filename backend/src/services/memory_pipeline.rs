@@ -123,6 +123,9 @@ pub struct MemoryPipeline {
     session_id: String,
     options: PipelineOptions,
     run: PipelineRun,
+    /// Last N user turns, fed into Working Memory as context lines (#124 read
+    /// path: 近 N 轮 + 召回信念 + 工具草稿, one shared budget).
+    recent_turns: std::collections::VecDeque<String>,
 }
 
 impl MemoryPipeline {
@@ -144,6 +147,7 @@ impl MemoryPipeline {
             session_id,
             options,
             run,
+            recent_turns: Default::default(),
         }
     }
 
@@ -275,6 +279,21 @@ impl MemoryPipeline {
             }
         }
 
+        // #124 预取: the turn just committed means the next turn will very
+        // likely recall THIS principal — warm the query-independent candidate
+        // snapshot now so the next before_recall pays only the freshness key.
+        // Degraded on failure by design (it is an optimization, not a stage).
+        if let Some(user) = self.options.user_id.clone() {
+            let _ =
+                crate::services::recall::core::RecallCoreService::new(crate::db::pool().clone())
+                    .prefetch(&self.tenant_id, &user)
+                    .await;
+        }
+        self.recent_turns.push_back(user_message.to_string());
+        while self.recent_turns.len() > 6 {
+            self.recent_turns.pop_front();
+        }
+
         self.run.phases.push(PhaseResult {
             phase: "turn_committed".to_string(),
             status: if stm_ok {
@@ -318,6 +337,7 @@ impl MemoryPipeline {
         // citation-carrying Working Memory from governed beliefs. Legacy
         // LTM top-3 remains the fallback for callers without a principal.
         if let Some(user) = self.options.user_id.clone() {
+            let context_lines: Vec<String> = self.recent_turns.iter().cloned().collect();
             match crate::services::recall::core::belief_working_memory(
                 &self.tenant_id,
                 Some(&user),
@@ -325,6 +345,7 @@ impl MemoryPipeline {
                 None,
                 None,
                 Some(self.options.context_budget),
+                &context_lines,
             )
             .await
             {

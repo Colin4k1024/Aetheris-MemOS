@@ -76,6 +76,7 @@ pub async fn recall(
         belief_as_of.as_deref(),
         belief_max_items,
         belief_budget,
+        &[],
     )
     .await?
     {

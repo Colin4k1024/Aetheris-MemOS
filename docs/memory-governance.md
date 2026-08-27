@@ -33,6 +33,17 @@
 2. `GET /beliefs/{id}/trace` 看到：SPO 与有效窗口、证据（不可变 `memory_events` 的 event_id + 内容哈希）、审计链（谁、何时、为何写入/变更）；
 3. `POST /beliefs/{id}/rollback` 恢复已知好版本（或 `deny`/`archive`）。
 
+## 缺口收口（#124 审计后追加）
+
+| 能力 | 端点/位置 | 说明 |
+|---|---|---|
+| 契约管理 | `GET/PUT /v1/governance/contracts[/{agent_id}]`（Admin） | 建立记忆契约：must_not_believe_from 矩阵与高风险信任地板在召回**排序前**强制 |
+| 用户自助改 | `POST /v1/governance/self/correct` | 用户对自己的信念提交修正——走**同一个写入门卫**（来源/优先级/隔离规则不豁免），幂等重放返回原始裁决 |
+| 用户自助删 | `POST /v1/governance/self/forget`、`POST /beliefs/{id}/archive`（own） | GDPR：用户只能删自己的 subject；他人信念 403 |
+| 预取 | `RecallCoreService::prefetch`（pipeline `turn_committed` 调用） | 轮次提交即预热下一轮候选快照；开边写入经新鲜度键立即失效。已知可接受过期：仅追加证据的 NOOP 重放 |
+| WM 上下文 | `RecallQuery.context_lines` | 近 N 轮 + 工具草稿与信念**共享同一预算**；预算紧张先截上下文行，绝不截 citation |
+| 行为监控 | `services/memory_monitor` + 巩固 worker 驱动 | 写速率尖峰/政策队列激增/信念规模失控 → `memory_anomaly_alerts_total{type}` + WARN |
+
 ## 指标（Prometheus，`/metrics`）
 
 | 指标 | 含义 |

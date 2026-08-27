@@ -89,6 +89,11 @@ pub struct RecallQuery {
     pub agent_id: Option<String>,
     pub max_items: Option<usize>,
     pub budget_chars: Option<usize>,
+    /// Dialogue context carried into Working Memory under the SAME budget:
+    /// recent turns and tool drafts ("近 N 轮 + 工具草稿" from the #124 read
+    /// path). Prefixed ahead of belief lines; truncated first when over
+    /// budget (they carry no citations, belief lines must never be).
+    pub context_lines: Vec<String>,
 }
 
 impl RecallQuery {
@@ -101,6 +106,7 @@ impl RecallQuery {
             agent_id: None,
             max_items: None,
             budget_chars: None,
+            context_lines: Vec::new(),
         }
     }
 
@@ -162,11 +168,40 @@ pub struct WorkingMemory {
     /// Count of beliefs removed by hard filters BEFORE ranking. Counts only —
     /// the #128 contract forbids leaking unauthorized content into traces.
     pub hard_filtered_out: usize,
+    /// True when the candidate snapshot came from the prefetch cache (#124
+    /// 预取): recall paid only the freshness-key query instead of the full
+    /// candidate fetch.
+    pub from_prefetch_cache: bool,
 }
 
 // ============================================================================
 // Core service
 // ============================================================================
+
+/// Process-wide prefetch cache (#124 预取): per (tenant, principal) the
+/// query-INDEPENDENT part of recall — the hard-filtered eligible edge set
+/// (as_of = None only) plus its evidence and feedback maps. Keyed by the
+/// cheap freshness key (`snapshot_freshness_key`); any write to the
+/// principal's open edges changes count or MAX(updated_at) and misses.
+///
+/// Known, accepted staleness: evidence-only writes that do not touch a
+/// belief row (a NOOP replay adding a citation) will not invalidate; the
+/// authoritative trace surface (`belief_trace`) always reads the database.
+static SNAPSHOT_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<(String, String), CachedSnapshot>>,
+> = std::sync::OnceLock::new();
+
+struct CachedSnapshot {
+    freshness: (i64, Option<String>),
+    edges: Vec<MemoryBelief>,
+    evidence: std::collections::HashMap<String, Vec<RecallCitation>>,
+    feedback: std::collections::HashMap<String, f64>,
+}
+
+fn snapshot_cache(
+) -> &'static std::sync::Mutex<std::collections::HashMap<(String, String), CachedSnapshot>> {
+    SNAPSHOT_CACHE.get_or_init(|| std::sync::Mutex::new(Default::default()))
+}
 
 pub struct RecallCoreService {
     pool: PgPool,
@@ -185,6 +220,84 @@ impl RecallCoreService {
     pub fn with_vector_channel(mut self, channel: Box<dyn VectorChannel>) -> Self {
         self.vector = channel;
         self
+    }
+
+    /// #124 预取: warm the candidate snapshot for the NEXT turn now.
+    ///
+    /// The eligible set (as_of = now), its evidence and feedback are exactly
+    /// the query-independent prefix of `recall`; the next turn — whatever its
+    /// query — pays only the freshness-key check instead of the full fetch.
+    pub async fn prefetch(&self, tenant_id: &TenantId, user_id: &str) -> Result<(), AppError> {
+        let principals = PrincipalRepository::new(self.pool.clone());
+        let Some(principal) = principals
+            .find_by_alias(tenant_id, PrincipalAliasType::JwtSub, user_id)
+            .await?
+        else {
+            return Ok(()); // nothing to warm for an unresolved identity
+        };
+        let _ = self
+            .principal_wide_snapshot(tenant_id, &principal.id)
+            .await?;
+        Ok(())
+    }
+
+    /// Fetch-or-cache the principal-wide eligible snapshot (as_of = now).
+    /// `None` freshness on a cache hit means the cache entry was written for
+    /// this exact state — reuse without touching the heavy queries.
+    async fn principal_wide_snapshot(
+        &self,
+        tenant_id: &TenantId,
+        principal_id: &str,
+    ) -> Result<
+        (
+            Vec<MemoryBelief>,
+            std::collections::HashMap<String, Vec<RecallCitation>>,
+            std::collections::HashMap<String, f64>,
+            bool,
+        ),
+        AppError,
+    > {
+        let repo = BeliefRepository::new(self.pool.clone());
+        let key = repo.snapshot_freshness_key(tenant_id, principal_id).await?;
+        let cache_key = (tenant_id.as_str().to_string(), principal_id.to_string());
+
+        if let Ok(cache) = snapshot_cache().lock() {
+            if let Some(hit) = cache.get(&cache_key) {
+                if hit.freshness == key {
+                    return Ok((
+                        hit.edges.clone(),
+                        hit.evidence.clone(),
+                        hit.feedback.clone(),
+                        true,
+                    ));
+                }
+            }
+        }
+
+        // Full fetch on a consistent snapshot.
+        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+        // Floor 0 at fetch time: the per-contract floor is applied in memory
+        // per recall so the cached snapshot stays contract-independent.
+        let edges =
+            BeliefRepository::eligible_edges_in(&mut tx, tenant_id, principal_id, None, None, 0.0)
+                .await?;
+        let ids: Vec<String> = edges.iter().map(|e| e.id.clone()).collect();
+        let evidence = Self::evidence_map(&mut tx, tenant_id, &ids).await?;
+        tx.commit().await.ok();
+        let feedback = repo.feedback_usefulness(tenant_id, &ids).await?;
+
+        if let Ok(mut cache) = snapshot_cache().lock() {
+            cache.insert(
+                cache_key,
+                CachedSnapshot {
+                    freshness: key,
+                    edges: edges.clone(),
+                    evidence: evidence.clone(),
+                    feedback: feedback.clone(),
+                },
+            );
+        }
+        Ok((edges, evidence, feedback, false))
     }
 
     /// Resolve principal → hard-filter → hybrid fetch → rank → assemble.
@@ -209,58 +322,84 @@ impl RecallCoreService {
                 as_of: resolve_as_of_label(&query.as_of),
                 principal_id: String::new(),
                 hard_filtered_out: 0,
+                from_prefetch_cache: false,
             });
         };
 
         let as_of_dt = parse_as_of(query.as_of.as_deref())?;
 
-        // One transaction = one consistent snapshot for edges, evidence,
-        // contract and feedback (determinism precondition).
-        let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
-
-        // Agent contract (optional) — hard filter input.
+        // Agent contract (optional) — hard filter input. The contract is
+        // ALWAYS read fresh (not cached): it is a per-call policy.
         let contract = BeliefRepository::new(self.pool.clone())
             .contract_for_agent(tenant_id, query.agent_id.as_deref())
             .await?;
         let (floor, banned_matrix) = contract_hard_filters(&contract);
 
-        // HARD-FILTERED candidate set (single SQL; status/window/risk-truth +
-        // tenant/principal scope all enforced there or by RLS itself).
+        // Candidate acquisition. `as_of = now` (the default) goes through the
+        // prefetch-cacheable principal-wide snapshot — floor 0 at fetch time,
+        // the per-contract floor and ban matrix applied in memory below.
+        // Historical `as_of` bypasses the cache and reads one consistent tx.
         let subject = query
             .subject
             .clone()
             .unwrap_or_else(|| format!("principal:{}", principal.id));
-        let mut edges = BeliefRepository::eligible_edges_in(
-            &mut tx,
-            tenant_id,
-            &principal.id,
-            Some(&subject),
-            as_of_dt,
-            floor,
-        )
-        .await?;
 
-        // Keyword channel widens beyond the graph subject: the principal's
-        // eligible beliefs whose object matches query tokens (same hard
-        // filters, no subject restriction) — merged and deduped below.
-        let keyword_edges = BeliefRepository::eligible_edges_in(
-            &mut tx,
-            tenant_id,
-            &principal.id,
-            None,
-            as_of_dt,
-            floor,
-        )
-        .await?;
+        let (principal_edges, evidence, feedback, from_cache);
+        if as_of_dt.is_none() {
+            let (edges, ev, fb, cached) = self
+                .principal_wide_snapshot(tenant_id, &principal.id)
+                .await?;
+            principal_edges = edges;
+            evidence = ev;
+            feedback = fb;
+            from_cache = cached;
+        } else {
+            let mut tx = begin_tenant_tx(&self.pool, tenant_id).await?;
+            let edges = BeliefRepository::eligible_edges_in(
+                &mut tx,
+                tenant_id,
+                &principal.id,
+                None,
+                as_of_dt,
+                0.0,
+            )
+            .await?;
+            let ids: Vec<String> = edges.iter().map(|e| e.id.clone()).collect();
+            let ev = Self::evidence_map(&mut tx, tenant_id, &ids).await?;
+            tx.commit().await.ok();
+            let fb = BeliefRepository::new(self.pool.clone())
+                .feedback_usefulness(tenant_id, &ids)
+                .await?;
+            principal_edges = edges;
+            evidence = ev;
+            feedback = fb;
+            from_cache = false;
+        }
 
-        let pre_contract_count = edges.len() + keyword_edges.len();
-        let is_banned = |e: &MemoryBelief| banned(e, &banned_matrix);
-        edges.retain(|e| !is_banned(e));
-        let keyword_edges: Vec<_> = keyword_edges
+        // In-memory hard filters over the snapshot: contract bans + the
+        // high-risk trust floor. Count first (trace exposes counts only).
+        let pre_filter_count = principal_edges.len();
+        let mut principal_edges: Vec<_> = principal_edges
             .into_iter()
-            .filter(|e| !is_banned(e))
+            .filter(|e| !banned(e, &banned_matrix))
+            .filter(|e| !(e.risk == "high" && (e.trust as f64) < floor as f64))
             .collect();
-        let hard_filtered_out = pre_contract_count - edges.len() - keyword_edges.len();
+        principal_edges.sort_by(|a, b| {
+            a.subject
+                .cmp(&b.subject)
+                .then(a.predicate.cmp(&b.predicate))
+        });
+        let hard_filtered_out = pre_filter_count - principal_edges.len();
+
+        // Channel split from the ONE principal-wide set: graph = subject
+        // neighborhood; keyword = the whole eligible set (token match applied
+        // during ranking).
+        let edges: Vec<MemoryBelief> = principal_edges
+            .iter()
+            .filter(|e| e.subject == subject)
+            .cloned()
+            .collect();
+        let keyword_edges = principal_edges;
 
         // Vector channel (no-op today; contributes ids + similarity).
         let vector_hits = self
@@ -272,18 +411,6 @@ impl RecallCoreService {
                 MAX_WM_ITEMS * 2,
             )
             .await;
-
-        // Evidence (citations) for all surviving candidates on the snapshot.
-        let mut all_ids: Vec<String> = edges.iter().map(|e| e.id.clone()).collect();
-        for e in &keyword_edges {
-            if !all_ids.contains(&e.id) {
-                all_ids.push(e.id.clone());
-            }
-        }
-        let evidence = Self::evidence_map(&mut tx, tenant_id, &all_ids).await?;
-        let feedback = BeliefRepository::new(self.pool.clone())
-            .feedback_usefulness(tenant_id, &all_ids)
-            .await?;
 
         // Merge channels + deterministic ranking.
         let mut items = self.rank(
@@ -314,8 +441,9 @@ impl RecallCoreService {
             &resolve_as_of_label(&query.as_of),
             &principal.id,
             hard_filtered_out,
+            from_cache,
+            &query.context_lines,
         );
-        tx.commit().await.ok();
         crate::services::prometheus_exporter::get_exporter().inc_recall_request(wm.items.len());
         Ok(wm)
     }
@@ -582,11 +710,26 @@ fn assemble_working_memory(
     as_of: &str,
     principal_id: &str,
     hard_filtered_out: usize,
+    from_prefetch_cache: bool,
+    context_lines: &[String],
 ) -> WorkingMemory {
     let max_items = max_items.unwrap_or(8).clamp(MIN_WM_ITEMS, MAX_WM_ITEMS);
     let budget = budget_chars.unwrap_or(DEFAULT_BUDGET_CHARS);
 
     let mut text = String::new();
+    // Context first (recent turns / tool drafts): it frames the turn and
+    // carries no citation — it is what gets truncated when the budget is
+    // tight, never a belief line.
+    for line in context_lines {
+        let l = format!(
+            "[ctx] {line}
+"
+        );
+        if text.len() + l.len() > budget {
+            break;
+        }
+        text.push_str(&l);
+    }
     let mut kept: Vec<RecallItem> = Vec::new();
     for item in items.drain(..) {
         if kept.len() >= max_items || text.len() >= budget {
@@ -624,6 +767,7 @@ fn assemble_working_memory(
         as_of: as_of.to_string(),
         principal_id: principal_id.to_string(),
         hard_filtered_out,
+        from_prefetch_cache,
     }
 }
 
@@ -641,6 +785,7 @@ pub async fn belief_working_memory(
     as_of: Option<&str>,
     max_items: Option<usize>,
     budget_chars: Option<usize>,
+    context_lines: &[String],
 ) -> Result<Option<WorkingMemory>, AppError> {
     let Some(user) = user_id.filter(|u| !u.is_empty()) else {
         return Ok(None);
@@ -649,6 +794,7 @@ pub async fn belief_working_memory(
     q.as_of = as_of.map(str::to_string);
     q.max_items = max_items;
     q.budget_chars = budget_chars;
+    q.context_lines = context_lines.to_vec();
     let wm = RecallCoreService::new(crate::db::pool().clone())
         .recall(tenant_id, &q)
         .await?;
@@ -770,7 +916,7 @@ mod tests {
                 it
             })
             .collect();
-        let wm = assemble_working_memory(items, None, Some(500), "now", "p1", 0);
+        let wm = assemble_working_memory(items, None, Some(500), "now", "p1", 0, false, &[]);
         assert!(wm.items.len() <= MAX_WM_ITEMS);
         assert!(wm.chars_used <= 500, "char budget hard bound");
         assert!(wm.text.lines().last().unwrap().contains("cite:ev"));
