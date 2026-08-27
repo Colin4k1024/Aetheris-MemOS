@@ -27,6 +27,7 @@ pub mod eval_harness;
 pub mod evidence_graph;
 pub mod feature_pipeline;
 pub mod hardware_detector;
+pub mod identity;
 #[allow(dead_code)]
 pub mod hybrid_search;
 #[allow(dead_code)]

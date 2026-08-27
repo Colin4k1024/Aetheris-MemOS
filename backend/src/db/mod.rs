@@ -37,6 +37,7 @@ pub mod kg;
 #[allow(dead_code)]
 pub mod ltm;
 pub mod memory;
+pub mod memory_event;
 pub mod memory_feedback;
 #[allow(dead_code)]
 pub mod mm;
@@ -44,6 +45,7 @@ pub mod mm;
 pub mod neo4j;
 #[allow(dead_code)]
 pub mod performance;
+pub mod principal;
 pub mod stm;
 pub mod tenant_members;
 pub mod tenant_scope;
